@@ -1,5 +1,9 @@
 # todo
-CC := clang -O3 -Wall -Wextra -Werror -arch x86_64
+CC := clang
+CXX := clang++
+CFLAGS := -O3 -Wall -Wextra -Werror -arch x86_64
+override CC := $(CC) $(CFLAGS)
+override CXX := $(CXX) $(CFLAGS)
 
 IMAON2 := /Users/comex/c/imaon2
 GEN_JS := node $(IMAON2)/tables/gen.js
@@ -10,20 +14,26 @@ all: \
 	generated/transform-dis-arm.inc \
 	generated/transform-dis-arm64.inc \
 	out/libsubstitute.dylib \
-	test/test-find-syms
+	test/test-find-syms \
+	test/test-find-syms-cpp \
+	test/test-substrate
 
 out:
 	mkdir out
 
 out/%.o: lib/%.c Makefile out
-	$(CC) -MMD -c -o $@ $<
+	$(CC) -fvisibility=hidden -std=c11 -c -o $@ $<
 
-LIB_OBJS := out/find-syms.o
-out/libsubstitute.dylib: $(LIB_OBJS) out
-	$(CC) -dynamiclib -o $@ $(LIB_OBJS)
+LIB_OBJS := out/find-syms.o out/substrate-compat.o
+out/libsubstitute.dylib: $(LIB_OBJS) lib/*.h out
+	$(CC) -dynamiclib -fvisibility=hidden -o $@ $(LIB_OBJS)
 
 test/test-%: test/test-%.c Makefile out/libsubstitute.dylib
-	$(CC) -o $@ $< -Ilib -Lout -lsubstitute
+	$(CC) -std=c89 -o $@ $< -Ilib -Lout -lsubstitute
+test/test-%-cpp: test/test-%.c Makefile out/libsubstitute.dylib
+	$(CXX) -x c++ -std=c++98 -o $@ $< -Ilib -Lout -lsubstitute
+test/test-%: test/test-%.cpp Makefile out/libsubstitute.dylib
+	$(CXX) -std=c++11 -o $@ $< -Ilib -Isubstrate -Lout -lsubstitute
 
 generated: Makefile
 	rm -rf generated

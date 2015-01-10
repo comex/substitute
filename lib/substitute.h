@@ -8,7 +8,11 @@
 #include <stdlib.h>
 #include <stdint.h>
 
-// TODO add numbers
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* TODO add numbers */
 enum {
     SUBSTITUTE_OK = 0,
 };
@@ -42,7 +46,6 @@ struct substitute_image {
  * @filename the executable/library path (c.f. dyld(3) on Darwin)
  * @return a handle, or NULL if the image wasn't found
  */
-
 struct substitute_image *substitute_open_image(const char *filename);
 
 /* Release a handle opened with substitute_open_image.
@@ -76,3 +79,7 @@ int substitute_find_private_syms(struct substitute_image *handle,
 void *substitute_sym_to_ptr(struct substitute_image *handle, substitute_sym *sym);
 
 #endif /* 1 */
+
+#ifdef __cplusplus
+} /* extern */
+#endif

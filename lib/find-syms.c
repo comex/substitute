@@ -115,6 +115,7 @@ static void inspect_dyld() {
 }
 
 /* 'dlopen_header' keeps the image alive */
+EXPORT
 struct substitute_image *substitute_open_image(const char *filename) {
 	pthread_once(&dyld_inspect_once, inspect_dyld);
 
@@ -134,17 +135,20 @@ struct substitute_image *substitute_open_image(const char *filename) {
 	return im;
 }
 
+EXPORT
 void substitute_close_image(struct substitute_image *im) {
 	dlclose(im->dlhandle); /* ignore errors */
 	free(im);
 }
 
+EXPORT
 int substitute_find_private_syms(struct substitute_image *im, const char **names,
                          substitute_sym **syms, size_t count) {
 	find_syms_raw(im->image_header, &im->slide, names, syms, count);
 	return SUBSTITUTE_OK;
 }
 
+EXPORT
 void *substitute_sym_to_ptr(struct substitute_image *handle, substitute_sym *sym) {
 	return sym_to_ptr(sym, handle->slide);
 }
