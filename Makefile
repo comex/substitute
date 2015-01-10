@@ -9,10 +9,6 @@ IMAON2 := /Users/comex/c/imaon2
 GEN_JS := node $(IMAON2)/tables/gen.js
 
 all: \
-	generated/transform-dis-thumb2.inc \
-	generated/transform-dis-thumb.inc \
-	generated/transform-dis-arm.inc \
-	generated/transform-dis-arm64.inc \
 	out/libsubstitute.dylib \
 	out/test-find-syms \
 	out/test-find-syms-cpp \
@@ -38,14 +34,20 @@ out/test-%: test/test-%.cpp Makefile out/libsubstitute.dylib
 generated: Makefile
 	rm -rf generated
 	mkdir generated
-generated/transform-dis-thumb2.inc: generated
-	$(GEN_JS) --gen-hook-disassembler -n '_thumb2' -p transform_dis_thumb2 $(IMAON2)/out/out-ARM.json > $@ || rm -f $@
-generated/transform-dis-thumb.inc: generated
-	$(GEN_JS) --gen-hook-disassembler -n '_thumb' -p transform_dis_thumb $(IMAON2)/out/out-ARM.json > $@ || rm -f $@
-generated/transform-dis-arm.inc: generated
-	$(GEN_JS) --gen-hook-disassembler -n '_arm' -p transform_dis_arm $(IMAON2)/out/out-ARM.json > $@ || rm -f $@
-generated/transform-dis-arm64.inc: generated
-	$(GEN_JS) --gen-hook-disassembler -p transform_dis_arm64 $(IMAON2)/out/out-AArch64.json > $@ || rm -f $@
+
+define do_prefix
+generated/transform-dis-$(1).inc: generated Makefile
+	$(GEN_JS) --gen-hook-disassembler $(2) -p transform_dis_$(1)_ $(IMAON2)/out/out-$(3).json > $$@ || rm -f $$@
+all: generated/transform-dis-$(1).inc
+generated/jump-dis-$(1).inc: generated Makefile
+	$(GEN_JS) --gen-hook-jump-disassembler $(2) -p jump_dis_$(1)_ $(IMAON2)/out/out-$(3).json > $$@ || rm -f $$@
+all: generated/jump-dis-$(1).inc
+endef
+$(eval $(call do_prefix,thumb2,-n _thumb2,ARM))
+$(eval $(call do_prefix,thumb,-n _thumb,ARM))
+$(eval $(call do_prefix,arm,-n _arm,ARM))
+$(eval $(call do_prefix,arm64,,AArch64))
+
 clean:
 	rm -rf out
 distclean:
