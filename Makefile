@@ -1,5 +1,5 @@
 # todo
-CC := clang -O3 -Wall -Werror
+CC := clang -O3 -Wall -Wextra -Werror -arch x86_64
 
 IMAON2 := /Users/comex/c/imaon2
 GEN_JS := node $(IMAON2)/tables/gen.js

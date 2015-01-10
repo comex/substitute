@@ -10,23 +10,12 @@
 #include "substitute.h"
 #include "substitute-internal.h"
 
-struct LibSystemHelpers {
-	uintptr_t version;
-	void (*acquireGlobalDyldLock)();
-	void (*releaseGlobalDyldLock)();
-	/* ... */
-};
-
 extern const struct dyld_all_image_infos *_dyld_get_all_image_infos();
 
 static pthread_once_t dyld_inspect_once = PTHREAD_ONCE_INIT;
 /* and its fruits: */
-static struct LibSystemHelpers *libsystem_helpers;
-static const struct mach_header *(*my_dyld_get_image_header)(uint32_t);
-static const char *(*my_dyld_get_image_name)(uint32_t);
-static intptr_t (*my_dyld_get_image_vmaddr_slide)(uint32_t);
-static uint32_t (*my_dyld_image_count)();
-
+static uintptr_t (*ImageLoaderMachO_getSlide)(void *);
+static const struct mach_header *(*ImageLoaderMachO_machHeader)(void *);
 #ifdef __LP64__
 typedef struct mach_header_64 mach_header_x;
 typedef struct segment_command_64 segment_command_x;
@@ -39,7 +28,7 @@ typedef struct section section_x;
 #define LC_SEGMENT_X LC_SEGMENT
 #endif
 
-static void *sym_to_ptr(substitute_sym *sym, ssize_t slide) {
+static void *sym_to_ptr(substitute_sym *sym, intptr_t slide) {
 	uintptr_t addr = sym->n_value;
 	addr += slide;
 	if (sym->n_desc & N_ARM_THUMB_DEF)
@@ -47,7 +36,7 @@ static void *sym_to_ptr(substitute_sym *sym, ssize_t slide) {
 	return (void *) addr;
 }
 
-static void substitute_find_syms_raw(const void *hdr, ssize_t *slide, const char **names, substitute_sym **syms, size_t count) {
+static void find_syms_raw(const void *hdr, intptr_t *slide, const char **names, substitute_sym **syms, size_t count) {
 	memset(syms, 0, sizeof(*syms) * count);
 
 	/* note: no verification at all */
@@ -105,69 +94,59 @@ ok2: ;
  * Since it uses a std::vector and (a) erases from it (making it possible for a
  * loop to skip entries) and (b) and doesn't even lock it in
  * _dyld_get_image_header etc., this is true even if the image is guaranteed to
- * be found, including the possibility to crash.
- * How do we solve this?  Inception - we steal dyld's private symbols...
- * We could avoid the symbols by calling the vtable of dlopen handles, but that
- * seems unstable.
+ * be found, including the possibility to crash.  How do we solve this?
+ * Inception - we steal dyld's private symbols...  We could avoid the symbols
+ * by calling the vtable of dlopen handles, but that seems unstable.  As is,
+ * the method used is somewhat convoluted in an attempt to maximize stability.
  */
 
 static void inspect_dyld() {
 	const struct dyld_all_image_infos *aii = _dyld_get_all_image_infos();
 	const void *dyld_hdr = aii->dyldImageLoadAddress;
 
-	const char *names[2] = { "__ZN4dyld17gLibSystemHelpersE", "__dyld_func_lookup" };
+	const char *names[2] = { "__ZNK16ImageLoaderMachO8getSlideEv", "__ZNK16ImageLoaderMachO10machHeaderEv" };
 	substitute_sym *syms[2];
-	ssize_t dyld_slide = -1;
-	substitute_find_syms_raw(dyld_hdr, &dyld_slide, names, syms, 2);
+	intptr_t dyld_slide = -1;
+	find_syms_raw(dyld_hdr, &dyld_slide, names, syms, 2);
 	if (!syms[0] || !syms[1])
-		panic("couldn't find dyld::gLibSystemHelpers\n");
-
-	libsystem_helpers = *(struct LibSystemHelpers **) sym_to_ptr(syms[0], dyld_slide);
-	if (!libsystem_helpers)
-		panic("dyld::gLibSystemHelpers was NULL\n");
-
-	/* We get the internal versions of _dyld_get_image_count and friends in case the normal ones are fixed in the future to use locking (in which case we'd be double locking). */
-	int (*_dyld_func_lookup)(const char *name, void **address) = sym_to_ptr(syms[1], dyld_slide);
-	if (!_dyld_func_lookup("__dyld_get_image_header", (void **) &my_dyld_get_image_header) ||
-	    !_dyld_func_lookup("__dyld_get_image_vmaddr_slide", (void **) &my_dyld_get_image_vmaddr_slide) ||
-	    !_dyld_func_lookup("__dyld_get_image_name", (void **) &my_dyld_get_image_name) ||
-	    !_dyld_func_lookup("__dyld_image_count", (void **) &my_dyld_image_count)) {
-		panic("dyld_func_lookup failure\n");
-	}
+		panic("couldn't find ImageLoader methods\n");
+	ImageLoaderMachO_getSlide = sym_to_ptr(syms[0], dyld_slide);
+	ImageLoaderMachO_machHeader = sym_to_ptr(syms[1], dyld_slide);
 }
 
-/* 'dlhand' keeps the image alive */
-static bool find_image_hdr_and_slide(const char *filename, const void **hdr, ssize_t *slide, void **dlhand) {
-	/* this is just for the refcount; maybe unnecessary for current APIs */
-	*dlhand = dlopen(filename, RTLD_LAZY | RTLD_LOCAL | RTLD_NOLOAD);
-	if (!*dlhand)
-		return false;
-
+/* 'dlopen_header' keeps the image alive */
+struct substitute_image *substitute_open_image(const char *filename) {
 	pthread_once(&dyld_inspect_once, inspect_dyld);
-	libsystem_helpers->acquireGlobalDyldLock();
-	for (uint32_t i = 0, cnt = my_dyld_image_count(); i < cnt; i++) {
-		const char *name = my_dyld_get_image_name(i);
-		printf("%s < %s \n", name, filename);
-		if (!strcmp(name, filename)) {
-			*hdr = my_dyld_get_image_header(i);
-			*slide = my_dyld_get_image_vmaddr_slide(i);
-			libsystem_helpers->releaseGlobalDyldLock();
-			return true;
-		}
-	}
-	panic("%s: found in dlopen but not _dyld_get_image_name\n", __func__);
+
+	void *dlhandle = dlopen(filename, RTLD_LAZY | RTLD_LOCAL | RTLD_NOLOAD);
+	if (!dlhandle)
+		return NULL;
+
+	const void *image_header = ImageLoaderMachO_machHeader(dlhandle);
+	intptr_t slide = ImageLoaderMachO_getSlide(dlhandle);
+
+	struct substitute_image *im = malloc(sizeof(*im));
+	if (!im)
+		return NULL;
+	im->slide = slide;
+	im->dlhandle = dlhandle;
+	im->image_header = image_header;
+	return im;
 }
 
-int substitute_find_syms(const char *filename, const char **names,
+void substitute_close_image(struct substitute_image *im) {
+	dlclose(im->dlhandle); /* ignore errors */
+	free(im);
+}
+
+int substitute_find_private_syms(struct substitute_image *im, const char **names,
                          substitute_sym **syms, size_t count) {
-	const void *hdr;
-	ssize_t slide;
-	void *dlhand;
-	if (!find_image_hdr_and_slide(filename, &hdr, &slide, &dlhand))
-		return SUBSTITUTE_ERR_MODULE_NOT_FOUND;
-	substitute_find_syms_raw(hdr, &slide, names, syms, count);
-	dlclose(dlhand);
+	find_syms_raw(im->image_header, &im->slide, names, syms, count);
 	return SUBSTITUTE_OK;
+}
+
+void *substitute_sym_to_ptr(struct substitute_image *handle, substitute_sym *sym) {
+	return sym_to_ptr(sym, handle->slide);
 }
 
 #endif
