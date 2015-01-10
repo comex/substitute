@@ -14,9 +14,9 @@ all: \
 	generated/transform-dis-arm.inc \
 	generated/transform-dis-arm64.inc \
 	out/libsubstitute.dylib \
-	test/test-find-syms \
-	test/test-find-syms-cpp \
-	test/test-substrate
+	out/test-find-syms \
+	out/test-find-syms-cpp \
+	out/test-substrate
 
 out:
 	mkdir out
@@ -28,11 +28,11 @@ LIB_OBJS := out/find-syms.o out/substrate-compat.o
 out/libsubstitute.dylib: $(LIB_OBJS) lib/*.h out
 	$(CC) -dynamiclib -fvisibility=hidden -o $@ $(LIB_OBJS)
 
-test/test-%: test/test-%.c Makefile out/libsubstitute.dylib
+out/test-%: test/test-%.c Makefile out/libsubstitute.dylib
 	$(CC) -std=c89 -o $@ $< -Ilib -Lout -lsubstitute
-test/test-%-cpp: test/test-%.c Makefile out/libsubstitute.dylib
+out/test-%-cpp: test/test-%.c Makefile out/libsubstitute.dylib
 	$(CXX) -x c++ -std=c++98 -o $@ $< -Ilib -Lout -lsubstitute
-test/test-%: test/test-%.cpp Makefile out/libsubstitute.dylib
+out/test-%: test/test-%.cpp Makefile out/libsubstitute.dylib
 	$(CXX) -std=c++11 -o $@ $< -Ilib -Isubstrate -Lout -lsubstitute
 
 generated: Makefile

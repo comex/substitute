@@ -13,7 +13,7 @@ EXPORT
 void *SubFindSymbol(void *image, const char *name) __asm__("SubFindSymbol");
 void *SubFindSymbol(void *image, const char *name) {
     if (!image) {
-        const char *s = "SubFindSymbol: 'any image' specified, which is incredibly slow - like, 2ms.  I'm going to do it since it seems to be somewhat common, but you should be ashamed of yourself.";
+        const char *s = "SubFindSymbol: 'any image' specified, which is incredibly slow - like, 2ms on a fast x86.  I'm going to do it since it seems to be somewhat common, but you should be ashamed of yourself.";
         syslog(LOG_WARNING, "%s", s);
         fprintf(stderr, "%s\n", s);
         /* and it isn't thread safe, but neither is MS */
