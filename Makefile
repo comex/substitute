@@ -12,7 +12,8 @@ all: \
 	out/libsubstitute.dylib \
 	out/test-find-syms \
 	out/test-find-syms-cpp \
-	out/test-substrate
+	out/test-substrate \
+	out/test-dis
 
 out:
 	mkdir out
@@ -24,6 +25,8 @@ LIB_OBJS := out/find-syms.o out/substrate-compat.o
 out/libsubstitute.dylib: $(LIB_OBJS) lib/*.h out
 	$(CC) -dynamiclib -fvisibility=hidden -o $@ $(LIB_OBJS)
 
+out/test-dis: test/test-dis.c Makefile
+	$(CC) -std=c11 -o $@ $< -Ilib
 out/test-%: test/test-%.c Makefile out/libsubstitute.dylib
 	$(CC) -std=c89 -o $@ $< -Ilib -Lout -lsubstitute
 out/test-%-cpp: test/test-%.c Makefile out/libsubstitute.dylib
