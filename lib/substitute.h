@@ -1,6 +1,7 @@
 /*
     libsubstitute - https://github.com/comex/substitute
-    This header file is in the public domain.
+    This header file is in the public domain (or in any jusrisdiction where the
+    former is ineffective, CC0 1.0).
 */
 
 #pragma once

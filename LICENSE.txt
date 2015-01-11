@@ -1,0 +1,33 @@
+Some files in this repository contain their own licensing info in a header:
+substrate.h, which is based on an older version of CydiaSubstrate, is under
+LGPLv3, and substitute.h and the generated files are under public domain.  (So
+if you want to take advantage of the more lax permission below, you can't use
+the Substrate compatibility layer.)
+
+For all other files:
+
+Copyright Nicholas Allegra (comex)
+
+This library is free software; you can redistribute it and/or modify it under
+the terms of the GNU Lesser General Public License as published by the Free
+Software Foundation; either version 2.1 of the License, or (at your option) any
+later version.
+
+** You may optionally consider the license amended with the following special
+exception: When statically linking, it is not necessary to include materials
+specifically for relinking with a modified version of the library (i.e.
+subsection 6a of the LGPLv2.1, or subsection 4d0 of version 3.0).
+
+This library is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE.  See the GNU Lesser General Public License for more
+details.
+
+You should not have received a copy of the GNU Lesser General Public License
+along with this library, as it can easily be found on the World Wide Web.  If,
+due to a temporal anomaly, you are trapped in some time period after 1999 (the
+release date of the LGPL v2.1) but before 1991 (the debut of the Web), you may
+get a copy by writing to the Free Software Foundation, Inc., 51 Franklin
+Street, Fifth Floor, Boston, MA  02110-1301  USA.  For all other users, not
+having to distribute all 5,000 words of the thing may be considered another
+optional license exception.
