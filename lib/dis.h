@@ -1,8 +1,7 @@
 #pragma once
+#include <stdbool.h>
 
-static inline int sext(unsigned val, int bits) {
-    return val & (1 << (bits - 1)) ? ((int)val - (1 << bits)) : (int)val;
-}
+#define UNUSED __attribute__((unused))
 
 struct bitslice_run {
     int inpos, outpos, len;
@@ -13,35 +12,52 @@ struct bitslice {
     const struct bitslice_run *runs;
 };
 
-__attribute__((always_inline))
+struct dis_data_operand {
+    struct bitslice n;
+    bool out;
+};
+
+static inline int sext(unsigned val, int bits) {
+    return val & (1 << (bits - 1)) ? ((int)val - (1 << bits)) : (int)val;
+}
+
 static inline unsigned bs_get(struct bitslice bs, unsigned op) {
     unsigned ret = 0;
     for(int i = 0; i < bs.nruns; i++) {
         const struct bitslice_run *run = &bs.runs[i];
-        unsigned masked = op & ((1 << run->len) - 1);
-        if (run->outpos < run->inpos)
-            masked >>= run->inpos - run->outpos;
-        else if (run->outpos > run->inpos)
-            masked <<= run->outpos - run->inpos;
-        ret |= masked;
+        unsigned val = (op >> run->inpos) & ((1 << run->len) - 1);
+        ret |= val << run->outpos;
     }
     return ret;
 }
 
-__attribute__((always_inline))
-static inline unsigned bs_set(struct bitslice bs, unsigned val, unsigned op) {
+static inline unsigned bs_set(struct bitslice bs, unsigned new, unsigned op) {
     for(int i = 0; i < bs.nruns; i++) {
         const struct bitslice_run *run = &bs.runs[i];
         unsigned mask = (1 << run->len) - 1;
-        unsigned masked = val & mask;
-        if (run->outpos < run->inpos) {
-            masked <<= run->inpos - run->outpos;
-            mask <<= run->inpos - run->outpos;
-        } else if (run->outpos > run->inpos) {
-            masked >>= run->outpos - run->inpos;
-            mask >>= run->outpos - run->inpos;
-        }
-        op = (op & ~mask) | masked;
+        unsigned val = (new >> run->outpos) & mask;
+        op = (op & ~(mask << run->inpos)) | (val << run->inpos);
     }
     return op;
 }
+
+static inline struct bitslice bs_slice_(struct bitslice bs, struct bitslice_run *runs, int lo, int size) {
+    int nruns = 0;
+    for(int i = 0; i < bs.nruns; i++) {
+        struct bitslice_run inr = bs.runs[i];
+        inr.outpos -= lo;
+        if(inr.outpos < 0) {
+            inr.len += inr.outpos;
+            inr.inpos -= inr.outpos;
+            inr.outpos = 0;
+        }
+        if(inr.outpos + inr.len > size)
+            inr.len = size - inr.outpos;
+        if(inr.len > 0)
+            runs[nruns++] = (struct bitslice_run) {inr.inpos, inr.outpos, inr.len};
+    }
+    return (struct bitslice) {nruns, runs};
+}
+#define bs_slice(bs, lo, size) \
+    bs_slice_(bs, alloca((bs).nruns * sizeof(struct bitslice_run)), lo, size)
+

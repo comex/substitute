@@ -13,7 +13,8 @@ all: \
 	out/test-find-syms \
 	out/test-find-syms-cpp \
 	out/test-substrate \
-	out/test-dis
+	out/test-dis \
+	out/test-tdarm-simple
 
 out:
 	mkdir out
@@ -22,16 +23,19 @@ out/%.o: lib/%.c Makefile out
 	$(CC) -fvisibility=hidden -std=c11 -c -o $@ $<
 
 LIB_OBJS := out/find-syms.o out/substrate-compat.o
+HEADERS := lib/*.h generated/*.h
 out/libsubstitute.dylib: $(LIB_OBJS) lib/*.h out
 	$(CC) -dynamiclib -fvisibility=hidden -o $@ $(LIB_OBJS)
 
-out/test-dis: test/test-dis.c Makefile
+out/test-tdarm-simple: test/test-tdarm-simple.c $(HEADERS) Makefile
 	$(CC) -std=c11 -o $@ $< -Ilib
-out/test-%: test/test-%.c Makefile out/libsubstitute.dylib
+out/test-dis: test/test-dis.c $(HEADERS) Makefile
+	$(CC) -std=c11 -o $@ $< -Ilib
+out/test-%: test/test-%.c Makefile $(HEADERS) out/libsubstitute.dylib
 	$(CC) -std=c89 -o $@ $< -Ilib -Lout -lsubstitute
-out/test-%-cpp: test/test-%.c Makefile out/libsubstitute.dylib
+out/test-%-cpp: test/test-%.c Makefile $(HEADERS) out/libsubstitute.dylib
 	$(CXX) -x c++ -std=c++98 -o $@ $< -Ilib -Lout -lsubstitute
-out/test-%: test/test-%.cpp Makefile out/libsubstitute.dylib
+out/test-%: test/test-%.cpp Makefile $(HEADERS) out/libsubstitute.dylib
 	$(CXX) -std=c++11 -o $@ $< -Ilib -Isubstrate -Lout -lsubstitute
 
 generated: Makefile
