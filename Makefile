@@ -39,12 +39,12 @@ generated: Makefile
 	mkdir generated
 
 define do_prefix
-generated/transform-dis-$(1).inc: generated Makefile
-	$(GEN_JS) --gen-hook-disassembler $(2) -p transform_dis_$(1)_ $(IMAON2)/out/out-$(3).json > $$@ || rm -f $$@
-all: generated/transform-dis-$(1).inc
-generated/jump-dis-$(1).inc: generated Makefile
-	$(GEN_JS) --gen-hook-jump-disassembler $(2) -p jump_dis_$(1)_ $(IMAON2)/out/out-$(3).json > $$@ || rm -f $$@
-all: generated/jump-dis-$(1).inc
+generated/transform-dis-$(1).inc.h: generated Makefile
+	$(GEN_JS) --gen-hook-disassembler $(2) --dis-pattern='P(XXX)' $(IMAON2)/out/out-$(3).json > $$@ || rm -f $$@
+all: generated/transform-dis-$(1).inc.h
+#generated/jump-dis-$(1).inc.h: generated Makefile
+#	$(GEN_JS) --gen-hook-jump-disassembler $(2) -p jump_dis_$(1)_ $(IMAON2)/out/out-$(3).json > $$@ || rm -f $$@
+#all: generated/jump-dis-$(1).inc.h
 endef
 $(eval $(call do_prefix,thumb2,-n _thumb2,ARM))
 $(eval $(call do_prefix,thumb,-n _thumb,ARM))
