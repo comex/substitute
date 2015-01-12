@@ -1,5 +1,37 @@
 #include "dis.h"
 
+/*
+    ARM
+           65 24-20
+    LDRSB: 10 xx1x1
+    LDRH:  01 xx1x1
+    LDRSH: 11 xx1x1
+    LDRD:  10 xx1x0
+
+    LDRB:  ii 1u101
+    LDR:   ii 1u001
+
+    Thumb (such logical)
+    LDRB:  11111 00 0 U 00 1 1111
+    LDRSB: 11111 00 1 U 00 1 1111
+    LDRH:  11111 00 0 U 01 1 1111
+    LDRSH: 11111 00 1 U 01 1 1111
+    LDR:   11111 00 0 U 10 1 1111
+*/
+
+static inline enum pcrel_load_mode get_load_mode(unsigned op) {
+    if ((op & 0x7000090) == 0x90) {
+        return ((op >> 22) & 1) ? PLM_U8 : PLM_U32;
+    } else {
+        switch ((op >> 4) & 3) {
+            default: __builtin_abort();
+            case 1: return PLM_U16;
+            case 2: return (op & (1 << 20)) ? PLM_S8 : PLM_U128;
+            case 3: return PLM_S16;
+        }
+    }
+}
+
 static INLINE tdis_ret P(GPRPairOp_Rt_addr_offset_none_addr_unk_Rd_S_2_STLEXD)(tdis_ctx ctx, struct bitslice Rt, struct bitslice Rd, struct bitslice addr) {
     data(r(Rt), r(Rd), r(addr));
 }
@@ -117,7 +149,7 @@ static INLINE tdis_ret P(addrmode_imm12_pre_addr_unk_Rt_2_LDRB_PRE_IMM)(tdis_ctx
     data(rs(addr, 13, 4), rout(Rt));
 }
 static INLINE tdis_ret P(adrlabel_label_unk_Rd_1_ADR)(tdis_ctx ctx, struct bitslice label, struct bitslice Rd) {
-    return P(pcrel)(ctx, ctx->pc + 8 + bs_get(label, ctx->op), bs_get(Rd, ctx->op), false);
+    return P(pcrel)(ctx, ctx->pc + 8 + bs_get(label, ctx->op), bs_get(Rd, ctx->op), PLM_ADR);
 }
 static INLINE tdis_ret P(br_target_target_B_1_Bcc)(tdis_ctx ctx, struct bitslice target) {
     return P(branch)(ctx, ctx->pc + 8 + sext(bs_get(target, ctx->op), 24));
@@ -156,10 +188,4 @@ static INLINE tdis_ret P(GPR_Rt_addr_offset_none_addr_postidx_reg_Rm_S_1_STRHTr)
     data(r(addr), r(Rt), r(Rm));
 }
 
-static tdis_ret P(dis_arm)(tdis_ctx ctx) {
-    unsigned op = ctx->op;
-    #include "../generated/transform-dis-arm.inc.h"
-    /* clang doesn't realize that this is unreachable * and generates code like
-     * "and ecx, 0x1f; cmp ecx, 0x1f; ja abort".  Yeah, nice job there. */
-    __builtin_abort();
-}
+#define GENERATED_HEADER "../generated/transform-dis-arm.inc.h"

@@ -29,8 +29,8 @@ static tdis_ret P_data(struct tc *ctx, unsigned o0, unsigned o1, unsigned o2, un
 }
 
 NOINLINE UNUSED
-static tdis_ret P_pcrel(struct tc *ctx, uint32_t dpc, unsigned reg, bool is_load) {
-    printf("adr%s: %08x => %08x r%u\n", is_load ? "+load" : "", ctx->op, dpc, reg);
+static tdis_ret P_pcrel(struct tc *ctx, uint32_t dpc, unsigned reg, enum pcrel_load_mode lm) {
+    printf("adr: %08x => %08x r%u lm:%d\n", ctx->op, dpc, reg, lm);
     return (tdis_ret) {false};
 }
 
@@ -60,12 +60,20 @@ static tdis_ret P_bad(struct tc *ctx) {
 
 #include HDR
 
+static tdis_ret P_dis(tdis_ctx ctx) {
+    unsigned op = ctx->op;
+    #include GENERATED_HEADER
+    /* clang doesn't realize that this is unreachable and generates code like
+     * "and ecx, 0x1f; cmp ecx, 0x1f; ja abort".  Yeah, nice job there. */
+    __builtin_abort();
+}
+
 int main(UNUSED int argc, char **argv) {
     struct tc ctx;
     ctx.pc = 0xdead0000;
     ctx.op = (uint32_t) strtoll(argv[1] ? argv[1] : "deadbeef", NULL, 16);
     ctx.newop = 0;
-    PDIS(&ctx);
+    P_dis(&ctx);
     printf("==> %x\n", ctx.newop);
 
 }

@@ -17,7 +17,7 @@ static INLINE tdis_ret P(GPR_Rm_unk_Rd_1_tMOVr)(tdis_ctx ctx, struct bitslice Rd
     if (Rd_val == 15)
         return P(bad)(ctx);
     if (Rm_val == 15)
-        return P(pcrel)(ctx, ctx->pc + 4, Rd_val, false);
+        return P(pcrel)(ctx, ctx->pc + 4, Rd_val, PLM_ADR);
     return P(unidentified)(ctx);
 }
 static INLINE tdis_ret P(tGPR_Rn_reglist_regs_1_tLDMIA)(tdis_ctx ctx, UNUSED struct bitslice regs, UNUSED struct bitslice Rn) {
@@ -27,10 +27,10 @@ static INLINE tdis_ret P(tGPR_Rn_reglist_regs_S_1_tSTMIA_UPD)(tdis_ctx ctx, UNUS
     return P(unidentified)(ctx);
 }
 static INLINE tdis_ret P(t_addrmode_pc_addr_unk_Rt_1_tLDRpci)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
-    return P(pcrel)(ctx, ((ctx->pc + 4) & ~2) + bs_get(addr, ctx->op), bs_get(Rt, ctx->op), true);
+    return P(pcrel)(ctx, ((ctx->pc + 4) & ~2) + bs_get(addr, ctx->op), bs_get(Rt, ctx->op), PLM_U32);
 }
 static INLINE tdis_ret P(t_adrlabel_addr_unk_Rd_1_tADR)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rd) {
-    return P(pcrel)(ctx, ((ctx->pc + 4) & ~2) + bs_get(addr, ctx->op), bs_get(Rd, ctx->op), false);
+    return P(pcrel)(ctx, ((ctx->pc + 4) & ~2) + bs_get(addr, ctx->op), bs_get(Rd, ctx->op), PLM_ADR);
 }
 static INLINE tdis_ret P(t_bcctarget_target_B_1_tBcc)(tdis_ctx ctx, struct bitslice target) {
     return P(branch)(ctx, ctx->pc + 4 + 2 * sext(bs_get(target, ctx->op), 8));
@@ -42,9 +42,4 @@ static INLINE tdis_ret P(t_cbtarget_target_B_2_tCBNZ)(tdis_ctx ctx, struct bitsl
     return P(branch)(ctx, ctx->pc + 4 + 2 * bs_get(target, ctx->op));
 }
 
-static tdis_ret P(dis_thumb)(tdis_ctx ctx) {
-    unsigned op = ctx->op;
-    #include "../generated/transform-dis-thumb.inc.h"
-    __builtin_abort();
-}
-
+#define GENERATED_HEADER "../generated/transform-dis-thumb.inc.h"

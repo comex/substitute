@@ -59,6 +59,18 @@ static inline struct bitslice bs_slice_(struct bitslice bs, struct bitslice_run 
 #define bs_slice(bs, lo, size) \
     bs_slice_(bs, alloca((bs).nruns * sizeof(struct bitslice_run)), lo, size)
 
+enum pcrel_load_mode {
+    PLM_ADR, /* just want the address */
+    PLM_U8,  PLM_S8,
+    PLM_U16, PLM_S16,
+    PLM_U32, PLM_S32,
+    PLM_U64,
+    PLM_U128,
+    PLM_U32_SIMD,
+    PLM_U64_SIMD,
+    PLM_U128_SIMD,
+};
+
 static const struct bitslice nullbs = { 0, NULL };
 #define r(nn)           nn,                 false, true
 #define rs(nn, l, s)    bs_slice(nn, l, s), false, true

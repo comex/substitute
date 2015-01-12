@@ -1,4 +1,15 @@
 #include "dis.h"
+
+static inline enum pcrel_load_mode get_load_mode(unsigned op) {
+    bool sign = (op >> 8) & 1;
+    switch ((op >> 5) & 3) {
+        case 0: return sign ? PLM_S8 : PLM_U8;
+        case 1: return sign ? PLM_S16 : PLM_U16;
+        case 2: return sign ? PLM_S32 : PLM_U32;
+        default: __builtin_abort();
+    }
+}
+
 static INLINE tdis_ret P(GPR_Rm_unk_Rd_1_t2MOVr)(tdis_ctx ctx, struct bitslice Rm, struct bitslice Rd) {
     data(rout(Rd), r(Rm));
 }
@@ -148,8 +159,4 @@ static INLINE tdis_ret P(unk_Rt_13_VMOVRRD)(tdis_ctx ctx, UNUSED struct bitslice
     return P(unidentified)(ctx);
 }
 
-static tdis_ret P(dis_thumb2)(tdis_ctx ctx) {
-    unsigned op = ctx->op;
-    #include "../generated/transform-dis-thumb2.inc.h"
-    __builtin_abort();
-}
+#define GENERATED_HEADER "../generated/transform-dis-thumb2.inc.h"
