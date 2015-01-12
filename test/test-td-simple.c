@@ -63,6 +63,7 @@ int main(UNUSED int argc, char **argv) {
     struct tc ctx;
     ctx.pc = 0xdead0000;
     ctx.op = (uint32_t) strtoll(argv[1] ? argv[1] : "deadbeef", NULL, 16);
+    ctx.newop = 0;
     PDIS(&ctx);
     printf("==> %x\n", ctx.newop);
 

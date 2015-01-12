@@ -45,6 +45,7 @@ endef
 $(eval $(call define_test,tdarm-simple,td-simple,$(CC) -std=c11 -DPDIS=P_dis_arm -DHDR='"dis-arm.inc.h"'))
 $(eval $(call define_test,tdthumb-simple,td-simple,$(CC) -std=c11 -DPDIS=P_dis_thumb -DHDR='"dis-thumb.inc.h"'))
 $(eval $(call define_test,tdthumb2-simple,td-simple,$(CC) -std=c11 -DPDIS=P_dis_thumb2 -DHDR='"dis-thumb2.inc.h"'))
+$(eval $(call define_test,tdarm64-simple,td-simple,$(CC) -std=c11 -DPDIS=P_dis_arm64 -DHDR='"dis-arm64.inc.h"'))
 $(eval $(call define_test,dis,dis,$(CC) -std=c11))
 $(eval $(call define_test,find-syms,find-syms,$(CC) -std=c89))
 $(eval $(call define_test,find-syms-cpp,find-syms,$(CXX) -x c++ -std=c++98))
