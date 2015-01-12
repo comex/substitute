@@ -57,33 +57,30 @@ static inline struct bitslice bs_slice_(struct bitslice bs, struct bitslice_run 
 #define bs_slice(bs, lo, size) \
     bs_slice_(bs, alloca((bs).nruns * sizeof(struct bitslice_run)), lo, size)
 
-struct operand_internal {
-    struct bitslice n;
-    bool out;
-    bool valid;
-};
-
-#define r(nn)           {.n = nn, .out = false, .valid = true}
-#define rs(nn, l, s)    {.n = bs_slice(nn, l, s), .out = false, .valid = true}
-#define rout(nn)        {.n = nn, .out = true, .valid = true}
-#define rsout(nn, l, s) {.n = bs_slice(nn, l, s), .out = true, .valid = true}
-#define data(...) \
-    struct operand_internal ops[4] = {__VA_ARGS__}; \
+static const struct bitslice nullbs = { 0, NULL };
+#define r(nn)           nn,                 false, true
+#define rs(nn, l, s)    bs_slice(nn, l, s), false, true
+#define rout(nn)        nn,                 true,  true
+#define rsout(nn, l, s) bs_slice(nn, l, s), true,  true
+#define rnull           nullbs,             false, false
+#define data(...) data_(__VA_ARGS__, rnull, rnull, rnull, rnull)
+#define data_(...) data__(__VA_ARGS__)
+#define data__(b1, o1, v1, b2, o2, v2, b3, o3, v3, b4, o4, v4, ...) \
     tdis_ret ret = P(data)(ctx, \
-        ops[0].valid ? bs_get(ops[0].n, ctx->op) : -1u, \
-        ops[1].valid ? bs_get(ops[1].n, ctx->op) : -1u, \
-        ops[2].valid ? bs_get(ops[2].n, ctx->op) : -1u, \
-        ops[3].valid ? bs_get(ops[3].n, ctx->op) : -1u, \
-        (ops[0].valid << 0) | \
-        (ops[1].valid << 1) | \
-        (ops[2].valid << 2) | \
-        (ops[3].valid << 3)); \
+        v1 ? bs_get(b1, ctx->op) : -1u, \
+        v2 ? bs_get(b2, ctx->op) : -1u, \
+        v3 ? bs_get(b3, ctx->op) : -1u, \
+        v4 ? bs_get(b4, ctx->op) : -1u, \
+        (o1 << 0) | \
+        (o2 << 1) | \
+        (o3 << 2) | \
+        (o4 << 3)); \
     if(ret.modify) { \
         unsigned new = ctx->op; \
-        new = bs_set(ops[0].n, ctx->newval[0], new); \
-        new = bs_set(ops[1].n, ctx->newval[1], new); \
-        new = bs_set(ops[2].n, ctx->newval[2], new); \
-        new = bs_set(ops[3].n, ctx->newval[3], new); \
+        new = bs_set(b1, ctx->newval[0], new); \
+        new = bs_set(b2, ctx->newval[1], new); \
+        new = bs_set(b3, ctx->newval[2], new); \
+        new = bs_set(b4, ctx->newval[3], new); \
         ctx->newop = new; \
     } \
     return ret;
