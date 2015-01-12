@@ -2,6 +2,7 @@
 #include <stdbool.h>
 
 #define UNUSED __attribute__((unused))
+#define INLINE inline __attribute__((always_inline))
 
 struct bitslice_run {
     int inpos, outpos, len;
@@ -10,11 +11,6 @@ struct bitslice_run {
 struct bitslice {
     int nruns;
     const struct bitslice_run *runs;
-};
-
-struct dis_data_operand {
-    struct bitslice n;
-    bool out;
 };
 
 static inline int sext(unsigned val, int bits) {
@@ -60,4 +56,35 @@ static inline struct bitslice bs_slice_(struct bitslice bs, struct bitslice_run 
 }
 #define bs_slice(bs, lo, size) \
     bs_slice_(bs, alloca((bs).nruns * sizeof(struct bitslice_run)), lo, size)
+
+struct operand_internal {
+    struct bitslice n;
+    bool out;
+    bool valid;
+};
+
+#define r(nn)           {.n = nn, .out = false, .valid = true}
+#define rs(nn, l, s)    {.n = bs_slice(nn, l, s), .out = false, .valid = true}
+#define rout(nn)        {.n = nn, .out = true, .valid = true}
+#define rsout(nn, l, s) {.n = bs_slice(nn, l, s), .out = true, .valid = true}
+#define data(...) \
+    struct operand_internal ops[4] = {__VA_ARGS__}; \
+    tdis_ret ret = P(data)(ctx, \
+        ops[0].valid ? bs_get(ops[0].n, ctx->op) : -1u, \
+        ops[1].valid ? bs_get(ops[1].n, ctx->op) : -1u, \
+        ops[2].valid ? bs_get(ops[2].n, ctx->op) : -1u, \
+        ops[3].valid ? bs_get(ops[3].n, ctx->op) : -1u, \
+        (ops[0].valid << 0) | \
+        (ops[1].valid << 1) | \
+        (ops[2].valid << 2) | \
+        (ops[3].valid << 3)); \
+    if(ret.modify) { \
+        unsigned new = ctx->op; \
+        new = bs_set(ops[0].n, ctx->newval[0], new); \
+        new = bs_set(ops[1].n, ctx->newval[1], new); \
+        new = bs_set(ops[2].n, ctx->newval[2], new); \
+        new = bs_set(ops[3].n, ctx->newval[3], new); \
+        ctx->newop = new; \
+    } \
+    return ret;
 

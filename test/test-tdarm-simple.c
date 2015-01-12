@@ -3,42 +3,46 @@
 #include <stdio.h>
 #include "dis.h"
 
-typedef void tdis_ret;
+typedef struct { bool modify; } tdis_ret;
 typedef struct tc {
     uint32_t pc;
     uint32_t op;
+    uint32_t newop;
+    uint32_t newval[4];
 
 } *tdis_ctx;
 #define P(x) P_##x
 
-static void P_data(struct tc *ctx, struct dis_data_operand *ops, size_t nops) {
+__attribute__((noinline))
+static tdis_ret P_data(struct tc *ctx, unsigned o0, unsigned o1, unsigned o2, unsigned o3, unsigned out_mask) {
     printf("data: %08x\n", ctx->op);
-    for(size_t i = 0; i < nops; i++) {
-        unsigned val = bs_get(ops[i].n, ctx->op);
-        printf("    {");
-        for(int j = 0; j < ops[i].n.nruns; j++) {
-            struct bitslice_run run = ops[i].n.runs[j];
-            printf(" %d:%d:%d", run.inpos, run.outpos, run.len);
-        }
-        printf(" } =>\n");
-        printf("    reg %x: %s\n", val, ops[i].out ? "out" : "in");
+    unsigned os[] = {o0, o1, o2, o3};
+    for(size_t i = 0; i < 4; i++) {
+        unsigned val = os[i];
+        if(val == -1u)
+            break;
+        printf("    reg %x: %s\n", val, out_mask & (1 << i) ? "out" : "in");
+        ctx->newval[i] = i;
     }
-    unsigned newop = ctx->op;
-    for(size_t i = 0; i < nops; i++)
-        newop = bs_set(ops[i].n, i, newop);
-    printf("modified: %x\n", newop);
+    return (tdis_ret) {true};
 }
 
-static void P_adr(struct tc *ctx, UNUSED uint32_t dpc) {
+__attribute__((noinline))
+static tdis_ret P_adr(struct tc *ctx, UNUSED uint32_t dpc) {
     printf("adr: %08x\n", ctx->op);
+    return (tdis_ret) {false};
 }
 
-static void P_branch(struct tc *ctx, UNUSED uint32_t dpc) {
+__attribute__((noinline))
+static tdis_ret P_branch(struct tc *ctx, UNUSED uint32_t dpc) {
     printf("branch: %08x\n", ctx->op);
+    return (tdis_ret) {false};
 }
 
-static void P_unidentified(struct tc *ctx) {
+__attribute__((noinline))
+static tdis_ret P_unidentified(struct tc *ctx) {
     printf("unidentified: %08x\n", ctx->op);
+    return (tdis_ret) {false};
 
 }
 #include "dis-arm.inc.h"
@@ -48,5 +52,6 @@ int main(UNUSED int argc, char **argv) {
     ctx.pc = 0xdead0000;
     ctx.op = (uint32_t) strtoll(argv[1] ? argv[1] : "deadbeef", NULL, 16);
     P_dis_arm(&ctx);
+    printf("==> %x\n", ctx.newop);
 
 }
