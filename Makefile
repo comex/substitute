@@ -30,12 +30,10 @@ all: generated/transform-dis-$(1).inc.h
 #all: generated/jump-dis-$(1).inc.h
 HEADERS := $$(HEADERS) generated/transform-dis-$(1).inc.h
 endef
-
-$(eval $(call define_test,tdarm-simple,tdarm-simple,$(CC) -std=c11))
-$(eval $(call define_test,dis,dis,$(CC) -std=c11))
-$(eval $(call define_test,find-syms,find-syms,$(CC) -std=c89))
-$(eval $(call define_test,find-syms-cpp,find-syms,$(CXX) -x c++ -std=c++98))
-$(eval $(call define_test,substrate,substrate,$(CXX) -std=c++98))
+$(eval $(call do_prefix,thumb2,-n _thumb2,ARM))
+$(eval $(call do_prefix,thumb,-n _thumb,ARM))
+$(eval $(call do_prefix,arm,-n _arm,ARM))
+$(eval $(call do_prefix,arm64,,AArch64))
 
 out/%.o: lib/%.c Makefile $(HEADERS)
 	$(CC) -fvisibility=hidden -std=c11 -c -o $@ $<
@@ -48,15 +46,16 @@ define define_test
 out/test-$(1): test/test-$(2).c* $(HEADERS) Makefile out/libsubstitute.dylib
 	$(3) -o $$@ $$< -Ilib -Isubstrate -Lout -lsubstitute
 endef
+$(eval $(call define_test,tdarm-simple,tdarm-simple,$(CC) -std=c11))
+$(eval $(call define_test,dis,dis,$(CC) -std=c11))
+$(eval $(call define_test,find-syms,find-syms,$(CC) -std=c89))
+$(eval $(call define_test,find-syms-cpp,find-syms,$(CXX) -x c++ -std=c++98))
+$(eval $(call define_test,substrate,substrate,$(CXX) -std=c++98))
 
 generated: Makefile
 	rm -rf generated
 	mkdir generated
 
-$(eval $(call do_prefix,thumb2,-n _thumb2,ARM))
-$(eval $(call do_prefix,thumb,-n _thumb,ARM))
-$(eval $(call do_prefix,arm,-n _arm,ARM))
-$(eval $(call do_prefix,arm64,,AArch64))
 
 clean:
 	rm -rf out

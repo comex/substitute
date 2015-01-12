@@ -1,7 +1,7 @@
 #include "dis.h"
 
-static INLINE tdis_ret P(GPRPairOp_Rt_addr_offset_none_addr_S_2_STLEXD)(tdis_ctx ctx, struct bitslice Rt, struct bitslice addr) {
-    data(r(Rt), r(addr));
+static INLINE tdis_ret P(GPRPairOp_Rt_addr_offset_none_addr_unk_Rd_S_2_STLEXD)(tdis_ctx ctx, struct bitslice Rt, struct bitslice Rd, struct bitslice addr) {
+    data(r(Rt), r(Rd), r(addr));
 }
 static INLINE tdis_ret P(GPR_Rm_unk_Rd_1_MOVr)(tdis_ctx ctx, struct bitslice Rm, struct bitslice Rd) {
     data(rout(Rd), r(Rm));
@@ -21,7 +21,7 @@ static INLINE tdis_ret P(GPR_Rn_unk_Rd_1_ADDri)(tdis_ctx ctx, struct bitslice Rd
 static INLINE tdis_ret P(GPR_Rt_4_MCR)(tdis_ctx ctx, struct bitslice Rt) {
     data(r(Rt));
 }
-static INLINE tdis_ret P(GPR_Rt_addr_offset_none_addr_S_10_STL)(tdis_ctx ctx, struct bitslice Rt, struct bitslice addr) {
+static INLINE tdis_ret P(GPR_Rt_addr_offset_none_addr_S_3_STL)(tdis_ctx ctx, struct bitslice Rt, struct bitslice addr) {
     data(r(addr), rout(Rt));
 }
 static INLINE tdis_ret P(GPR_Rt_addr_offset_none_addr_am2offset_imm_offset_S_4_STRBT_POST_IMM)(tdis_ctx ctx, UNUSED struct bitslice offset, struct bitslice Rt, struct bitslice addr) {
@@ -55,7 +55,7 @@ static INLINE tdis_ret P(GPR_Rt_ldst_so_reg_shift_S_1_STRrs)(tdis_ctx ctx, struc
     data(rs(shift, 0, 4), rs(shift, 13, 4), r(Rt));
 }
 static INLINE tdis_ret P(GPRnopc_Rt_4_MCRR)(tdis_ctx ctx, UNUSED struct bitslice Rt) {
-    // need Rt2 but whatever
+    /* need Rt2 but whatever */
     return P(unidentified)(ctx);
 }
 static INLINE tdis_ret P(GPRnopc_Rt_addrmode_imm12_addr_S_1_STRBi12)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
@@ -88,14 +88,15 @@ static INLINE tdis_ret P(addr_offset_none_addr_postidx_imm8s4_offset_4_LDC2L_POS
 static INLINE tdis_ret P(addr_offset_none_addr_postidx_imm8s4_offset_S_4_STC2L_POST)(tdis_ctx ctx, UNUSED struct bitslice offset, struct bitslice addr) {
     data(r(addr));
 }
-static INLINE tdis_ret P(addr_offset_none_addr_unk_Rt_16_LDA)(tdis_ctx ctx, struct bitslice Rt, struct bitslice addr) {
+static INLINE tdis_ret P(addr_offset_none_addr_unk_Rt_13_LDA)(tdis_ctx ctx, struct bitslice Rt, struct bitslice addr) {
     data(r(addr), rout(Rt));
 }
 static INLINE tdis_ret P(addrmode3_addr_unk_Rt_4_LDRD)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
-    data(rsout(addr, 9, 4), rs(addr, 0, 4), r(Rt));
+    /* ignoring Rt2 = Rt + 1, but it isn't supposed to load PC anyway */
+    data(rs(addr, 9, 4), rs(addr, 0, 4));
 }
 static INLINE tdis_ret P(addrmode3_pre_addr_unk_Rt_4_LDRD_PRE)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
-    data(rsout(addr, 9, 4), rs(addr, 0, 4), r(Rt));
+    data(rs(addr, 9, 4), rs(addr, 0, 4));
 }
 static INLINE tdis_ret P(addrmode5_addr_8_LDC2L_OFFSET)(tdis_ctx ctx, struct bitslice addr) {
     data(rsout(addr, 9, 4));
@@ -115,8 +116,8 @@ static INLINE tdis_ret P(addrmode_imm12_addr_unk_Rt_2_LDRBi12)(tdis_ctx ctx, str
 static INLINE tdis_ret P(addrmode_imm12_pre_addr_unk_Rt_2_LDRB_PRE_IMM)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
     data(rs(addr, 13, 4), rout(Rt));
 }
-static INLINE tdis_ret P(adrlabel_label_1_ADR)(tdis_ctx ctx, struct bitslice label) {
-    return P(adr)(ctx, ctx->pc + 8 + bs_get(label, ctx->op));
+static INLINE tdis_ret P(adrlabel_label_unk_Rd_1_ADR)(tdis_ctx ctx, struct bitslice label, struct bitslice Rd) {
+    return P(pcrel)(ctx, ctx->pc + 8 + bs_get(label, ctx->op), bs_get(Rd, ctx->op), false);
 }
 static INLINE tdis_ret P(br_target_target_B_1_Bcc)(tdis_ctx ctx, struct bitslice target) {
     return P(branch)(ctx, ctx->pc + 8 + sext(bs_get(target, ctx->op), 24));
@@ -135,6 +136,24 @@ static INLINE tdis_ret P(unk_Rd_5_MOVTi16)(tdis_ctx ctx, struct bitslice Rd) {
 }
 static INLINE tdis_ret P(unk_Rt_13_MRC)(tdis_ctx ctx, struct bitslice Rt) {
     data(rout(Rt));
+}
+static INLINE tdis_ret P(GPR_Rn_reglist_regs_16_LDMDA)(tdis_ctx ctx, struct bitslice regs, UNUSED struct bitslice Rn) {
+    unsigned regs_val = bs_get(regs, ctx->op);
+    if(regs_val & (1 << 15))
+        return P(ret)(ctx);
+    return P(unidentified)(ctx);
+}
+static INLINE tdis_ret P(GPR_Rn_reglist_regs_S_16_STMDA)(tdis_ctx ctx, UNUSED struct bitslice regs, UNUSED struct bitslice Rn) {
+    return P(unidentified)(ctx);
+}
+static INLINE tdis_ret P(GPR_Rt_addr_offset_none_addr_unk_Rd_S_6_STLEX)(tdis_ctx ctx, struct bitslice Rt, struct bitslice Rd, struct bitslice addr) {
+    data(r(addr), r(Rt), r(Rd));
+}
+static INLINE tdis_ret P(addr_offset_none_addr_postidx_reg_Rm_unk_Rt_3_LDRHTr)(tdis_ctx ctx, struct bitslice Rm, struct bitslice Rt, struct bitslice addr) {
+    data(r(addr), rout(Rt), r(Rm));
+}
+static INLINE tdis_ret P(GPR_Rt_addr_offset_none_addr_postidx_reg_Rm_S_1_STRHTr)(tdis_ctx ctx, struct bitslice Rm, struct bitslice Rt, struct bitslice addr) {
+    data(r(addr), r(Rt), r(Rm));
 }
 
 static tdis_ret P(dis_arm)(tdis_ctx ctx) {

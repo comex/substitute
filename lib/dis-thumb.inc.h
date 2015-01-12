@@ -27,13 +27,13 @@ static INLINE tdis_ret P(t_adrlabel_addr_1_tADR)(tdis_ctx ctx, struct bitslice a
     return P(pcrel)(ctx, ((ctx->pc + 4) & ~2) + bs_get(addr, ctx->op), bs_get(Rd, ctx->op), false);
 }
 static INLINE tdis_ret P(t_bcctarget_target_B_1_tBcc)(tdis_ctx ctx, struct bitslice target) {
-    return P(branch)(ctx->pc + 2 + sext(bs_get(target, ctx->op), 8);
+    return P(branch)(ctx->pc + 4 + 2 * sext(bs_get(target, ctx->op), 8);
 }
 static INLINE tdis_ret P(t_brtarget_target_B_1_tB)(tdis_ctx ctx, struct bitslice target) {
-    return P(branch)(ctx->pc + 2 + sext(bs_get(target, ctx->op), 11);
+    return P(branch)(ctx->pc + 4 + 2 * sext(bs_get(target, ctx->op), 11);
 }
 static INLINE tdis_ret P(t_cbtarget_target_B_2_tCBNZ)(tdis_ctx ctx, struct bitslice target) {
-    return P(branch)(ctx->pc + 2 + bs_get(target, ctx->op);
+    return P(branch)(ctx->pc + 4 + 2 * bs_get(target, ctx->op);
 }
 
 static tdis_ret P(dis_thumb)(tdis_ctx ctx) {

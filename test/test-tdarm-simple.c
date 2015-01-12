@@ -13,7 +13,7 @@ typedef struct tc {
 } *tdis_ctx;
 #define P(x) P_##x
 
-__attribute__((noinline))
+NOINLINE
 static tdis_ret P_data(struct tc *ctx, unsigned o0, unsigned o1, unsigned o2, unsigned o3, unsigned out_mask) {
     printf("data: %08x\n", ctx->op);
     unsigned os[] = {o0, o1, o2, o3};
@@ -27,19 +27,25 @@ static tdis_ret P_data(struct tc *ctx, unsigned o0, unsigned o1, unsigned o2, un
     return (tdis_ret) {true};
 }
 
-__attribute__((noinline))
-static tdis_ret P_adr(struct tc *ctx, UNUSED uint32_t dpc) {
+NOINLINE
+static tdis_ret P_pcrel(struct tc *ctx, UNUSED uint32_t dpc, UNUSED unsigned reg, UNUSED bool is_load) {
     printf("adr: %08x\n", ctx->op);
     return (tdis_ret) {false};
 }
 
-__attribute__((noinline))
+NOINLINE
+static tdis_ret P_ret(struct tc *ctx) {
+    printf("ret: %08x\n", ctx->op);
+    return (tdis_ret) {false};
+}
+
+NOINLINE
 static tdis_ret P_branch(struct tc *ctx, UNUSED uint32_t dpc) {
     printf("branch: %08x\n", ctx->op);
     return (tdis_ret) {false};
 }
 
-__attribute__((noinline))
+NOINLINE
 static tdis_ret P_unidentified(struct tc *ctx) {
     printf("unidentified: %08x\n", ctx->op);
     return (tdis_ret) {false};
