@@ -28,8 +28,8 @@ static tdis_ret P_data(struct tc *ctx, unsigned o0, unsigned o1, unsigned o2, un
 }
 
 NOINLINE UNUSED
-static tdis_ret P_pcrel(struct tc *ctx, UNUSED uint32_t dpc, UNUSED unsigned reg, UNUSED bool is_load) {
-    printf("adr: %08x\n", ctx->op);
+static tdis_ret P_pcrel(struct tc *ctx, uint32_t dpc, unsigned reg, bool is_load) {
+    printf("adr%s: %08x => %08x r%u\n", is_load ? "+load" : "", ctx->op, dpc, reg);
     return (tdis_ret) {false};
 }
 
@@ -40,8 +40,8 @@ static tdis_ret P_ret(struct tc *ctx) {
 }
 
 NOINLINE UNUSED
-static tdis_ret P_branch(struct tc *ctx, UNUSED uint32_t dpc) {
-    printf("branch: %08x\n", ctx->op);
+static tdis_ret P_branch(struct tc *ctx, uint32_t dpc) {
+    printf("branch: %08x => %08x\n", ctx->op, dpc);
     return (tdis_ret) {false};
 }
 
