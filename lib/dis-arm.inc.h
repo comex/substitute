@@ -91,11 +91,11 @@ static INLINE tdis_ret P(addr_offset_none_addr_postidx_imm8s4_offset_S_4_STC2L_P
 static INLINE tdis_ret P(addr_offset_none_addr_unk_Rt_13_LDA)(tdis_ctx ctx, struct bitslice Rt, struct bitslice addr) {
     data(r(addr), rout(Rt));
 }
-static INLINE tdis_ret P(addrmode3_addr_unk_Rt_4_LDRD)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
+static INLINE tdis_ret P(addrmode3_addr_unk_Rt_4_LDRD)(tdis_ctx ctx, struct bitslice addr, UNUSED struct bitslice Rt) {
     /* ignoring Rt2 = Rt + 1, but it isn't supposed to load PC anyway */
     data(rs(addr, 9, 4), rs(addr, 0, 4));
 }
-static INLINE tdis_ret P(addrmode3_pre_addr_unk_Rt_4_LDRD_PRE)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
+static INLINE tdis_ret P(addrmode3_pre_addr_unk_Rt_4_LDRD_PRE)(tdis_ctx ctx, struct bitslice addr, UNUSED struct bitslice Rt) {
     data(rs(addr, 9, 4), rs(addr, 0, 4));
 }
 static INLINE tdis_ret P(addrmode5_addr_8_LDC2L_OFFSET)(tdis_ctx ctx, struct bitslice addr) {
@@ -159,5 +159,7 @@ static INLINE tdis_ret P(GPR_Rt_addr_offset_none_addr_postidx_reg_Rm_S_1_STRHTr)
 static tdis_ret P(dis_arm)(tdis_ctx ctx) {
     unsigned op = ctx->op;
     #include "../generated/transform-dis-arm.inc.h"
+    /* clang doesn't realize that this is unreachable * and generates code like
+     * "and ecx, 0x1f; cmp ecx, 0x1f; ja abort".  Yeah, nice job there. */
     __builtin_abort();
 }

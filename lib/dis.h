@@ -3,8 +3,8 @@
 #include <stdbool.h>
 
 #define UNUSED __attribute__((unused))
-#define INLINE inline __attribute__((always_inline))
-#define NOINLINE inline __attribute__((noinline))
+#define INLINE __attribute__((always_inline))
+#define NOINLINE __attribute__((noinline))
 
 struct bitslice_run {
     int inpos, outpos, len;

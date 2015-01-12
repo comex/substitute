@@ -9,12 +9,7 @@ IMAON2 := /Users/comex/c/imaon2
 GEN_JS := node $(IMAON2)/tables/gen.js
 
 all: \
-	out/libsubstitute.dylib \
-	out/test-find-syms \
-	out/test-find-syms-cpp \
-	out/test-substrate \
-	out/test-dis \
-	out/test-tdarm-simple
+	out/libsubstitute.dylib
 
 $(shell mkdir -p out)
 
@@ -45,8 +40,11 @@ out/libsubstitute.dylib: $(LIB_OBJS)
 define define_test
 out/test-$(1): test/test-$(2).c* $(HEADERS) Makefile out/libsubstitute.dylib
 	$(3) -o $$@ $$< -Ilib -Isubstrate -Lout -lsubstitute
+all: out/test-$(1)
 endef
-$(eval $(call define_test,tdarm-simple,tdarm-simple,$(CC) -std=c11))
+$(eval $(call define_test,tdarm-simple,td-simple,$(CC) -std=c11 -DPDIS=P_dis_arm -DHDR='"dis-arm.inc.h"'))
+$(eval $(call define_test,tdthumb-simple,td-simple,$(CC) -std=c11 -DPDIS=P_dis_thumb -DHDR='"dis-thumb.inc.h"'))
+$(eval $(call define_test,tdthumb2-simple,td-simple,$(CC) -std=c11 -DPDIS=P_dis_thumb2 -DHDR='"dis-thumb2.inc.h"'))
 $(eval $(call define_test,dis,dis,$(CC) -std=c11))
 $(eval $(call define_test,find-syms,find-syms,$(CC) -std=c89))
 $(eval $(call define_test,find-syms-cpp,find-syms,$(CXX) -x c++ -std=c++98))
@@ -55,7 +53,6 @@ $(eval $(call define_test,substrate,substrate,$(CXX) -std=c++98))
 generated: Makefile
 	rm -rf generated
 	mkdir generated
-
 
 clean:
 	rm -rf out
