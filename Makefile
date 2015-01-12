@@ -1,9 +1,9 @@
 # todo
 CC := clang
 CXX := clang++
-CFLAGS := -O3 -Wall -Wextra -Werror -arch x86_64 
+CFLAGS := -O3 -Wall -Wextra -Werror -arch x86_64
 override CC := $(CC) $(CFLAGS)
-override CXX := $(CXX) $(CFLAGS) -fno-exceptions -fno-asynchronous-unwind-tables
+override CXX := $(CXX) $(CFLAGS)
 
 IMAON2 := /Users/comex/c/imaon2
 GEN_JS := node $(IMAON2)/tables/gen.js
@@ -16,25 +16,27 @@ all: \
 	out/test-dis \
 	out/test-tdarm-simple
 
-$(shell mkdir -p out)
+out:
+	mkdir out
 
-HEADERS := lib/*.h generated/transform-dis-arm.inc.h
-out/%.o: lib/%.c Makefile $(HEADERS)
+out/%.o: lib/%.c Makefile out
 	$(CC) -fvisibility=hidden -std=c11 -c -o $@ $<
 
 LIB_OBJS := out/find-syms.o out/substrate-compat.o
-out/libsubstitute.dylib: $(LIB_OBJS)
+HEADERS := lib/*.h generated/*.h
+out/libsubstitute.dylib: $(LIB_OBJS) lib/*.h out
 	$(CC) -dynamiclib -fvisibility=hidden -o $@ $(LIB_OBJS)
 
-define define_test
-out/test-$(1): test/test-$(2).c* $(HEADERS) Makefile out/libsubstitute.dylib
-	$(3) -o $$@ $$< -Ilib -Isubstrate -Lout -lsubstitute
-endef
-$(eval $(call define_test,tdarm-simple,tdarm-simple,$(CXX) -std=c++1y))
-$(eval $(call define_test,dis,dis,$(CC) -std=c11))
-$(eval $(call define_test,find-syms,find-syms,$(CC) -std=c89))
-$(eval $(call define_test,find-syms-cpp,find-syms,$(CXX) -x c++ -std=c++98))
-$(eval $(call define_test,substrate,substrate,$(CXX) -std=c++98))
+out/test-tdarm-simple: test/test-tdarm-simple.c $(HEADERS) Makefile
+	$(CC) -std=c11 -o $@ $< -Ilib
+out/test-dis: test/test-dis.c $(HEADERS) Makefile
+	$(CC) -std=c11 -o $@ $< -Ilib
+out/test-%: test/test-%.c Makefile $(HEADERS) out/libsubstitute.dylib
+	$(CC) -std=c89 -o $@ $< -Ilib -Lout -lsubstitute
+out/test-%-cpp: test/test-%.c Makefile $(HEADERS) out/libsubstitute.dylib
+	$(CXX) -x c++ -std=c++98 -o $@ $< -Ilib -Lout -lsubstitute
+out/test-%: test/test-%.cpp Makefile $(HEADERS) out/libsubstitute.dylib
+	$(CXX) -std=c++11 -o $@ $< -Ilib -Isubstrate -Lout -lsubstitute
 
 generated: Makefile
 	rm -rf generated

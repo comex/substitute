@@ -11,15 +11,13 @@ typedef struct tc {
 } *tdis_ctx;
 #define P(x) P_##x
 
-__attribute__((noinline))
 static void P_data(struct tc *ctx, struct dis_data_operand *ops, size_t nops) {
     printf("data: %08x\n", ctx->op);
     for(size_t i = 0; i < nops; i++) {
-        const struct bitslice *n = ops[i].n;
-        unsigned val = bs_get(n, ctx->op);
+        unsigned val = bs_get(ops[i].n, ctx->op);
         printf("    {");
-        for(int j = 0; j < n->nruns; j++) {
-            struct bitslice_run run = n->runs[j];
+        for(int j = 0; j < ops[i].n.nruns; j++) {
+            struct bitslice_run run = ops[i].n.runs[j];
             printf(" %d:%d:%d", run.inpos, run.outpos, run.len);
         }
         printf(" } =>\n");
