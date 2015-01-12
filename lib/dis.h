@@ -1,4 +1,4 @@
-#pragma once
+
 #include <stdbool.h>
 
 #define UNUSED __attribute__((unused))
