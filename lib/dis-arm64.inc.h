@@ -19,6 +19,9 @@ static INLINE tdis_ret P(am_ldrlit_label_unk_Rt_6_LDRDl)(tdis_ctx ctx, struct bi
 static INLINE tdis_ret P(am_tbrcond_target_B_4_TBNZW)(tdis_ctx ctx, struct bitslice target) {
     return P(branch)(ctx, ctx->pc + sext(bs_get(target, ctx->op), 14) * 4);
 }
+static INLINE tdis_ret P(GPR64_Rn_1_RET)(tdis_ctx ctx, UNUSED struct bitslice Rn) {
+    return P(ret)(ctx);
+}
 
 static tdis_ret P(dis_arm64)(tdis_ctx ctx) {
     unsigned op = ctx->op;

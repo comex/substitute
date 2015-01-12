@@ -67,7 +67,7 @@ static const struct bitslice nullbs = { 0, NULL };
 #define rnull           nullbs,             false, false
 #define data(...) data_(__VA_ARGS__, rnull, rnull, rnull, rnull)
 #define data_(...) data__(__VA_ARGS__)
-#define data__(b1, o1, v1, b2, o2, v2, b3, o3, v3, b4, o4, v4, ...) \
+#define data__(b1, o1, v1, b2, o2, v2, b3, o3, v3, b4, o4, v4, ...) do { \
     tdis_ret ret = P(data)(ctx, \
         v1 ? bs_get(b1, ctx->op) : -1u, \
         v2 ? bs_get(b2, ctx->op) : -1u, \
@@ -77,7 +77,8 @@ static const struct bitslice nullbs = { 0, NULL };
         (o2 << 1) | \
         (o3 << 2) | \
         (o4 << 3)); \
-    if(ret.modify) { \
+    IF_BOTHER_WITH_MODIFY( \
+    if (ret.modify) { \
         unsigned new = ctx->op; \
         new = bs_set(b1, ctx->newval[0], new); \
         new = bs_set(b2, ctx->newval[1], new); \
@@ -85,5 +86,7 @@ static const struct bitslice nullbs = { 0, NULL };
         new = bs_set(b4, ctx->newval[3], new); \
         ctx->newop = new; \
     } \
-    return ret;
+    ) \
+    return ret; \
+} while (0)
 

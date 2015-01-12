@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
+#define IF_BOTHER_WITH_MODIFY(...) __VA_ARGS__
 #include "dis.h"
 
 typedef struct { bool modify; } tdis_ret;
