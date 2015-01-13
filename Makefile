@@ -51,6 +51,13 @@ $(eval $(call define_test,find-syms,find-syms,$(CC) -std=c89))
 $(eval $(call define_test,find-syms-cpp,find-syms,$(CXX) -x c++ -std=c++98))
 $(eval $(call define_test,substrate,substrate,$(CXX) -std=c++98))
 
+out/arm-insns.o: test/arm-insns.S Makefile
+	clang -arch armv7 -c -o $@ $<
+out/thumb2-insns.o: test/arm-insns.S Makefile
+	clang -arch armv7 -DTHUMB2 -c -o $@ $<
+out/%-insns.bin: out/%-insns.o Makefile
+	segedit -extract __TEXT __text $@ $<
+
 generated: Makefile
 	rm -rf generated
 	mkdir generated

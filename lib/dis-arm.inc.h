@@ -171,11 +171,14 @@ static INLINE tdis_ret P(unk_Rt_13_MRC)(tdis_ctx ctx, struct bitslice Rt) {
 }
 static INLINE tdis_ret P(GPR_Rn_reglist_regs_16_LDMDA)(tdis_ctx ctx, struct bitslice regs, UNUSED struct bitslice Rn) {
     unsigned regs_val = bs_get(regs, ctx->op);
-    if(regs_val & (1 << 15))
+    if (regs_val & (1 << 15))
         return P(ret)(ctx);
     return P(unidentified)(ctx);
 }
 static INLINE tdis_ret P(GPR_Rn_reglist_regs_S_16_STMDA)(tdis_ctx ctx, UNUSED struct bitslice regs, UNUSED struct bitslice Rn) {
+    unsigned regs_val = bs_get(regs, ctx->op);
+    if (regs_val & (1 << 15))
+        return P(bad)(ctx);
     return P(unidentified)(ctx);
 }
 static INLINE tdis_ret P(GPR_Rt_addr_offset_none_addr_unk_Rd_S_6_STLEX)(tdis_ctx ctx, struct bitslice Rt, struct bitslice Rd, struct bitslice addr) {
