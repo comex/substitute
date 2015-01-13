@@ -1,6 +1,14 @@
 #include "dis.h"
-static INLINE tdis_ret P(GPR_Rm_2_tADDhirr)(tdis_ctx ctx, struct bitslice Rm) {
-    data(r(Rm));
+static INLINE tdis_ret P(GPR_Rm_unk_Rdn_1_tADDhirr)(tdis_ctx ctx, struct bitslice Rdn, struct bitslice Rm) {
+    data(rout(Rdn), r(Rm), r(Rdn)); /* yes, twice */
+}
+static INLINE tdis_ret P(unk_Rdn_1_tADDrSP)(tdis_ctx ctx, UNUSED struct bitslice Rdn) {
+    /* this doesn't support constants, and nobody's going to add pc, sp, so... */
+    return P(unidentified)(ctx);
+}
+static INLINE tdis_ret P(GPR_Rm_1_tADDspr)(tdis_ctx ctx, UNUSED struct bitslice Rm) {
+    /* ditto */
+    return P(unidentified)(ctx);
 }
 static INLINE tdis_ret P(GPR_Rm_B_1_tBX)(tdis_ctx ctx, struct bitslice Rm) {
     unsigned val = bs_get(Rm, ctx->op);
