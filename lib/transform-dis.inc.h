@@ -1,55 +1,60 @@
 typedef struct {
     bool modify;
-} tdis_ret;
+    bool bad;
+} void;
+
 typedef struct tc {
+    uintptr_t pc_patch_start;
+    uintptr_t pc_patch_end;
     uintptr_t pc;
     int op_size;
     uint32_t op;
     uint32_t newop;
     uint32_t newval[4];
-    uintptr_t pc_patch_start;
-    uintptr_t pc_patch_end;
-    bool got_bad;
 
 } *tdis_ctx;
 
 NOINLINE UNUSED
-static tdis_ret P_data(struct tc *ctx, unsigned o0, unsigned o1, unsigned o2, unsigned o3, unsigned out_mask) {
+static void P_data(struct tc *ctx, unsigned o0, unsigned o1, unsigned o2, unsigned o3, unsigned out_mask) {
+    /
+    if (((o0 | o1 | o2 | o3) & (MAX_REGS - 1)) == (MAX_REGS - 1)) {
+
     __builtin_abort();
 }
 
 NOINLINE UNUSED
-static tdis_ret P_pcrel(struct tc *ctx, uintptr_t dpc, unsigned reg, bool is_load) {
+static void P_pcrel(struct tc *ctx, uintptr_t dpc, unsigned reg, bool is_load) {
     __builtin_abort();
 }
 
 NOINLINE UNUSED
-static tdis_ret P_ret(struct tc *ctx) {
+static void P_ret(struct tc *ctx) {
     /* ret is okay if it's at the end of the patch */
-    if (ctx->pc + op_size < ctx->pc_patch_end) 
-        ctx->got_bad = true;
-    printf("ret: %08x\n", ctx->op);
-    return (tdis_ret) {false};
+    if (ctx->pc + ctx->op_size >= ctx->pc_patch_end) 
+        return (void) {0};
+    else
+        return (void) {.bad = true};
 }
 
 NOINLINE UNUSED
-static tdis_ret P_branch(struct tc *ctx, uintptr_t dpc) {
+static void P_branch(struct tc *ctx, uintptr_t dpc) {
     if (dpc >= ctx->pc_patch_start && dpc < ctx->pc_patch_end) {
         /* don't support this for now */
-        ctx->got_bad = true;
+        return (void) {.bad = true};
     }
-    return (tdis_ret) {false};
+    /* branch out of bounds is fine */
+    return (void) {0};
 }
 
 NOINLINE UNUSED
-static tdis_ret P_unidentified(struct tc *ctx) {
-    return (tdis_ret) {false};
+static void P_unidentified(struct tc *ctx) {
+    /* this isn't exhaustive, so unidentified is fine */
+    return (void) {0};
 }
 
 NOINLINE UNUSED
-static tdis_ret P_bad(struct tc *ctx) {
-    ctx->got_bad = true;
-    return (tdis_ret) {false};
+static void P_bad(struct tc *ctx) {
+    return (void) {.bad = true};
 }
 
 #define P(x) transform_dis_##x

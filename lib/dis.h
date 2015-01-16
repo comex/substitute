@@ -1,6 +1,8 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
+#include <stdlib.h>
 
 #define UNUSED __attribute__((unused))
 #define INLINE __attribute__((always_inline))
@@ -71,34 +73,33 @@ enum pcrel_load_mode {
     PLM_U128_SIMD,
 };
 
-static const struct bitslice nullbs = { 0, NULL };
+static const struct bitslice null_bs = { 0, NULL };
+static const unsigned null_op = -0x100;
 #define r(nn)           nn,                 false, true
 #define rs(nn, l, s)    bs_slice(nn, l, s), false, true
 #define rout(nn)        nn,                 true,  true
 #define rsout(nn, l, s) bs_slice(nn, l, s), true,  true
-#define rnull           nullbs,             false, false
+#define rnull           null_bs,             false, false
 #define data(...) data_(__VA_ARGS__, rnull, rnull, rnull, rnull)
 #define data_(...) data__(__VA_ARGS__)
 #define data__(b1, o1, v1, b2, o2, v2, b3, o3, v3, b4, o4, v4, ...) do { \
-    tdis_ret ret = P(data)(ctx, \
-        v1 ? bs_get(b1, ctx->op) : -1u, \
-        v2 ? bs_get(b2, ctx->op) : -1u, \
-        v3 ? bs_get(b3, ctx->op) : -1u, \
-        v4 ? bs_get(b4, ctx->op) : -1u, \
+    P(data)(ctx, \
+        v1 ? bs_get(b1, ctx->op) : null_op, \
+        v2 ? bs_get(b2, ctx->op) : null_op, \
+        v3 ? bs_get(b3, ctx->op) : null_op, \
+        v4 ? bs_get(b4, ctx->op) : null_op, \
         (o1 << 0) | \
         (o2 << 1) | \
         (o3 << 2) | \
         (o4 << 3)); \
-    IF_BOTHER_WITH_MODIFY( \
-    if (ret.modify) { \
+    if (TDIS_CTX_MODIFY(ctx)) { \
         unsigned new = ctx->op; \
-        new = bs_set(b1, ctx->newval[0], new); \
-        new = bs_set(b2, ctx->newval[1], new); \
-        new = bs_set(b3, ctx->newval[2], new); \
-        new = bs_set(b4, ctx->newval[3], new); \
-        ctx->newop = new; \
+        new = bs_set(b1, TDIS_CTX_NEWVAL(ctx, 0), new); \
+        new = bs_set(b2, TDIS_CTX_NEWVAL(ctx, 1), new); \
+        new = bs_set(b3, TDIS_CTX_NEWVAL(ctx, 2), new); \
+        new = bs_set(b4, TDIS_CTX_NEWVAL(ctx, 3), new); \
+        TDIS_CTX_SET_NEWOP(ctx, new); \
     } \
-    ) \
-    return ret; \
+    return; \
 } while (0)
 
