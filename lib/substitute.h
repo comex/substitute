@@ -43,6 +43,10 @@ enum {
     /* substitute_interpose_imports: couldn't redo relocation for an import
      * because the type was unknown */
     SUBSTITUTE_ERR_UNKNOWN_RELOCATION_TYPE,
+
+    /* substitute_hook_objc_message: no such selector existed in the class's
+     * inheritance tree */
+    SUBSTITUTE_ERR_NO_SUCH_SELECTOR,
 };
 
 struct substitute_function_hook {
@@ -166,6 +170,34 @@ int substitute_interpose_imports(const struct substitute_image *handle,
 
 
 #endif /* 1 */
+
+#if defined(__APPLE__) && __BLOCKS__
+#include <objc/runtime.h>
+/* Hook a method implementation for a given Objective-C class.  By itself, this
+ * function is thread safe: it is simply a wrapper for the atomic Objective-C
+ * runtime call class_replaceMethod, plus the superclass-call generation
+ * functionality described below, and some code to ensure atomicity if the
+ * method is called while the function is in progress.  However, it will race
+ * with code that modifies class methods without using atomic runtime calls,
+ * such as Substrate.
+ *
+ * @klass            the class
+ * @selector         the selector
+ * @replacement      the new implementation
+ * @old_ptr          optional - out pointer to the 'old implementation'.
+ *                   If there is no old implementation, a custom IMP is
+ *                   returned that delegates to the superclass.  This IMP is
+ *                   created with imp_implementationWithBlock, so it can be
+ *                   freed if desired with imp_removeBlock.
+ * @created_imp_ptr  optional - out pointer to whether a fake superclass-call
+ *                   IMP has been placed in <old_ptr>
+ *
+ * @return           SUBSTITUTE_OK
+ *                   SUBSTITUTE_ERR_NO_SUCH_SELECTOR
+ */
+int substitute_hook_objc_message(Class klass, SEL selector, IMP replacement,
+                                 IMP *old_ptr, bool *created_imp_ptr);
+#endif
 
 #ifdef __cplusplus
 } /* extern */
