@@ -15,7 +15,8 @@
 enum { MAX_SEGMENTS = 32 };
 struct interpose_state {
     int nsegments;
-    segment_command_x *segments[MAX_SEGMENTS];
+    segment_command_x **segments;
+    segment_command_x *stack_segments[MAX_SEGMENTS];
     uintptr_t slide;
     const struct substitute_import_hook *hooks;
     size_t nhooks;
@@ -54,7 +55,6 @@ static int try_bind_section(void *bind, size_t size, const struct interpose_stat
     uint8_t type = lazy ? BIND_TYPE_POINTER : 0;
     intptr_t addend = 0;
     size_t offset = 0;
-    int n = 0;
     void *segment = NULL;
     while (ptr < end) {
         uint8_t byte = *(uint8_t *) ptr;
@@ -135,7 +135,7 @@ static int try_bind_section(void *bind, size_t size, const struct interpose_stat
             break;
         }
     }
-    return n;
+    return SUBSTITUTE_OK;
 }
 
 static void *off_to_addr(const struct interpose_state *st, uint32_t off) {
@@ -151,19 +151,29 @@ EXPORT
 int substitute_interpose_imports(const struct substitute_image *image,
                                  const struct substitute_import_hook *hooks,
                                  size_t nhooks, UNUSED int options) {
+    int ret = SUBSTITUTE_OK;
     struct interpose_state st;
     st.slide = image->slide;
     st.nsegments = 0;
     st.hooks = hooks;
     st.nhooks = nhooks;
+    st.segments = st.stack_segments;
 
     const mach_header_x *mh = image->image_header;
     const struct load_command *lc = (void *) (mh + 1);
     for (uint32_t i = 0; i < mh->ncmds; i++) {
         if (lc->cmd == LC_SEGMENT_X) {
             segment_command_x *sc = (void *) lc;
-            if (st.nsegments < MAX_SEGMENTS)
-                st.segments[st.nsegments++] = sc;
+            if (st.nsegments == MAX_SEGMENTS) {
+                segment_command_x **new = calloc(st.nsegments * 2, sizeof(*st.segments));
+                if (!new)
+                    substitute_panic("%s: out of memory\n", __func__);
+                memcpy(new, st.segments, st.nsegments * sizeof(*st.segments));
+                if (st.segments != st.stack_segments)
+                    free(st.segments);
+                st.segments = new;
+            }
+            st.segments[st.nsegments++] = sc;
         }
         lc = (void *) lc + lc->cmdsize;
     }
@@ -176,13 +186,16 @@ int substitute_interpose_imports(const struct substitute_image *image,
             if ((ret = try_bind_section(off_to_addr(&st, dc->bind_off), dc->bind_size, &st, false)) ||
                 (ret = try_bind_section(off_to_addr(&st, dc->weak_bind_off), dc->weak_bind_size, &st, false)) ||
                 (ret = try_bind_section(off_to_addr(&st, dc->lazy_bind_off), dc->lazy_bind_size, &st, true)))
-                return ret;
+                goto fail;
 
             break;
         }
         lc = (void *) lc + lc->cmdsize;
     }
-    return SUBSTITUTE_OK;
+fail:
+    if (st.segments != st.stack_segments)
+        free(st.segments);
+    return ret;
 }
 
 #endif /* __APPLE__ */

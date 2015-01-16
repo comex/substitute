@@ -60,6 +60,8 @@ static void P(add_to_queue)(struct jump_dis_ctx *ctx, uintptr_t pc) {
     if (ctx->queue_write_off == ctx->queue_read_off && (ctx->queue_count || !ctx->queue_size)) {
         size_t new_size = ctx->queue_size * 2 + 5;
         ctx->queue = realloc(ctx->queue, new_size * sizeof(*ctx->queue));
+        if (!ctx->queue)
+            substitute_panic("%s: out of memory\n", __func__);
         size_t new_read_off = new_size - (ctx->queue_size - ctx->queue_read_off);
         memmove(ctx->queue + new_read_off, ctx->queue + ctx->queue_read_off, (ctx->queue_size - ctx->queue_read_off) * sizeof(*ctx->queue));
         ctx->queue_read_off = new_read_off % new_size;
@@ -109,6 +111,7 @@ static void P(bad)(struct jump_dis_ctx *ctx) {
 static void P(dis)(tdis_ctx ctx);
 
 bool P(main)(void *code_ptr, uintptr_t pc_patch_start, uintptr_t pc_patch_end, bool pc_low_bit) {
+    bool ret;
     struct jump_dis_ctx ctx;
     memset(&ctx, 0, sizeof(ctx));
     ctx.pc_patch_start = pc_patch_start;
@@ -128,8 +131,10 @@ bool P(main)(void *code_ptr, uintptr_t pc_patch_start, uintptr_t pc_patch_end, b
             ctx.bad_insn,
             ctx.continue_after_this_insn);
 #endif
-        if (ctx.bad_insn)
-            return true;
+        if (ctx.bad_insn) {
+            ret = true;
+            goto fail;
+        }
         if (ctx.continue_after_this_insn)
             P(add_to_queue)(&ctx, ctx.pc + ctx.op_size);
 
@@ -141,5 +146,8 @@ bool P(main)(void *code_ptr, uintptr_t pc_patch_start, uintptr_t pc_patch_end, b
         ctx.queue_count--;
     }
     /* no bad instructions! */
-    return false;
+    ret = false;
+fail:
+    free(ctx.queue);
+    return ret;
 }
