@@ -1,5 +1,7 @@
 #include "dis.h"
 
+/* TODO: handle 'it' for conditional br/ret!! */
+
 static inline enum pcrel_load_mode get_thumb_load_mode(unsigned op) {
     bool sign = (op >> 8) & 1;
     switch ((op >> 5) & 3) {

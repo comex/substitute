@@ -1,10 +1,11 @@
 #pragma once
 
+#include "substitute-internal.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 
-#define UNUSED __attribute__((unused))
 #define INLINE __attribute__((always_inline))
 #define NOINLINE __attribute__((noinline))
 

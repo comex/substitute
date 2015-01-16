@@ -19,6 +19,8 @@
     LDR:   11111 00 0 U 10 1 1111
 */
 
+/* TODO: bx lr, and handle conditionals */
+
 static inline enum pcrel_load_mode get_arm_load_mode(unsigned op) {
     if ((op & 0x7000090) == 0x90) {
         return ((op >> 22) & 1) ? PLM_U8 : PLM_U32;

@@ -32,6 +32,7 @@ out/jump-dis-arm-multi.o: generated/generic-dis-arm.inc.h generated/generic-dis-
 
 LIB_OBJS := \
 	out/find-syms.o \
+	out/interpose.o \
 	out/substrate-compat.o \
 	out/jump-dis-arm-multi.o
 out/libsubstitute.dylib: $(LIB_OBJS)

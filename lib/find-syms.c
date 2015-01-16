@@ -1,9 +1,6 @@
 #ifdef __APPLE__
 
 #include <stdbool.h>
-#include <mach-o/loader.h>
-#include <mach-o/dyld.h>
-#include <mach-o/dyld_images.h>
 #include <dlfcn.h>
 #include <pthread.h>
 
@@ -16,17 +13,6 @@ static pthread_once_t dyld_inspect_once = PTHREAD_ONCE_INIT;
 /* and its fruits: */
 static uintptr_t (*ImageLoaderMachO_getSlide)(void *);
 static const struct mach_header *(*ImageLoaderMachO_machHeader)(void *);
-#ifdef __LP64__
-typedef struct mach_header_64 mach_header_x;
-typedef struct segment_command_64 segment_command_x;
-typedef struct section_64 section_x;
-#define LC_SEGMENT_X LC_SEGMENT_64
-#else
-typedef struct mach_header mach_header_x;
-typedef struct segment_command segment_command_x;
-typedef struct section section_x;
-#define LC_SEGMENT_X LC_SEGMENT
-#endif
 
 static void *sym_to_ptr(substitute_sym *sym, intptr_t slide) {
 	uintptr_t addr = sym->n_value;
@@ -109,7 +95,7 @@ static void inspect_dyld() {
 	intptr_t dyld_slide = -1;
 	find_syms_raw(dyld_hdr, &dyld_slide, names, syms, 2);
 	if (!syms[0] || !syms[1])
-		panic("couldn't find ImageLoader methods\n");
+		substitute_panic("couldn't find ImageLoader methods\n");
 	ImageLoaderMachO_getSlide = sym_to_ptr(syms[0], dyld_slide);
 	ImageLoaderMachO_machHeader = sym_to_ptr(syms[1], dyld_slide);
 }
@@ -143,8 +129,8 @@ void substitute_close_image(struct substitute_image *im) {
 
 EXPORT
 int substitute_find_private_syms(struct substitute_image *im, const char **names,
-                         substitute_sym **syms, size_t count) {
-	find_syms_raw(im->image_header, &im->slide, names, syms, count);
+                         substitute_sym **syms, size_t nsyms) {
+	find_syms_raw(im->image_header, &im->slide, names, syms, nsyms);
 	return SUBSTITUTE_OK;
 }
 
@@ -153,4 +139,4 @@ void *substitute_sym_to_ptr(struct substitute_image *handle, substitute_sym *sym
 	return sym_to_ptr(sym, handle->slide);
 }
 
-#endif
+#endif /* __APPLE__ */
