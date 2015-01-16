@@ -2,9 +2,9 @@
 
 #include <stdio.h>
 #define substitute_panic(...) do { \
-	fprintf(stderr, __VA_ARGS__); \
-	abort(); \
-	__builtin_unreachable(); \
+    fprintf(stderr, __VA_ARGS__); \
+    abort(); \
+    __builtin_unreachable(); \
 } while(0)
 
 #define EXPORT __attribute__ ((visibility("default")))

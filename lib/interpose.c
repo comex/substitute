@@ -17,8 +17,8 @@ struct interpose_state {
     int nsegments;
     segment_command_x *segments[MAX_SEGMENTS];
     uintptr_t slide;
-	const struct substitute_import_hook *hooks;
-	size_t nhooks;
+    const struct substitute_import_hook *hooks;
+    size_t nhooks;
 };
 
 static uintptr_t read_leb128(void **ptr, void *end, bool is_signed) {
@@ -108,30 +108,30 @@ static int try_bind_section(void *bind, size_t size, const struct interpose_stat
             goto bind;
         bind:
             if (segment && sym) {
-				const struct substitute_import_hook *h;
-				size_t i;
-				for (i = 0; i < st->nhooks; i++) {
-					h = &st->hooks[i];
-					// TODO abs/pcrel32? used on arm?
-					if (!strcmp(sym, h->name)) {
-						if (type != BIND_TYPE_POINTER)
-							return SUBSTITUTE_ERR_UNKNOWN_RELOCATION_TYPE;
-						break;
-					}
-				}
-				if (i != st->nhooks) {
-					while (count--) {
-						uintptr_t new = (uintptr_t) h->replacement + addend;
-						uintptr_t *p = (void *) (segment + offset);
-						uintptr_t old = __atomic_exchange_n(p, new, __ATOMIC_RELAXED);
-						if (h->old_ptr)
-							*(void **) h->old_ptr = (void *) (old - addend);
-						offset += stride;
-					}
-					break;
-				}
-			}
-			offset += count * stride;
+                const struct substitute_import_hook *h;
+                size_t i;
+                for (i = 0; i < st->nhooks; i++) {
+                    h = &st->hooks[i];
+                    // TODO abs/pcrel32? used on arm?
+                    if (!strcmp(sym, h->name)) {
+                        if (type != BIND_TYPE_POINTER)
+                            return SUBSTITUTE_ERR_UNKNOWN_RELOCATION_TYPE;
+                        break;
+                    }
+                }
+                if (i != st->nhooks) {
+                    while (count--) {
+                        uintptr_t new = (uintptr_t) h->replacement + addend;
+                        uintptr_t *p = (void *) (segment + offset);
+                        uintptr_t old = __atomic_exchange_n(p, new, __ATOMIC_RELAXED);
+                        if (h->old_ptr)
+                            *(void **) h->old_ptr = (void *) (old - addend);
+                        offset += stride;
+                    }
+                    break;
+                }
+            }
+            offset += count * stride;
             break;
         }
     }
@@ -154,10 +154,10 @@ int substitute_interpose_imports(const struct substitute_image *image,
     struct interpose_state st;
     st.slide = image->slide;
     st.nsegments = 0;
-	st.hooks = hooks;
-	st.nhooks = nhooks;
+    st.hooks = hooks;
+    st.nhooks = nhooks;
 
-	const mach_header_x *mh = image->image_header;
+    const mach_header_x *mh = image->image_header;
     const struct load_command *lc = (void *) (mh + 1);
     for (uint32_t i = 0; i < mh->ncmds; i++) {
         if (lc->cmd == LC_SEGMENT_X) {
@@ -172,17 +172,17 @@ int substitute_interpose_imports(const struct substitute_image *image,
     for (uint32_t i = 0; i < mh->ncmds; i++) {
         if (lc->cmd == LC_DYLD_INFO || lc->cmd == LC_DYLD_INFO_ONLY) {
             struct dyld_info_command *dc = (void *) lc;
-			int ret;
+            int ret;
             if ((ret = try_bind_section(off_to_addr(&st, dc->bind_off), dc->bind_size, &st, false)) ||
                 (ret = try_bind_section(off_to_addr(&st, dc->weak_bind_off), dc->weak_bind_size, &st, false)) ||
                 (ret = try_bind_section(off_to_addr(&st, dc->lazy_bind_off), dc->lazy_bind_size, &st, true)))
-				return ret;
+                return ret;
 
             break;
         }
         lc = (void *) lc + lc->cmdsize;
     }
-	return SUBSTITUTE_OK;
+    return SUBSTITUTE_OK;
 }
 
 #endif /* __APPLE__ */
