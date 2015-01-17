@@ -1,25 +1,19 @@
 #ifdef __APPLE__
 
-
 #include <stdint.h>
 #include <stdbool.h>
-//#include <stdlib.h>
-//#include <stdio.h>
-//#include <string.h>
-
 
 #include "substitute.h"
 #include "substitute-internal.h"
 
-
-enum { MAX_SEGMENTS = 32 };
 struct interpose_state {
-    int nsegments;
+    size_t nsegments;
     segment_command_x **segments;
-    segment_command_x *stack_segments[MAX_SEGMENTS];
+    size_t max_segments;
     uintptr_t slide;
     const struct substitute_import_hook *hooks;
     size_t nhooks;
+    segment_command_x *stack_segments[32];
 };
 
 static uintptr_t read_leb128(void **ptr, void *end, bool is_signed) {
@@ -48,8 +42,8 @@ static inline char *read_cstring(void **ptr, void *end) {
     return s;
 }
 
-
-static int try_bind_section(void *bind, size_t size, const struct interpose_state *st, bool lazy) {
+static int try_bind_section(void *bind, size_t size, const struct interpose_state *st,
+                            bool lazy) {
     void *ptr = bind, *end = bind + size;
     const char *sym = NULL;
     uint8_t type = lazy ? BIND_TYPE_POINTER : 0;
@@ -112,21 +106,45 @@ static int try_bind_section(void *bind, size_t size, const struct interpose_stat
                 size_t i;
                 for (i = 0; i < st->nhooks; i++) {
                     h = &st->hooks[i];
-                    // TODO abs/pcrel32? used on arm?
-                    if (!strcmp(sym, h->name)) {
-                        if (type != BIND_TYPE_POINTER)
-                            return SUBSTITUTE_ERR_UNKNOWN_RELOCATION_TYPE;
+                    if (!strcmp(sym, h->name))
                         break;
-                    }
                 }
                 if (i != st->nhooks) {
                     while (count--) {
                         uintptr_t new = (uintptr_t) h->replacement + addend;
-                        uintptr_t *p = (void *) (segment + offset);
-                        uintptr_t old = __atomic_exchange_n(p, new, __ATOMIC_RELAXED);
+                        uintptr_t old;
+                        void *p = (void *) (segment + offset);
+                        switch (type) {
+                        case BIND_TYPE_POINTER: {
+                            old = __atomic_exchange_n((uintptr_t *) p, new, __ATOMIC_RELAXED);
+                            break;
+                        }
+                        case BIND_TYPE_TEXT_ABSOLUTE32: {
+                            if ((uint32_t) new != new) {
+                                /* text rels should only show up on i386, where
+                                 * this is impossible... */
+                                panic("bad TEXT_ABSOLUTE32 rel\n");
+                            }
+                            old = __atomic_exchange_n((uint32_t *) p, (uint32_t) new, __ATOMIC_RELAXED);
+                            break;
+                        }
+                        case BIND_TYPE_TEXT_PCREL32: {
+                            uintptr_t pc = (uintptr_t) p + 4;
+                            uintptr_t rel = new - pc;
+                            if ((uint32_t) rel != rel) {
+                                /* ditto */
+                                panic("bad TEXT_ABSOLUTE32 rel\n");
+                            }
+                            old = __atomic_exchange_n((uint32_t *) p, (uint32_t) rel, __ATOMIC_RELAXED);
+                            old += pc;
+                            break;
+                        }
+                        default:
+                            panic("unknown relocation type\n");
+                            break;
+                        }
                         if (h->old_ptr)
-                            *(void **) h->old_ptr = (void *) (old - addend);
-                        offset += stride;
+                            *(uintptr_t *) h->old_ptr = old - addend;
                     }
                     break;
                 }
@@ -139,7 +157,7 @@ static int try_bind_section(void *bind, size_t size, const struct interpose_stat
 }
 
 static void *off_to_addr(const struct interpose_state *st, uint32_t off) {
-    for (int i = 0; i < st->nsegments; i++) {
+    for (size_t i = 0; i < st->nsegments; i++) {
         const segment_command_x *sc = st->segments[i];
         if ((off - sc->fileoff) < sc->filesize)
             return (void *) (sc->vmaddr + st->slide + off - sc->fileoff);
@@ -150,21 +168,26 @@ static void *off_to_addr(const struct interpose_state *st, uint32_t off) {
 EXPORT
 int substitute_interpose_imports(const struct substitute_image *image,
                                  const struct substitute_import_hook *hooks,
-                                 size_t nhooks, UNUSED int options) {
+                                 size_t nhooks, int options) {
     int ret = SUBSTITUTE_OK;
+
+    if (options != 0)
+        panic("%s: unrecognized options\n", __func__);
+
     struct interpose_state st;
     st.slide = image->slide;
     st.nsegments = 0;
     st.hooks = hooks;
     st.nhooks = nhooks;
     st.segments = st.stack_segments;
+    st.max_segments = sizeof(st.stack_segments) / sizeof(*st.stack_segments);
 
     const mach_header_x *mh = image->image_header;
     const struct load_command *lc = (void *) (mh + 1);
     for (uint32_t i = 0; i < mh->ncmds; i++) {
         if (lc->cmd == LC_SEGMENT_X) {
             segment_command_x *sc = (void *) lc;
-            if (st.nsegments == MAX_SEGMENTS) {
+            if (st.nsegments == st.max_segments) {
                 segment_command_x **new = calloc(st.nsegments * 2, sizeof(*st.segments));
                 if (!new)
                     substitute_panic("%s: out of memory\n", __func__);

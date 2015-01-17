@@ -58,6 +58,7 @@ $(eval $(call define_test,substrate,substrate,$(CXX) -std=c++98))
 $(eval $(call define_test,jump-dis,jump-dis,$(CC) -std=c11))
 $(eval $(call define_test,imp-forwarding,imp-forwarding,$(CC) -std=c11 -framework Foundation -lobjc))
 $(eval $(call define_test,objc-hook,objc-hook,$(CC) -std=c11 -framework Foundation -lsubstitute))
+$(eval $(call define_test,interpose,interpose,$(CC) -std=c11 -lsubstitute))
 
 out/insns-arm.o: test/insns-arm.S Makefile
 	clang -arch armv7 -c -o $@ $<
