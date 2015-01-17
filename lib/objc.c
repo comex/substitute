@@ -35,7 +35,7 @@ LIST_HEAD(tramp_info_page_list, tramp_info_page_header)
 
 extern char remap_start[];
 
-static int get_trampoline(void *func, void *arg1, void *arg2, void *tramp) {
+static int get_trampoline(void *func, void *arg1, void *arg2, void *tramp_ptr) {
     int ret, rerrno = 0;
     pthread_mutex_lock(&tramp_mutex);
 
@@ -89,7 +89,11 @@ static int get_trampoline(void *func, void *arg1, void *arg2, void *tramp) {
     entry->func = func;
     entry->arg1 = arg1;
     entry->arg2 = arg2;
-    *(void **) tramp = (page - PAGE_SIZE) + (entry - entries) * TRAMPOLINE_SIZE;
+    void *tramp = (page - PAGE_SIZE) + (entry - entries) * TRAMPOLINE_SIZE;
+#ifdef __arm__
+    tramp += 1;
+#endif
+    *(void **) tramp_ptr = tramp;
     ret = SUBSTITUTE_OK;
 out:
     pthread_mutex_unlock(&tramp_mutex);
@@ -126,41 +130,52 @@ static IMP dereference(IMP *old_ptr, UNUSED void *_) {
     return *old_ptr;
 }
 
-int substitute_hook_objc_message(Class class, SEL selector, IMP replacement,
-                                 IMP *old_ptr, bool *created_imp_ptr) {
+EXPORT
+int substitute_hook_objc_message(Class class, SEL selector, void *replacement,
+                                 void *old_ptr, bool *created_imp_ptr) {
     int ret;
-    Method meth = class_getClassMethod(class, selector);
+    Method meth = class_getInstanceMethod(class, selector);
     if (meth == NULL)
         return SUBSTITUTE_ERR_NO_SUCH_SELECTOR;
     const char *types = method_getTypeEncoding(meth);
 
+    if (created_imp_ptr)
+        *created_imp_ptr = false;
+
     /* temporary trampoline just tries again */
-    IMP temp;
-    if ((ret = get_trampoline(dereference, old_ptr, NULL, &temp)))
-        return ret;
-    *old_ptr = temp;
+    IMP temp = NULL;
+    if (old_ptr) {
+        if ((ret = get_trampoline(dereference, old_ptr, NULL, &temp)))
+            return ret;
+        *(IMP *) old_ptr = temp;
+    }
 
     IMP old = class_replaceMethod(class, selector, replacement, types);
     if (old) {
-        *old_ptr = old;
-        *created_imp_ptr = false;
+        if (old_ptr)
+            *(IMP *) old_ptr = old;
     } else {
-        Class super = class_getSuperclass(class);
-        if (!super) {
-            /* this ought to only be possible if the method was removed in the
-             * meantime, since we found the method above and it couldn't have
-             * been found in a superclass, but the objc2 runtime doesn't allow
-             * removing methods. */
-            panic("%s: no superclass but the method didn't exist\n", __func__);
+        if (old_ptr) {
+            Class super = class_getSuperclass(class);
+            if (!super) {
+                /* this ought to only be possible if the method was removed in
+                 * the meantime, since we found the method above and it
+                 * couldn't have been found in a superclass, but the objc2
+                 * runtime doesn't allow removing methods. */
+                panic("%s: no superclass but the method didn't exist\n", __func__);
+            }
+            ret = get_trampoline(class_getMethodImplementation, super, selector, old_ptr);
+            if (created_imp_ptr)
+                *created_imp_ptr = true;
         }
-        ret = get_trampoline(class_getMethodImplementation, super, selector, old_ptr);
-        *created_imp_ptr = true;
     }
 
-    free_trampoline(temp);
+    if (temp)
+        free_trampoline(temp);
     return SUBSTITUTE_OK;
 }
 
+EXPORT
 void substitute_free_created_imp(IMP imp) {
     free_trampoline(imp);
 }

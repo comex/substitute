@@ -44,7 +44,7 @@ out/libsubstitute.dylib: $(LIB_OBJS)
 
 define define_test
 out/test-$(1): test/test-$(2).[cm]* $(HEADERS) $(GENERATED) Makefile out/libsubstitute.dylib
-	$(3) -o $$@ $$< -Ilib -Isubstrate -Lout -lsubstitute
+	$(3) -g -o $$@ $$< -Ilib -Isubstrate -Lout -lsubstitute
 all: out/test-$(1)
 endef
 $(eval $(call define_test,tdarm-simple,td-simple,$(CC) -std=c11 -DHDR='"dis-arm.inc.h"' -Dxdis=dis_arm))
@@ -57,6 +57,7 @@ $(eval $(call define_test,find-syms-cpp,find-syms,$(CXX) -x c++ -std=c++98))
 $(eval $(call define_test,substrate,substrate,$(CXX) -std=c++98))
 $(eval $(call define_test,jump-dis,jump-dis,$(CC) -std=c11))
 $(eval $(call define_test,imp-forwarding,imp-forwarding,$(CC) -std=c11 -framework Foundation -lobjc))
+$(eval $(call define_test,objc-hook,objc-hook,$(CC) -std=c11 -framework Foundation -lsubstitute))
 
 out/insns-arm.o: test/insns-arm.S Makefile
 	clang -arch armv7 -c -o $@ $<

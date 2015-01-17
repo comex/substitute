@@ -7,9 +7,9 @@
 #endif
 #define _PAGE_SIZE (1 << _PAGE_SHIFT)
 #if defined(__x86_64__)
-#define TRAMPOLINE_SIZE 0x23
+#define TRAMPOLINE_SIZE 0x27
 #elif defined(__i386__)
-#define TRAMPOLINE_SIZE 0x1c
+#define TRAMPOLINE_SIZE 0x19
 #elif defined(__arm__)
 #define TRAMPOLINE_SIZE 0x18
 #elif defined(__arm64__)

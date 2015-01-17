@@ -187,7 +187,9 @@ int substitute_interpose_imports(const struct substitute_image *handle,
  *
  * @klass            the class
  * @selector         the selector
- * @replacement      the new implementation
+ * @replacement      the new implementation (other APIs would call this an
+ *                   IMP, but that isn't in general the real type of the
+ *                   implementation, so declared as a void * here)
  * @old_ptr          optional - out pointer to the 'old implementation'.
  *                   If there is no old implementation, a custom IMP is
  *                   returned that delegates to the superclass.  This IMP can
@@ -198,8 +200,8 @@ int substitute_interpose_imports(const struct substitute_image *handle,
  * @return           SUBSTITUTE_OK
  *                   SUBSTITUTE_ERR_NO_SUCH_SELECTOR
  */
-int substitute_hook_objc_message(Class klass, SEL selector, IMP replacement,
-                                 IMP *old_ptr, bool *created_imp_ptr);
+int substitute_hook_objc_message(Class klass, SEL selector, void *replacement,
+                                 void *old_ptr, bool *created_imp_ptr);
 
 void substitute_free_created_imp(IMP imp);
 #endif
