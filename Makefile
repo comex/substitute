@@ -4,7 +4,7 @@ CXX := clang++
 CFLAGS := -O3 -Wall -Wextra -Werror -arch x86_64
 override CC := $(CC) $(CFLAGS)
 override CXX := $(CXX) $(CFLAGS) -fno-exceptions -fno-asynchronous-unwind-tables
-
+LIB_LDFLAGS := -lobjc -dynamiclib -fvisibility=hidden
 IMAON2 := /Users/comex/c/imaon2
 GEN_JS := node --harmony --harmony_arrow_functions $(IMAON2)/tables/gen.js
 
@@ -40,7 +40,7 @@ LIB_OBJS := \
 	out/substrate-compat.o \
 	out/jump-dis-arm-multi.o
 out/libsubstitute.dylib: $(LIB_OBJS)
-	$(CC) -dynamiclib -fvisibility=hidden -o $@ $(LIB_OBJS) -lobjc
+	$(CC) -o $@ $(LIB_OBJS) $(LIB_LDFLAGS)
 
 define define_test
 out/test-$(1): test/test-$(2).[cm]* $(HEADERS) $(GENERATED) Makefile out/libsubstitute.dylib

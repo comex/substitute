@@ -34,10 +34,14 @@ enum {
      * patch region at the beginning */
     SUBSTITUTE_ERR_FUNC_JUMPS_TO_START,
 
-    /* mmap or mprotect failure other than ENOMEM (preserved in errno on return
-     * from the substitute_* function).  Most likely to come up with
-     * substitute_hook_functions, if the kernel is preventing pages from being
-     * marked executable. */
+    /* out of memory */
+    SUBSTITUTE_ERR_OOM,
+
+    /* substitute_hook_functions:    mmap or mprotect failure other than ENOMEM
+     *                               (preserved in errno on return)
+     * substitute_hook_objc_message: vm_remap failure
+     * Most likely to come up with substitute_hook_functions if the kernel is
+     * preventing pages from being marked executable. */
     SUBSTITUTE_ERR_VM,
 
     /* substitute_interpose_imports: couldn't redo relocation for an import
@@ -171,7 +175,7 @@ int substitute_interpose_imports(const struct substitute_image *handle,
 
 #endif /* 1 */
 
-#if defined(__APPLE__) && __BLOCKS__
+#if defined(__APPLE__)
 #include <objc/runtime.h>
 /* Hook a method implementation for a given Objective-C class.  By itself, this
  * function is thread safe: it is simply a wrapper for the atomic Objective-C
@@ -186,9 +190,8 @@ int substitute_interpose_imports(const struct substitute_image *handle,
  * @replacement      the new implementation
  * @old_ptr          optional - out pointer to the 'old implementation'.
  *                   If there is no old implementation, a custom IMP is
- *                   returned that delegates to the superclass.  This IMP is
- *                   created with imp_implementationWithBlock, so it can be
- *                   freed if desired with imp_removeBlock.
+ *                   returned that delegates to the superclass.  This IMP can
+ *                   be freed if desired with imp_removeBlock.
  * @created_imp_ptr  optional - out pointer to whether a fake superclass-call
  *                   IMP has been placed in <old_ptr>
  *
@@ -197,6 +200,8 @@ int substitute_interpose_imports(const struct substitute_image *handle,
  */
 int substitute_hook_objc_message(Class klass, SEL selector, IMP replacement,
                                  IMP *old_ptr, bool *created_imp_ptr);
+
+void substitute_free_created_imp(IMP imp);
 #endif
 
 #ifdef __cplusplus
