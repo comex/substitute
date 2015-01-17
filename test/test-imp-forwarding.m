@@ -31,6 +31,8 @@ int main() {
     SEL sel = @selector(some);
     IMP imp;
     assert(!get_trampoline(what_to_call, imp1, (void *) 0x123, &imp));
+    uint8_t *ip = (void *) imp;
+    assert(ip[TRAMPOLINE_SIZE] == ip[0]);
     printf("imp = %p\n", imp);
     ((void (*)(id, SEL, int, int)) imp)(@"foo", sel, 1, 2);
     free_trampoline(imp);
