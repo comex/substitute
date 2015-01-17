@@ -26,3 +26,28 @@ typedef struct section section_x;
 #define LC_SEGMENT_X LC_SEGMENT
 #endif
 #endif
+
+/* FORCE_* are for tests */
+#if defined(FORCE_TARGET_x86_64)
+    #define TARGET_x86_64
+#elif defined(FORCE_TARGET_i386)
+    #define TARGET_i386
+    #define TARGET_UNSUPPORTED
+#elif defined(FORCE_TARGET_arm)
+    #define TARGET_arm
+#elif defined(FORCE_TARGET_arm64)
+    #define TARGET_arm64
+#elif defined(__x86_64__)
+    #define TARGET_x86_64
+#elif defined(__i386__)
+    #define TARGET_i386
+#elif defined(__arm__)
+    #define TARGET_arm
+#elif defined(__arm64__)
+    #define TARGET_arm64
+#else
+    #error target?
+#endif
+#if defined(TARGET_x86_64) || defined(TARGET_i386)
+    #define TARGET_UNSUPPORTED
+#endif

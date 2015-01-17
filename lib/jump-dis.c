@@ -1,3 +1,5 @@
+#include "substitute-internal.h"
+#ifndef TARGET_UNSUPPORTED
 #include "dis.h"
 #include <stdint.h>
 #include <stdbool.h>
@@ -36,12 +38,15 @@ struct jump_dis_ctx {
    size_t queue_count;
 };
 
+#undef P
+#define P(x) jump_dis_##x
+
 #define tdis_ctx struct jump_dis_ctx *
 #define TDIS_CTX_MODIFY(ctx) 0
 #define TDIS_CTX_NEWVAL(ctx, n) 0
 #define TDIS_CTX_SET_NEWOP(ctx, new) ((void) 0)
 
-static void P(add_to_queue)(struct jump_dis_ctx *ctx, uintptr_t pc) {
+static void jump_dis_add_to_queue(struct jump_dis_ctx *ctx, uintptr_t pc) {
     size_t diff = (pc - ctx->pc_patch_start) / MIN_INSN_SIZE;
     if (diff >= JUMP_ANALYSIS_MAX_INSNS) {
 #ifdef JUMP_DIS_VERBOSE
@@ -73,21 +78,21 @@ static void P(add_to_queue)(struct jump_dis_ctx *ctx, uintptr_t pc) {
 }
 
 
-static INLINE inline void P(data)(UNUSED struct jump_dis_ctx *ctx, UNUSED unsigned o0, UNUSED unsigned o1, UNUSED unsigned o2, UNUSED unsigned o3, UNUSED unsigned out_mask) {
+static INLINE inline void jump_dis_data(UNUSED struct jump_dis_ctx *ctx, UNUSED unsigned o0, UNUSED unsigned o1, UNUSED unsigned o2, UNUSED unsigned o3, UNUSED unsigned out_mask) {
     /* on ARM, ignore mov PC jumps, as they're unlikely to be in the same function */
 }
 
-static INLINE inline void P(pcrel)(struct jump_dis_ctx *ctx, uintptr_t dpc, UNUSED unsigned reg, UNUSED bool is_load) {
+static INLINE inline void jump_dis_pcrel(struct jump_dis_ctx *ctx, uintptr_t dpc, UNUSED unsigned reg, UNUSED bool is_load) {
     ctx->bad_insn = dpc >= ctx->pc_patch_start && dpc < ctx->pc_patch_end;
 }
 
 NOINLINE UNUSED
-static void P(ret)(struct jump_dis_ctx *ctx) {
+static void jump_dis_ret(struct jump_dis_ctx *ctx) {
     ctx->continue_after_this_insn = false;
 }
 
 NOINLINE UNUSED
-static void P(branch)(struct jump_dis_ctx *ctx, uintptr_t dpc, bool conditional) {
+static void jump_dis_branch(struct jump_dis_ctx *ctx, uintptr_t dpc, bool conditional) {
     if (dpc >= ctx->pc_patch_start && dpc < ctx->pc_patch_end) {
         ctx->bad_insn = true;
         return;
@@ -95,22 +100,22 @@ static void P(branch)(struct jump_dis_ctx *ctx, uintptr_t dpc, bool conditional)
 #ifdef JUMP_DIS_VERBOSE
     printf("jump-dis: enqueueing %llx\n", (unsigned long long) dpc);
 #endif
-    P(add_to_queue)(ctx, dpc);
+    jump_dis_add_to_queue(ctx, dpc);
     ctx->continue_after_this_insn = conditional;
 }
 
 NOINLINE UNUSED
-static void P(unidentified)(UNUSED struct jump_dis_ctx *ctx) {
+static void jump_dis_unidentified(UNUSED struct jump_dis_ctx *ctx) {
 }
 
 NOINLINE UNUSED
-static void P(bad)(struct jump_dis_ctx *ctx) {
+static void jump_dis_bad(struct jump_dis_ctx *ctx) {
     ctx->continue_after_this_insn = false;
 }
 
-static void P(dis)(tdis_ctx ctx);
+static void jump_dis_dis(tdis_ctx ctx);
 
-bool P(main)(void *code_ptr, uintptr_t pc_patch_start, uintptr_t pc_patch_end, bool pc_low_bit) {
+bool jump_dis_main(void *code_ptr, uintptr_t pc_patch_start, uintptr_t pc_patch_end, bool pc_low_bit) {
     bool ret;
     struct jump_dis_ctx ctx;
     memset(&ctx, 0, sizeof(ctx));
@@ -122,7 +127,7 @@ bool P(main)(void *code_ptr, uintptr_t pc_patch_start, uintptr_t pc_patch_end, b
         ctx.bad_insn = false;
         ctx.continue_after_this_insn = true;
         ctx.ptr = code_ptr + (ctx.pc - pc_patch_start);
-        P(dis)(&ctx);
+        jump_dis_dis(&ctx);
 #ifdef JUMP_DIS_VERBOSE
         printf("jump-dis: pc=%llx op=%08x size=%x bad=%d continue_after=%d\n",
             (unsigned long long) ctx.pc,
@@ -136,7 +141,7 @@ bool P(main)(void *code_ptr, uintptr_t pc_patch_start, uintptr_t pc_patch_end, b
             goto fail;
         }
         if (ctx.continue_after_this_insn)
-            P(add_to_queue)(&ctx, ctx.pc + ctx.op_size);
+            jump_dis_add_to_queue(&ctx, ctx.pc + ctx.op_size);
 
         /* get next address */
         if (ctx.queue_read_off == ctx.queue_write_off)
@@ -151,3 +156,6 @@ fail:
     free(ctx.queue);
     return ret;
 }
+
+#include TARGET_DIS_HEADER
+#endif /* TARGET_UNSUPPORTED */

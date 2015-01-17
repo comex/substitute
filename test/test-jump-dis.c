@@ -1,6 +1,6 @@
 #define JUMP_DIS_VERBOSE
 #include <stdio.h>
-#include "jump-dis-arm-multi.c"
+#include "jump-dis.c"
 #include <stdlib.h>
 int main(UNUSED int argc, char **argv) {
     static char buf[1048576];

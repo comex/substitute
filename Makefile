@@ -30,7 +30,7 @@ out/%.o: lib/%.c Makefile $(HEADERS)
 	$(CC) -fvisibility=hidden -std=c11 -c -o $@ $<
 out/%.o: lib/%.S Makefile $(HEADERS)
 	$(CC) -fvisibility=hidden -c -o $@ $<
-out/jump-dis-arm-multi.o: generated/generic-dis-arm.inc.h generated/generic-dis-thumb.inc.h generated/generic-dis-thumb2.inc.h
+out/jump-dis.o: $(GENERATED)
 
 LIB_OBJS := \
 	out/find-syms.o \
@@ -38,7 +38,7 @@ LIB_OBJS := \
 	out/objc.o \
 	out/objc-asm.o \
 	out/substrate-compat.o \
-	out/jump-dis-arm-multi.o
+	out/jump-dis.o
 out/libsubstitute.dylib: $(LIB_OBJS)
 	$(CC) -o $@ $(LIB_OBJS) $(LIB_LDFLAGS)
 
@@ -47,15 +47,17 @@ out/test-$(1): test/test-$(2).[cm]* $(HEADERS) $(GENERATED) Makefile out/libsubs
 	$(3) -g -o $$@ $$< -Ilib -Isubstrate -Lout -lsubstitute
 all: out/test-$(1)
 endef
-$(eval $(call define_test,tdarm-simple,td-simple,$(CC) -std=c11 -DHDR='"dis-arm.inc.h"' -Dxdis=dis_arm))
-$(eval $(call define_test,tdthumb-simple,td-simple,$(CC) -std=c11 -DHDR='"dis-thumb.inc.h"' -Dxdis=dis_thumb))
-$(eval $(call define_test,tdthumb2-simple,td-simple,$(CC) -std=c11 -DHDR='"dis-thumb2.inc.h"' -Dxdis=dis_thumb2))
-$(eval $(call define_test,tdarm64-simple,td-simple,$(CC) -std=c11 -DHDR='"dis-arm64.inc.h"' -Dxdis=dis))
-$(eval $(call define_test,dis,dis,$(CC) -std=c11))
+$(eval $(call define_test,tdarm-simple,td-simple,$(CC) -std=c11 -DHDR='"dis-arm.inc.h"' -Dxdis=dis_arm -DFORCE_TARGET_arm))
+$(eval $(call define_test,tdthumb-simple,td-simple,$(CC) -std=c11 -DHDR='"dis-thumb.inc.h"' -Dxdis=dis_thumb -DFORCE_TARGET_arm))
+$(eval $(call define_test,tdthumb2-simple,td-simple,$(CC) -std=c11 -DHDR='"dis-thumb2.inc.h"' -Dxdis=dis_thumb2 -DFORCE_TARGET_arm))
+$(eval $(call define_test,tdarm64-simple,td-simple,$(CC) -std=c11 -DHDR='"dis-arm64.inc.h"' -Dxdis=dis -DFORCE_TARGET_arm64))
+$(eval $(call define_test,dis-arm,dis,$(CC) -std=c11 -DFORCE_TARGET_arm))
+$(eval $(call define_test,dis-arm64,dis,$(CC) -std=c11 -DFORCE_TARGET_arm64))
+$(eval $(call define_test,jump-dis-arm,jump-dis,$(CC) -std=c11 -DFORCE_TARGET_arm))
+$(eval $(call define_test,jump-dis-arm64,jump-dis,$(CC) -std=c11 -DFORCE_TARGET_arm64))
 $(eval $(call define_test,find-syms,find-syms,$(CC) -std=c89))
 $(eval $(call define_test,find-syms-cpp,find-syms,$(CXX) -x c++ -std=c++98))
 $(eval $(call define_test,substrate,substrate,$(CXX) -std=c++98))
-$(eval $(call define_test,jump-dis,jump-dis,$(CC) -std=c11))
 $(eval $(call define_test,imp-forwarding,imp-forwarding,$(CC) -std=c11 -framework Foundation -lobjc))
 $(eval $(call define_test,objc-hook,objc-hook,$(CC) -std=c11 -framework Foundation -lsubstitute))
 $(eval $(call define_test,interpose,interpose,$(CC) -std=c11 -lsubstitute))
