@@ -46,6 +46,7 @@ struct jump_dis_ctx {
 #define tdis_ctx struct jump_dis_ctx *
 #define TDIS_CTX_MODIFY(ctx) 0
 #define TDIS_CTX_NEWVAL(ctx, n) 0
+#define TDIS_CTX_NEWOP(ctx) 0
 #define TDIS_CTX_SET_NEWOP(ctx, new) ((void) 0)
 
 static void jump_dis_add_to_queue(struct jump_dis_ctx *ctx, uintptr_t pc) {

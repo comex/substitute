@@ -1,8 +1,11 @@
 #include "dis.h"
 
-/* TODO: handle 'it' for conditional br/ret!! */
+static inline unsigned flip16(unsigned op) {
+    return op >> 16 | op << 16;
+}
 
 static inline enum pcrel_load_mode get_thumb2_load_mode(unsigned op) {
+    op = flip16(op);
     bool sign = (op >> 8) & 1;
     switch ((op >> 5) & 3) {
         case 0: return sign ? PLM_S8 : PLM_U8;
@@ -162,11 +165,21 @@ static INLINE void P(unk_Rt_13_VMOVRRD)(tdis_ctx ctx, UNUSED struct bitslice Rt)
     return P(unidentified)(ctx);
 }
 
-static INLINE void P(dis_thumb2)(tdis_ctx ctx) {
-    uint32_t op = ctx->op = *(uint32_t *) ctx->ptr;
-    if (ctx->arch.thumb_it_length)
-        ctx->arch.thumb_it_length--;
-    ctx->op_size = 4;
+static INLINE void do_it(tdis_ctx ctx) {
+    uint32_t op = ctx->op;
     #include "../generated/generic-dis-thumb2.inc.h"
     __builtin_abort();
+}
+
+static INLINE void P(dis_thumb2)(tdis_ctx ctx) {
+    ctx->op = *(uint32_t *) ctx->ptr;
+    ctx->op_size = 4;
+    if (ctx->arch.thumb_it_length)
+        ctx->arch.thumb_it_length--;
+    /* LLVM likes to think about Thumb2 instructions the way the ARM manual
+     * does - 15..0 15..0 rather than 31..0 as actually laid out in memory... */
+    ctx->op = flip16(ctx->op);
+    do_it(ctx);
+    TDIS_CTX_SET_NEWOP(ctx, flip16(TDIS_CTX_NEWOP(ctx)));
+    ctx->op = flip16(ctx->op);
 }

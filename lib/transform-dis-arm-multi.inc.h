@@ -46,14 +46,14 @@ static inline void LDRxi(struct transform_dis_ctx *ctx, int Rt, int Rn, uint32_t
     if (ctx->pc_low_bit) {
         int subop, sign;
         switch (load_mode) {
-            case PLM_U8:  subop = 0; sign = 0;
-            case PLM_S8:  subop = 0; sign = 1;
-            case PLM_U16: subop = 1; sign = 0;
-            case PLM_S16: subop = 1; sign = 1;
-            case PLM_U32: subop = 2; sign = 0;
+            case PLM_U8:  subop = 0; sign = 0; break;
+            case PLM_S8:  subop = 0; sign = 1; break;
+            case PLM_U16: subop = 1; sign = 0; break;
+            case PLM_S16: subop = 1; sign = 1; break;
+            case PLM_U32: subop = 2; sign = 0; break;
             default: __builtin_abort();
         }
-        op32(ctx, 0x0000f8d0 | Rn | Rt << 28 | subop << 5 | sign << 8 | off << 16);
+        op32(ctx, 0x0000f890 | Rn | Rt << 28 | subop << 5 | sign << 8 | off << 16);
     } else {
         int is_byte, subop, not_ldrd;
         switch (load_mode) {
@@ -78,6 +78,10 @@ static inline void LDRxi(struct transform_dis_ctx *ctx, int Rt, int Rn, uint32_t
 
 static NOINLINE UNUSED void transform_dis_data(struct transform_dis_ctx *ctx,
         unsigned o0, unsigned o1, unsigned o2, unsigned o3, unsigned out_mask) {
+#ifdef TRANSFORM_DIS_VERBOSE
+    printf("transform_dis_data: (%p) %x %x %x %x out_mask=%x\n", (void *) ctx->pc,
+           o0, o1, o2, o3, out_mask);
+#endif
     /* We only care if at least one op is PC, so quickly test that. */
     if (((o0 | o1 | o2 | o3) & 15) != 15)
         return;
@@ -108,12 +112,18 @@ static NOINLINE UNUSED void transform_dis_data(struct transform_dis_ctx *ctx,
     int out_reg = -1;
     for (int i = 0; i < 4; i++) {
         if (out_mask & 1 << i)
-            out_reg = i;
+            out_reg = newval[i];
         else
             in_regs |= 1 << newval[i];
     }
     uint32_t pc = ctx->pc + (ctx->pc_low_bit ? 4 : 8);
     int scratch = __builtin_ctz(~(in_regs | (1 << out_reg)));
+
+#ifdef TRANSFORM_DIS_VERBOSE
+    printf("transform_dis_data: in_regs=%x out_reg=%d pc=%x scratch=%d\n",
+           in_regs, out_reg, pc, scratch);
+#endif
+
     if (out_reg == 15) {
         if (in_regs & 1 << 15)
             return; /* case 1 */
@@ -131,7 +141,7 @@ static NOINLINE UNUSED void transform_dis_data(struct transform_dis_ctx *ctx,
         if (out_reg != -1 && !(in_regs & 1 << out_reg)) {
             /* case 3 - ignore scratch */
             MOVW_MOVT(ctx, out_reg, pc);
-            for (int i = 1; i < 4; i++)
+            for (int i = 0; i < 4; i++)
                 if (newval[i] == 15)
                     newval[i] = out_reg;
             ctx->write_newop_here = *rpp; *rpp += ctx->op_size;
@@ -143,7 +153,7 @@ static NOINLINE UNUSED void transform_dis_data(struct transform_dis_ctx *ctx,
                 if (newval[i] == 15)
                     newval[i] = scratch;
             ctx->write_newop_here = *rpp; *rpp += ctx->op_size;
-            POPone(ctx, 1 << scratch);
+            POPone(ctx, scratch);
         }
     }
     ctx->modify = true;
@@ -151,8 +161,23 @@ static NOINLINE UNUSED void transform_dis_data(struct transform_dis_ctx *ctx,
 
 static NOINLINE UNUSED void transform_dis_pcrel(struct transform_dis_ctx *ctx,
         uintptr_t dpc, unsigned reg, enum pcrel_load_mode load_mode) {
+#ifdef TRANSFORM_DIS_VERBOSE
+    printf("transform_dis_pcrel: (%p) dpc=%p reg=%x mode=%d\n", (void *) ctx->pc,
+           (void *) dpc, reg, load_mode);
+#endif
     ctx->write_newop_here = NULL;
-    MOVW_MOVT(ctx, reg, dpc);
-    if (load_mode != PLM_ADR)
-        LDRxi(ctx, reg, reg, 0, load_mode);
+    if (reg == 15) {
+        int scratch = 0;
+        PUSHone(ctx, scratch);
+        PUSHone(ctx, scratch);
+        MOVW_MOVT(ctx, scratch, dpc);
+        if (load_mode != PLM_ADR)
+            LDRxi(ctx, scratch, scratch, 0, load_mode);
+        STRri(ctx, scratch, 13, 4);
+        POPmulti(ctx, 1 << scratch | 1 << 15);
+    } else {
+        MOVW_MOVT(ctx, reg, dpc);
+        if (load_mode != PLM_ADR)
+            LDRxi(ctx, reg, reg, 0, load_mode);
+    }
 }

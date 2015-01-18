@@ -32,6 +32,7 @@ struct transform_dis_ctx {
 #define tdis_ctx struct transform_dis_ctx *
 #define TDIS_CTX_MODIFY(ctx) ((ctx)->modify)
 #define TDIS_CTX_NEWVAL(ctx, n) ((ctx)->newval[n])
+#define TDIS_CTX_NEWOP(ctx) ((ctx)->newop)
 #define TDIS_CTX_SET_NEWOP(ctx, new) ((ctx)->newop = (new))
 
 /* largely similar to jump_dis */
@@ -44,6 +45,9 @@ static INLINE UNUSED void transform_dis_ret(struct transform_dis_ctx *ctx) {
 
 static INLINE UNUSED void transform_dis_branch(struct transform_dis_ctx *ctx,
         uintptr_t dpc, UNUSED bool conditional) {
+#ifdef TRANSFORM_DIS_VERBOSE
+    printf("transform_dis (%p): branch => %p\n", (void *) ctx->pc, (void *) dpc);
+#endif
     if (dpc >= ctx->pc_patch_start && dpc < ctx->pc_patch_end) {
         /* don't support this for now */
         ctx->err = SUBSTITUTE_ERR_FUNC_BAD_INSN_AT_START;
@@ -52,6 +56,9 @@ static INLINE UNUSED void transform_dis_branch(struct transform_dis_ctx *ctx,
 }
 
 static INLINE UNUSED void transform_dis_unidentified(UNUSED struct transform_dis_ctx *ctx) {
+#ifdef TRANSFORM_DIS_VERBOSE
+    printf("transform_dis (%p): unidentified\n", (void *) ctx->pc);
+#endif
     /* this isn't exhaustive, so unidentified is fine */
 }
 
@@ -78,10 +85,10 @@ int transform_dis_main(const void *restrict code_ptr,
     ctx.rewritten_ptr_ptr = rewritten_ptr_ptr;
     void *rewritten_start = *rewritten_ptr_ptr;
     int written_pcdiff = 0;
+    offset_by_pcdiff[written_pcdiff++] = 0;
     while (ctx.pc < ctx.pc_patch_end) {
         ctx.modify = false;
         ctx.err = 0;
-        ctx.newop = ctx.op;
         ctx.ptr = code_ptr + (ctx.pc - pc_patch_start);
         void *rewritten_ptr = *rewritten_ptr_ptr;
         ctx.write_newop_here = rewritten_ptr;
@@ -90,6 +97,8 @@ int transform_dis_main(const void *restrict code_ptr,
         if (ctx.err)
             return ctx.err;
         if (ctx.write_newop_here != NULL) {
+            if (!ctx.modify)
+                ctx.newop = ctx.op;
             if (ctx.op_size == 4)
                 *(uint32_t *) ctx.write_newop_here = ctx.newop;
             else if (ctx.op_size == 2)

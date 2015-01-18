@@ -71,9 +71,9 @@ static INLINE void P(it_pred_cc_it_mask_mask_1_t2IT)(tdis_ctx ctx, struct bitsli
 
 static INLINE void P(dis_thumb)(tdis_ctx ctx) {
     uint16_t op = ctx->op = *(uint16_t *) ctx->ptr;
+    ctx->op_size = 2;
     if (ctx->arch.thumb_it_length)
         ctx->arch.thumb_it_length--;
-    ctx->op_size = 2;
     #include "../generated/generic-dis-thumb.inc.h"
     __builtin_abort();
 }

@@ -17,7 +17,7 @@ add r0, pc, #123
 mcr p15,0,pc,c14,c3,0
 str r3, [pc, #5]
 str pc, [pc, #5]
-#ifdef THUMB2 // it shouldn't be, though
+#ifdef THUMB2 /* it shouldn't be, though */
 strht r0, [r3]
 #endif
 ldr r0, [pc]
@@ -35,13 +35,13 @@ ldrsb r1, [pc]
 ldrh  r1, [pc]
 ldrsh r1, [pc]
 ldr   r1, [pc]
-ldrd  r1, r2, [pc]
+ldrd  r0, r1, [pc]
 str   r1, [pc]
-strd  r1, r2, [pc]
+strd  r0, r1, [pc]
 
 push {r0-r3, pc}
 push {r0-r3, lr}
-pop {r0-r3, pc}
+/* pop {r0-r3, pc} */
 
 1:
 .long 0xdeadbeef

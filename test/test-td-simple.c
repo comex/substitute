@@ -17,6 +17,7 @@ typedef struct tc {
 #define P(x) P_##x
 #define TDIS_CTX_MODIFY(ctx) ((ctx)->modify)
 #define TDIS_CTX_NEWVAL(ctx, n) ((ctx)->newval[n])
+#define TDIS_CTX_NEWOP(ctx) ((ctx)->newop)
 #define TDIS_CTX_SET_NEWOP(ctx, new) ((ctx)->newop = (new))
 
 NOINLINE UNUSED
