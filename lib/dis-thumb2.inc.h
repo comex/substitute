@@ -100,10 +100,10 @@ static INLINE void P(rGPR_Rt_t2addrmode_imm8_pre_addr_S_2_t2STRB_PRE)(tdis_ctx c
     data(r(Rt), rs(addr, 9, 4));
 }
 static INLINE void P(rGPR_Rt_t2addrmode_imm8s4_addr_S_1_t2STRDi8)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
-    data(r(Rt), rs(addr, 9, 4));
+    data_flags(IS_LDRD_STRD, r(Rt), rs(addr, 9, 4));
 }
 static INLINE void P(rGPR_Rt_t2addrmode_imm8s4_pre_addr_S_1_t2STRD_PRE)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
-    data(r(Rt), rs(addr, 9, 4));
+    data_flags(IS_LDRD_STRD, r(Rt), rs(addr, 9, 4));
 }
 static INLINE void P(rGPR_Rt_t2addrmode_negimm8_addr_S_2_t2STRBi8)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
     data(r(Rt), rs(addr, 9, 4));
@@ -129,11 +129,11 @@ static INLINE void P(t2addrmode_imm8_pre_addr_unk_Rt_5_t2LDRB_PRE)(tdis_ctx ctx,
 static INLINE void P(addr_offset_none_Rn_t2am_imm8_offset_offset_unk_Rt_5_t2LDRB_POST)(tdis_ctx ctx, UNUSED struct bitslice offset, struct bitslice Rt, struct bitslice Rn) {
     data(rout(Rt), r(Rn));
 }
-static INLINE void P(t2addrmode_imm8s4_addr_unk_Rt_1_t2LDRDi8)(tdis_ctx ctx, struct bitslice addr, UNUSED struct bitslice Rt) {
-    data(rs(addr, 9, 4));
+static INLINE void P(t2addrmode_imm8s4_addr_unk_Rt_1_t2LDRDi8)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
+    data_flags(IS_LDRD_STRD, rout(Rt), rs(addr, 9, 4));
 }
-static INLINE void P(t2addrmode_imm8s4_pre_addr_unk_Rt_1_t2LDRD_PRE)(tdis_ctx ctx, struct bitslice addr, UNUSED struct bitslice Rt) {
-    data(rs(addr, 9, 4));
+static INLINE void P(t2addrmode_imm8s4_pre_addr_unk_Rt_1_t2LDRD_PRE)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
+    data_flags(IS_LDRD_STRD, rout(Rt), rs(addr, 9, 4));
 }
 static INLINE void P(t2addrmode_negimm8_addr_unk_Rt_5_t2LDRBi8)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
     data(rout(Rt), rs(addr, 9, 4));

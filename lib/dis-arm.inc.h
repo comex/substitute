@@ -65,16 +65,20 @@ static INLINE void P(GPR_Rt_addr_offset_none_addr_am2offset_reg_offset_S_4_STRBT
     data(r(addr), rs(offset, 0, 4), r(Rt));
 }
 static INLINE void P(GPR_Rt_addr_offset_none_addr_am3offset_offset_S_2_STRD_POST)(tdis_ctx ctx, struct bitslice offset, struct bitslice Rt, struct bitslice addr) {
-    data(r(addr), rs(offset, 0, 4), r(Rt));
+    data_flags(IS_LDRD_STRD, r(Rt), r(addr), rs(offset, 0, 4));
 }
 static INLINE void P(GPR_Rt_addr_offset_none_addr_postidx_imm8_offset_S_1_STRHTi)(tdis_ctx ctx, UNUSED struct bitslice offset, struct bitslice Rt, struct bitslice addr) {
     data(r(addr), r(Rt));
 }
 static INLINE void P(GPR_Rt_addrmode3_addr_S_2_STRD)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
-    data(rs(addr, 9, 4), rs(addr, 0, 4), r(Rt));
+    unsigned addr_val = bs_get(addr, ctx->op);
+    if (addr_val & 1 << 13)
+        data_flags(IS_LDRD_STRD, r(Rt), rs(addr, 9, 4));
+    else
+        data_flags(IS_LDRD_STRD, r(Rt), rs(addr, 9, 4), rs(addr, 0, 4));
 }
 static INLINE void P(GPR_Rt_addrmode3_pre_addr_S_2_STRD_PRE)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
-    data(rs(addr, 9, 4), rs(addr, 0, 4), r(Rt));
+    return P(GPR_Rt_addrmode3_addr_S_2_STRD)(ctx, addr, Rt);
 }
 static INLINE void P(GPR_Rt_addrmode_imm12_addr_S_1_STRi12)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
     data(rs(addr, 13, 4), r(Rt));
@@ -125,12 +129,16 @@ static INLINE void P(addr_offset_none_addr_postidx_imm8s4_offset_S_4_STC2L_POST)
 static INLINE void P(addr_offset_none_addr_unk_Rt_13_LDA)(tdis_ctx ctx, struct bitslice Rt, struct bitslice addr) {
     data(rout(Rt), r(addr));
 }
-static INLINE void P(addrmode3_addr_unk_Rt_4_LDRD)(tdis_ctx ctx, struct bitslice addr, UNUSED struct bitslice Rt) {
-    /* ignoring Rt2 = Rt + 1, but it isn't supposed to load PC anyway */
-    data(rs(addr, 9, 4), rs(addr, 0, 4));
+static INLINE void P(addrmode3_addr_unk_Rt_4_LDRD)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
+    /* ignoring Rt2 = Rt + 1, but LDRD itself isn't supposed to load PC anyway */
+    unsigned addr_val = bs_get(addr, ctx->op);
+    if (addr_val & 1 << 13)
+        data_flags(IS_LDRD_STRD, rout(Rt), rs(addr, 9, 4));
+    else
+        data_flags(IS_LDRD_STRD, rout(Rt), rs(addr, 9, 4), rs(addr, 0, 4));
 }
-static INLINE void P(addrmode3_pre_addr_unk_Rt_4_LDRD_PRE)(tdis_ctx ctx, struct bitslice addr, UNUSED struct bitslice Rt) {
-    data(rs(addr, 9, 4), rs(addr, 0, 4));
+static INLINE void P(addrmode3_pre_addr_unk_Rt_4_LDRD_PRE)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
+    return P(addrmode3_addr_unk_Rt_4_LDRD)(ctx, addr, Rt);
 }
 static INLINE void P(addrmode5_addr_8_LDC2L_OFFSET)(tdis_ctx ctx, struct bitslice addr) {
     data(rs(addr, 9, 4));

@@ -113,9 +113,11 @@ static NOINLINE UNUSED void transform_dis_data(struct transform_dis_ctx *ctx,
     for (int i = 0; i < 4; i++) {
         if (out_mask & 1 << i)
             out_reg = newval[i];
-        else
+        else if (newval[i] != null_op)
             in_regs |= 1 << newval[i];
     }
+    if (out_mask & IS_LDRD_STRD)
+        in_regs |= 1 << (newval[0] + 1);
     uint32_t pc = ctx->pc + (ctx->pc_low_bit ? 4 : 8);
     int scratch = __builtin_ctz(~(in_regs | (1 << out_reg)));
 
@@ -149,7 +151,7 @@ static NOINLINE UNUSED void transform_dis_data(struct transform_dis_ctx *ctx,
             /* case 4 */
             PUSHone(ctx, scratch);
             MOVW_MOVT(ctx, scratch, pc);
-            for (int i = 1; i < 4; i++)
+            for (int i = 0; i < 4; i++)
                 if (newval[i] == 15)
                     newval[i] = scratch;
             ctx->write_newop_here = *rpp; *rpp += ctx->op_size;
@@ -157,6 +159,10 @@ static NOINLINE UNUSED void transform_dis_data(struct transform_dis_ctx *ctx,
         }
     }
     ctx->modify = true;
+#ifdef TRANSFORM_DIS_VERBOSE
+    printf("transform_dis_data: => %x %x %x %x\n",
+           newval[0], newval[1], newval[2], newval[3]);
+#endif
 }
 
 static NOINLINE UNUSED void transform_dis_pcrel(struct transform_dis_ctx *ctx,

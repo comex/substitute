@@ -39,7 +39,7 @@ ldrd  r0, r1, [pc]
 str   r1, [pc]
 strd  r0, r1, [pc]
 
-push {r0-r3, pc}
+/* push {r0-r3, pc} */
 push {r0-r3, lr}
 /* pop {r0-r3, pc} */
 

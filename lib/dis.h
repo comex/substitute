@@ -81,9 +81,11 @@ static const unsigned null_op = -0x100;
 #define rout(nn)        nn,                 true,  true
 #define rsout(nn, l, s) bs_slice(nn, l, s), true,  true
 #define rnull           null_bs,             false, false
-#define data(...) data_(__VA_ARGS__, rnull, rnull, rnull, rnull)
+
+#define data(...) data_flags(0, __VA_ARGS__)
+#define data_flags(...) data_(__VA_ARGS__, rnull, rnull, rnull, rnull)
 #define data_(...) data__(__VA_ARGS__)
-#define data__(b1, o1, v1, b2, o2, v2, b3, o3, v3, b4, o4, v4, ...) do { \
+#define data__(fl, b1, o1, v1, b2, o2, v2, b3, o3, v3, b4, o4, v4, ...) do { \
     P(data)(ctx, \
         v1 ? bs_get(b1, ctx->op) : null_op, \
         v2 ? bs_get(b2, ctx->op) : null_op, \
@@ -92,7 +94,8 @@ static const unsigned null_op = -0x100;
         (o1 << 0) | \
         (o2 << 1) | \
         (o3 << 2) | \
-        (o4 << 3)); \
+        (o4 << 3) | \
+        fl); \
     if (TDIS_CTX_MODIFY(ctx)) { \
         unsigned new = ctx->op; \
         new = bs_set(b1, TDIS_CTX_NEWVAL(ctx, 0), new); \
@@ -116,6 +119,7 @@ static const unsigned null_op = -0x100;
     #define MIN_INSN_SIZE 2
     #define TARGET_DIS_HEADER "dis-arm-multi.inc.h"
     struct arch_dis_ctx { unsigned thumb_it_length; };
+    enum { IS_LDRD_STRD = 1 << 16 };
 #elif defined(TARGET_arm64)
     #define MIN_INSN_SIZE 4
     #define TARGET_DIS_HEADER "dis-arm64.inc.h"
