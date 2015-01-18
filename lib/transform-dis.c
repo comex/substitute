@@ -1,5 +1,5 @@
 #include "substitute-internal.h"
-#ifndef TARGET_UNSUPPORTED
+#ifdef TARGET_SUPPORTED
 
 #include "substitute.h"
 #include "dis.h"
@@ -121,4 +121,4 @@ static inline void op32(struct transform_dis_ctx *ctx, uint32_t op) {
 #endif
 #include TARGET_DIS_HEADER
 
-#endif /* TARGET_UNSUPPORTED */
+#endif /* TARGET_SUPPORTED */
