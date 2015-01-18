@@ -3,7 +3,6 @@ static inline void PUSHone(struct transform_dis_ctx *ctx, int Rt) {
         op32(ctx, 0x0d04f84d | Rt << 28);
     else
         op32(ctx, 0xe52d0004 | Rt << 12);
-
 }
 
 static inline void POPone(struct transform_dis_ctx *ctx, int Rt) {
@@ -56,19 +55,20 @@ static inline void LDRxi(struct transform_dis_ctx *ctx, int Rt, int Rn, uint32_t
         }
         op32(ctx, 0x0000f8d0 | Rn | Rt << 28 | subop << 5 | sign << 8 | off << 16);
     } else {
-        int is_byte, subop;
+        int is_byte, subop, not_ldrd;
         switch (load_mode) {
-            case PLM_U8:  is_byte = 1; goto type1;
-            case PLM_S8:  subop = 13;  goto type2;
-            case PLM_U16: subop = 11;  goto type2;
-            case PLM_S16: subop = 15;  goto type2;
-            case PLM_U32: is_byte = 0; goto type1;
+            case PLM_U8:   is_byte = 1; goto type1;
+            case PLM_S8:   subop = 13; not_ldrd = 1; goto type2;
+            case PLM_U16:  subop = 11; not_ldrd = 1; goto type2;
+            case PLM_S16:  subop = 15; not_ldrd = 1; goto type2;
+            case PLM_U32:  is_byte = 0; goto type1;
+            case PLM_U128: subop = 13; not_ldrd = 0; goto type2;
             type1:
                 op32(ctx, 0xe5900000 | Rn << 16 | Rt << 12 | off);
                 break;
             type2:
-                op32(ctx, 0xe1d00000 | Rn << 16 | Rt << 12 | subop << 4 |
-                     (off & 0xf) | (off & 0xf0) << 4);
+                op32(ctx, 0xe1c00000 | Rn << 16 | Rt << 12 | subop << 4 |
+                     (off & 0xf) | (off & 0xf0) << 4 | not_ldrd << 20);
                  break;
             default:
                 __builtin_abort();

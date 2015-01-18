@@ -17,16 +17,16 @@ static INLINE void P(am_ldrlit_label_unk_Rt_6_LDRDl)(tdis_ctx ctx, struct bitsli
     enum pcrel_load_mode mode;
     if ((ctx->op >> 26) & 1) {
         switch (ctx->op >> 30) {
-            case 0b00: mode = PLM_U32_SIMD; break;
-            case 0b01: mode = PLM_U64_SIMD; break;
-            case 0b10: mode = PLM_U128_SIMD; break;
+            case 0: mode = PLM_U32_SIMD; break;
+            case 1: mode = PLM_U64_SIMD; break;
+            case 2: mode = PLM_U128_SIMD; break;
             default: __builtin_abort();
         }
     } else {
         switch (ctx->op >> 30) {
-            case 0b00: mode = PLM_U32; break;
-            case 0b01: mode = PLM_U64; break;
-            case 0b10: mode = PLM_S32; break;
+            case 0: mode = PLM_U32; break;
+            case 1: mode = PLM_U64; break;
+            case 2: mode = PLM_S32; break;
             default: __builtin_abort();
         }
     }

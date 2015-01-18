@@ -68,7 +68,7 @@ enum pcrel_load_mode {
     PLM_U16, PLM_S16,
     PLM_U32, PLM_S32,
     PLM_U64,
-    PLM_U128,
+    PLM_U128, /* i.e. LDRD */
     PLM_U32_SIMD,
     PLM_U64_SIMD,
     PLM_U128_SIMD,
