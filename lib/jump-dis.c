@@ -27,7 +27,7 @@ struct jump_dis_ctx {
    uintptr_t pc_patch_end;
    bool pc_low_bit;
    unsigned op;
-   void *ptr;
+   const void *ptr;
    int op_size;
    uint8_t seen_mask[JUMP_ANALYSIS_MAX_INSNS / 8];
    /* queue of instructions to visit */
@@ -68,7 +68,9 @@ static void jump_dis_add_to_queue(struct jump_dis_ctx *ctx, uintptr_t pc) {
         if (!ctx->queue)
             substitute_panic("%s: out of memory\n", __func__);
         size_t new_read_off = new_size - (ctx->queue_size - ctx->queue_read_off);
-        memmove(ctx->queue + new_read_off, ctx->queue + ctx->queue_read_off, (ctx->queue_size - ctx->queue_read_off) * sizeof(*ctx->queue));
+        memmove(ctx->queue + new_read_off,
+                ctx->queue + ctx->queue_read_off,
+                (ctx->queue_size - ctx->queue_read_off) * sizeof(*ctx->queue));
         ctx->queue_read_off = new_read_off % new_size;
         ctx->queue_size = new_size;
     }
@@ -77,22 +79,23 @@ static void jump_dis_add_to_queue(struct jump_dis_ctx *ctx, uintptr_t pc) {
     ctx->queue_count++;
 }
 
-
-static INLINE inline void jump_dis_data(UNUSED struct jump_dis_ctx *ctx, UNUSED unsigned o0, UNUSED unsigned o1, UNUSED unsigned o2, UNUSED unsigned o3, UNUSED unsigned out_mask) {
+static INLINE UNUSED void jump_dis_data(UNUSED struct jump_dis_ctx *ctx,
+        UNUSED unsigned o0, UNUSED unsigned o1, UNUSED unsigned o2,
+        UNUSED unsigned o3, UNUSED unsigned out_mask) {
     /* on ARM, ignore mov PC jumps, as they're unlikely to be in the same function */
 }
 
-static INLINE inline void jump_dis_pcrel(struct jump_dis_ctx *ctx, uintptr_t dpc, UNUSED unsigned reg, UNUSED bool is_load) {
+static INLINE UNUSED void jump_dis_pcrel(struct jump_dis_ctx *ctx, uintptr_t dpc,
+        UNUSED unsigned reg, UNUSED bool is_load) {
     ctx->bad_insn = dpc >= ctx->pc_patch_start && dpc < ctx->pc_patch_end;
 }
 
-NOINLINE UNUSED
-static void jump_dis_ret(struct jump_dis_ctx *ctx) {
+static INLINE UNUSED void jump_dis_ret(struct jump_dis_ctx *ctx) {
     ctx->continue_after_this_insn = false;
 }
 
-NOINLINE UNUSED
-static void jump_dis_branch(struct jump_dis_ctx *ctx, uintptr_t dpc, bool conditional) {
+static NOINLINE UNUSED void jump_dis_branch(struct jump_dis_ctx *ctx, uintptr_t dpc,
+        bool conditional) {
     if (dpc >= ctx->pc_patch_start && dpc < ctx->pc_patch_end) {
         ctx->bad_insn = true;
         return;
@@ -104,18 +107,17 @@ static void jump_dis_branch(struct jump_dis_ctx *ctx, uintptr_t dpc, bool condit
     ctx->continue_after_this_insn = conditional;
 }
 
-NOINLINE UNUSED
-static void jump_dis_unidentified(UNUSED struct jump_dis_ctx *ctx) {
+static INLINE UNUSED void jump_dis_unidentified(UNUSED struct jump_dis_ctx *ctx) {
 }
 
-NOINLINE UNUSED
-static void jump_dis_bad(struct jump_dis_ctx *ctx) {
+static INLINE UNUSED void jump_dis_bad(struct jump_dis_ctx *ctx) {
     ctx->continue_after_this_insn = false;
 }
 
-static void jump_dis_dis(tdis_ctx ctx);
+static void jump_dis_dis(struct jump_dis_ctx *ctx);
 
-bool jump_dis_main(void *code_ptr, uintptr_t pc_patch_start, uintptr_t pc_patch_end, bool pc_low_bit) {
+bool jump_dis_main(const void *code_ptr, uintptr_t pc_patch_start,
+                   uintptr_t pc_patch_end, bool pc_low_bit) {
     bool ret;
     struct jump_dis_ctx ctx;
     memset(&ctx, 0, sizeof(ctx));

@@ -31,6 +31,7 @@ out/%.o: lib/%.c Makefile $(HEADERS)
 out/%.o: lib/%.S Makefile $(HEADERS)
 	$(CC) -fvisibility=hidden -c -o $@ $<
 out/jump-dis.o: $(GENERATED)
+out/transform-dis.o: $(GENERATED)
 
 LIB_OBJS := \
 	out/find-syms.o \
@@ -38,7 +39,8 @@ LIB_OBJS := \
 	out/objc.o \
 	out/objc-asm.o \
 	out/substrate-compat.o \
-	out/jump-dis.o
+	out/jump-dis.o \
+	out/transform-dis.o
 out/libsubstitute.dylib: $(LIB_OBJS)
 	$(CC) -o $@ $(LIB_OBJS) $(LIB_LDFLAGS)
 

@@ -2,12 +2,12 @@
 
 /* TODO: handle 'it' for conditional br/ret!! */
 
-static inline enum pcrel_load_mode get_thumb_load_mode(unsigned op) {
+static inline enum pcrel_load_mode get_thumb2_load_mode(unsigned op) {
     bool sign = (op >> 8) & 1;
     switch ((op >> 5) & 3) {
         case 0: return sign ? PLM_S8 : PLM_U8;
         case 1: return sign ? PLM_S16 : PLM_U16;
-        case 2: return sign ? PLM_S32 : PLM_U32;
+        case 2: return PLM_U32;
         default: __builtin_abort();
     }
 }
@@ -55,7 +55,7 @@ static INLINE void P(rGPR_Rt_addr_offset_none_addr_S_4_t2STL)(tdis_ctx ctx, stru
     data(rout(Rt), r(addr));
 }
 static INLINE void P(rGPR_Rt_addr_offset_none_addr_unk_Rd_S_7_t2STLEX)(tdis_ctx ctx, struct bitslice Rd, struct bitslice Rt, struct bitslice addr) {
-    data(rout(Rd), rout(Rt), r(addr));
+    data(rout(Rd), r(Rt), r(addr));
 }
 static INLINE void P(addr_offset_none_addr_4_t2LDC2L_OPTION)(tdis_ctx ctx, struct bitslice addr) {
     data(r(addr));
@@ -142,10 +142,10 @@ static INLINE void P(t2addrmode_so_reg_addr_unk_Rt_5_t2LDRBs)(tdis_ctx ctx, stru
     data(rout(Rt), rs(addr, 6, 4), rs(addr, 2, 4));
 }
 static INLINE void P(t2adrlabel_addr_unk_Rd_1_t2ADR)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rd) {
-    return P(pcrel)(ctx, ((ctx->pc + 4) & ~2) + (bs_get(addr, ctx->op) & ((1 << 12) - 1)), bs_get(Rd, ctx->op), false);
+    return P(pcrel)(ctx, ((ctx->pc + 4) & ~2) + (bs_get(addr, ctx->op) & ((1 << 12) - 1)), bs_get(Rd, ctx->op), PLM_ADR);
 }
 static INLINE void P(t2ldrlabel_addr_unk_Rt_5_t2LDRBpci)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
-    return P(pcrel)(ctx, ((ctx->pc + 4) & ~2) + (bs_get(addr, ctx->op) & ((1 << 12) - 1)), bs_get(Rt, ctx->op), true);
+    return P(pcrel)(ctx, ((ctx->pc + 4) & ~2) + (bs_get(addr, ctx->op) & ((1 << 12) - 1)), bs_get(Rt, ctx->op), get_thumb2_load_mode(ctx->op));
 }
 static INLINE void P(uncondbrtarget_target_B_1_t2B)(tdis_ctx ctx, struct bitslice target) {
     return P(branch)(ctx, ctx->pc + 4 + 2 * sext(bs_get(target, ctx->op), 24), /*cond*/ false);
