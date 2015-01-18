@@ -15,9 +15,16 @@
  * without having to ask whether the selector is stret or not. */
 
 struct tramp_info_page_header {
+    uint32_t magic;
+    uint32_t version;
     struct tramp_info_page_entry *first_free;
     size_t nfree;
     LIST_ENTRY(tramp_info_page_header) free_pages;
+};
+
+enum {
+    TRAMP_MAGIC = 0xf00df17e,
+    TRAMP_VERSION = 0,
 };
 
 struct tramp_info_page_entry {
@@ -28,6 +35,12 @@ struct tramp_info_page_entry {
     void *arg1;
     void *arg2;
 };
+
+_Static_assert(TRAMP_INFO_PAGE_ENTRY_SIZE == sizeof(struct tramp_info_page_entry),
+               "TRAMP_INFO_PAGE_ENTRY_SIZE");
+_Static_assert(sizeof(struct tramp_info_page_header) +
+               TRAMPOLINES_PER_PAGE * sizeof(struct tramp_info_page_entry) <= _PAGE_SIZE,
+               "header+entries too big");
 
 static pthread_mutex_t tramp_mutex = PTHREAD_MUTEX_INITIALIZER;
 LIST_HEAD(tramp_info_page_list, tramp_info_page_header)
@@ -69,6 +82,8 @@ static int get_trampoline(void *func, void *arg1, void *arg2, void *tramp_ptr) {
             goto out;
         }
         header = new_pages + _PAGE_SIZE * 2 - sizeof(*header);
+        header->magic = TRAMP_MAGIC;
+        header->version = TRAMP_VERSION;
         header->first_free = NULL;
         header->nfree = TRAMPOLINES_PER_PAGE;
         LIST_INSERT_HEAD(&tramp_free_page_list, header, free_pages);
@@ -108,6 +123,14 @@ static void free_trampoline(void *tramp) {
     struct tramp_info_page_entry *entries = page + _PAGE_SIZE;
     struct tramp_info_page_entry *entry = &entries[i];
     struct tramp_info_page_header *header = page + 2 * _PAGE_SIZE - sizeof(*header);
+
+    if (header->magic != TRAMP_MAGIC)
+        panic("%s: bad pointer\n", __func__);
+    if (header->version != TRAMP_VERSION) {
+        /* shouldn't happen, but just in case multiple versions of this library
+         * are mixed up */
+        return;
+    }
 
     entry->next_free = header->first_free;
     header->first_free = entry;

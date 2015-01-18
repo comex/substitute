@@ -9,7 +9,7 @@
 _remap_start:
 
 .set i, 0
-#define my_rpe (0b + (_PAGE_SIZE - i * TRAMPOLINE_SIZE + i * REMAP_PAGE_ENTRY_SIZE))
+#define my_rpe (0b + (_PAGE_SIZE - i * TRAMPOLINE_SIZE + i * TRAMP_INFO_PAGE_ENTRY_SIZE))
 .rept TRAMPOLINES_PER_PAGE
 0:
 #if defined(__x86_64__)
