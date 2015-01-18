@@ -53,14 +53,26 @@ static INLINE void P(t_bcctarget_target_B_1_tBcc)(tdis_ctx ctx, struct bitslice 
     return P(branch)(ctx, ctx->pc + 4 + 2 * sext(bs_get(target, ctx->op), 8), /*cond*/ true);
 }
 static INLINE void P(t_brtarget_target_B_1_tB)(tdis_ctx ctx, struct bitslice target) {
-    return P(branch)(ctx, ctx->pc + 4 + 2 * sext(bs_get(target, ctx->op), 11), /*cond*/ false);
+    bool cond = ctx->arch.thumb_it_length > 0;
+    return P(branch)(ctx, ctx->pc + 4 + 2 * sext(bs_get(target, ctx->op), 11), cond);
 }
 static INLINE void P(t_cbtarget_target_B_2_tCBNZ)(tdis_ctx ctx, struct bitslice target) {
     return P(branch)(ctx, ctx->pc + 4 + 2 * bs_get(target, ctx->op), /*cond*/ true);
 }
+static INLINE void P(it_pred_cc_it_mask_mask_1_t2IT)(tdis_ctx ctx, struct bitslice mask, UNUSED struct bitslice cc) {
+    /* why */
+    unsigned mask_val = bs_get(mask, ctx->op);
+    unsigned length = __builtin_ctz(mask_val);
+    if (length >= 3)
+        return P(unidentified)(ctx); /* nop */
+    ctx->arch.thumb_it_length = length;
+    return P(unidentified)(ctx);
+}
 
 static INLINE void P(dis_thumb)(tdis_ctx ctx) {
     uint16_t op = ctx->op = *(uint16_t *) ctx->ptr;
+    if (ctx->arch.thumb_it_length)
+        ctx->arch.thumb_it_length--;
     ctx->op_size = 2;
     #include "../generated/generic-dis-thumb.inc.h"
     __builtin_abort();

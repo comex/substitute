@@ -22,6 +22,8 @@ struct transform_dis_ctx {
     const void *ptr;
     void **rewritten_ptr_ptr;
     void *write_newop_here;
+
+    struct arch_dis_ctx arch;
 };
 
 #define tdis_ctx struct transform_dis_ctx *

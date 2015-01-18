@@ -193,6 +193,9 @@ static INLINE void P(addr_offset_none_addr_postidx_reg_Rm_unk_Rt_3_LDRHTr)(tdis_
 static INLINE void P(GPR_Rt_addr_offset_none_addr_postidx_reg_Rm_S_1_STRHTr)(tdis_ctx ctx, struct bitslice Rm, struct bitslice Rt, struct bitslice addr) {
     data(r(addr), r(Rt), r(Rm));
 }
+static INLINE void P(GPR_dst_B_2_BX)(tdis_ctx ctx, UNUSED struct bitslice dst) {
+    return P(ret)(ctx);
+}
 
 static INLINE void P(dis_arm)(tdis_ctx ctx) {
     uint32_t op = ctx->op = *(uint32_t *) ctx->ptr;

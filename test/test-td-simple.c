@@ -12,6 +12,7 @@ typedef struct tc {
     uint32_t newval[4];
     bool modify;
     int op_size;
+    struct arch_dis_ctx arch;
 } *tdis_ctx;
 #define P(x) P_##x
 #define TDIS_CTX_MODIFY(ctx) ((ctx)->modify)

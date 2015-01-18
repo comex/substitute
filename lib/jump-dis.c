@@ -18,24 +18,26 @@ enum {
 };
 
 struct jump_dis_ctx {
-   /* outputs */
-   bool bad_insn;
-   bool continue_after_this_insn;
+    /* outputs */
+    bool bad_insn;
+    bool continue_after_this_insn;
 
-   uintptr_t pc;
-   uintptr_t pc_patch_start;
-   uintptr_t pc_patch_end;
-   bool pc_low_bit;
-   unsigned op;
-   const void *ptr;
-   int op_size;
-   uint8_t seen_mask[JUMP_ANALYSIS_MAX_INSNS / 8];
-   /* queue of instructions to visit */
-   uintptr_t *queue;
-   size_t queue_write_off;
-   size_t queue_read_off;
-   size_t queue_size;
-   size_t queue_count;
+    uintptr_t pc;
+    uintptr_t pc_patch_start;
+    uintptr_t pc_patch_end;
+    bool pc_low_bit;
+    unsigned op;
+    const void *ptr;
+    int op_size;
+    uint8_t seen_mask[JUMP_ANALYSIS_MAX_INSNS / 8];
+    /* queue of instructions to visit */
+    uintptr_t *queue;
+    size_t queue_write_off;
+    size_t queue_read_off;
+    size_t queue_size;
+    size_t queue_count;
+
+    struct arch_dis_ctx arch;
 };
 
 #undef P

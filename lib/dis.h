@@ -107,14 +107,18 @@ static const unsigned null_op = -0x100;
 #if defined(TARGET_x86_64)
     #define MIN_INSN_SIZE 1
     #error "no x86 dis yet"
+    struct arch_dis_ctx {};
 #elif defined(TARGET_i386)
     #define MIN_INSN_SIZE 1
     #error "no x86 dis yet"
+    struct arch_dis_ctx {};
 #elif defined(TARGET_arm)
     #define MIN_INSN_SIZE 2
     #define TARGET_DIS_HEADER "dis-arm-multi.inc.h"
+    struct arch_dis_ctx { unsigned thumb_it_length; };
 #elif defined(TARGET_arm64)
     #define MIN_INSN_SIZE 4
     #define TARGET_DIS_HEADER "dis-arm64.inc.h"
+    struct arch_dis_ctx {};
 #endif
 

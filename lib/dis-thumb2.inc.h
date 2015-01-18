@@ -148,7 +148,8 @@ static INLINE void P(t2ldrlabel_addr_unk_Rt_5_t2LDRBpci)(tdis_ctx ctx, struct bi
     return P(pcrel)(ctx, ((ctx->pc + 4) & ~2) + (bs_get(addr, ctx->op) & ((1 << 12) - 1)), bs_get(Rt, ctx->op), get_thumb2_load_mode(ctx->op));
 }
 static INLINE void P(uncondbrtarget_target_B_1_t2B)(tdis_ctx ctx, struct bitslice target) {
-    return P(branch)(ctx, ctx->pc + 4 + 2 * sext(bs_get(target, ctx->op), 24), /*cond*/ false);
+    bool cond = ctx->arch.thumb_it_length > 0;
+    return P(branch)(ctx, ctx->pc + 4 + 2 * sext(bs_get(target, ctx->op), 24), cond);
 }
 static INLINE void P(unk_Rd_3_t2MOVTi16)(tdis_ctx ctx, struct bitslice Rd) {
     data(rout(Rd));
@@ -163,6 +164,8 @@ static INLINE void P(unk_Rt_13_VMOVRRD)(tdis_ctx ctx, UNUSED struct bitslice Rt)
 
 static INLINE void P(dis_thumb2)(tdis_ctx ctx) {
     uint32_t op = ctx->op = *(uint32_t *) ctx->ptr;
+    if (ctx->arch.thumb_it_length)
+        ctx->arch.thumb_it_length--;
     ctx->op_size = 4;
     #include "../generated/generic-dis-thumb2.inc.h"
     __builtin_abort();
