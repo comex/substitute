@@ -2,7 +2,8 @@ Some files in this repository contain their own licensing info in a header:
 substrate.h, which is based on an older version of CydiaSubstrate, is under
 LGPLv3, and substitute.h and the generated files are under public domain.  (So
 if you want to take advantage of the more lax permission below, you can't use
-the Substrate compatibility layer.)
+the Substrate compatibility layer; also, the Debian package includes the
+obligatory copy of the (L)GPLv3.)
 
 For all other files:
 
