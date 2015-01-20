@@ -1,5 +1,5 @@
 #include "substitute-internal.h"
-#ifdef TARGET_SUPPORTED
+#ifdef TARGET_DIS_SUPPORTED
 #include "dis.h"
 #include <stdint.h>
 #include <stdbool.h>
@@ -163,4 +163,4 @@ fail:
 }
 
 #include TARGET_DIS_HEADER
-#endif /* TARGET_SUPPORTED */
+#endif /* TARGET_DIS_SUPPORTED */

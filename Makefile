@@ -27,8 +27,10 @@ $(eval $(call do_prefix,arm,-n _arm,ARM))
 $(eval $(call do_prefix,arm64,,AArch64))
 
 out/%.o: lib/%.c Makefile $(HEADERS)
+	@mkdir -p $(dir $@)
 	$(CC) -fvisibility=hidden -std=c11 -c -o $@ $<
 out/%.o: lib/%.S Makefile $(HEADERS)
+	@mkdir -p $(dir $@)
 	$(CC) -fvisibility=hidden -c -o $@ $<
 out/jump-dis.o: $(GENERATED)
 out/transform-dis.o: $(GENERATED)
@@ -41,6 +43,7 @@ LIB_OBJS := \
 	out/substrate-compat.o \
 	out/jump-dis.o \
 	out/transform-dis.o
+
 out/libsubstitute.dylib: $(LIB_OBJS)
 	$(CC) -o $@ $(LIB_OBJS) $(LIB_LDFLAGS)
 
@@ -49,10 +52,10 @@ out/test-$(1): test/test-$(2).[cm]* $(HEADERS) $(GENERATED) Makefile out/libsubs
 	$(3) -g -o $$@ $$< -Ilib -Isubstrate -Lout -lsubstitute
 all: out/test-$(1)
 endef
-$(eval $(call define_test,tdarm-simple,td-simple,$(CC) -std=c11 -DHDR='"dis-arm.inc.h"' -Dxdis=dis_arm -DFORCE_TARGET_arm))
-$(eval $(call define_test,tdthumb-simple,td-simple,$(CC) -std=c11 -DHDR='"dis-thumb.inc.h"' -Dxdis=dis_thumb -DFORCE_TARGET_arm))
-$(eval $(call define_test,tdthumb2-simple,td-simple,$(CC) -std=c11 -DHDR='"dis-thumb2.inc.h"' -Dxdis=dis_thumb2 -DFORCE_TARGET_arm))
-$(eval $(call define_test,tdarm64-simple,td-simple,$(CC) -std=c11 -DHDR='"dis-arm64.inc.h"' -Dxdis=dis -DFORCE_TARGET_arm64))
+$(eval $(call define_test,tdarm-simple,td-simple,$(CC) -std=c11 -DHDR='"arm/dis-arm.inc.h"' -Dxdis=dis_arm -DFORCE_TARGET_arm))
+$(eval $(call define_test,tdthumb-simple,td-simple,$(CC) -std=c11 -DHDR='"arm/dis-thumb.inc.h"' -Dxdis=dis_thumb -DFORCE_TARGET_arm))
+$(eval $(call define_test,tdthumb2-simple,td-simple,$(CC) -std=c11 -DHDR='"arm/dis-thumb2.inc.h"' -Dxdis=dis_thumb2 -DFORCE_TARGET_arm))
+$(eval $(call define_test,tdarm64-simple,td-simple,$(CC) -std=c11 -DHDR='"arm64/dis-arm64.inc.h"' -Dxdis=dis -DFORCE_TARGET_arm64))
 $(eval $(call define_test,dis-arm,dis,$(CC) -std=c11 -DFORCE_TARGET_arm))
 $(eval $(call define_test,dis-arm64,dis,$(CC) -std=c11 -DFORCE_TARGET_arm64))
 $(eval $(call define_test,jump-dis-arm,jump-dis,$(CC) -std=c11 -DFORCE_TARGET_arm -O0))

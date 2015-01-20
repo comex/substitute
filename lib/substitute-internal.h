@@ -32,23 +32,24 @@ typedef struct section section_x;
     #define TARGET_x86_64
 #elif defined(FORCE_TARGET_i386)
     #define TARGET_i386
-    #define TARGET_UNSUPPORTED
 #elif defined(FORCE_TARGET_arm)
     #define TARGET_arm
-    #define TARGET_SUPPORTED
 #elif defined(FORCE_TARGET_arm64)
     #define TARGET_arm64
-    #define TARGET_SUPPORTED
 #elif defined(__x86_64__)
     #define TARGET_x86_64
 #elif defined(__i386__)
     #define TARGET_i386
 #elif defined(__arm__)
     #define TARGET_arm
-    #define TARGET_SUPPORTED
 #elif defined(__arm64__)
     #define TARGET_arm64
-    #define TARGET_SUPPORTED
 #else
     #error target?
+#endif
+
+#if defined(TARGET_arm)
+    #include "arm/misc.h"
+#elif defined(TARGET_arm64)
+    #include "arm64/misc.h"
 #endif

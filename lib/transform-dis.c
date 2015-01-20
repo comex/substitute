@@ -1,5 +1,5 @@
 #include "substitute-internal.h"
-#ifdef TARGET_SUPPORTED
+#ifdef TARGET_DIS_SUPPORTED
 
 #include "substitute.h"
 #include "dis.h"
@@ -123,11 +123,7 @@ static inline void op32(struct transform_dis_ctx *ctx, uint32_t op) {
     *rpp += 4;
 }
 
-#ifdef TARGET_arm
-    #include "transform-dis-arm-multi.inc.h"
-#else
-    #include "transform-dis-arm64.inc.h"
-#endif
+#include TARGET_TRANSFORM_DIS_HEADER
 #include TARGET_DIS_HEADER
 
-#endif /* TARGET_SUPPORTED */
+#endif /* TARGET_DIS_SUPPORTED */
