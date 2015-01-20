@@ -1,4 +1,4 @@
-#include "../lib/objc.c"
+#include "../lib/darwin/objc.c"
 #include <objc/runtime.h>
 #include <stdio.h>
 #include <assert.h>

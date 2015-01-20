@@ -1,9 +1,10 @@
 # todo
 CC := clang
 CXX := clang++
-CFLAGS := -O3 -Wall -Wextra -Werror -arch x86_64
-override CC := $(CC) $(CFLAGS)
-override CXX := $(CXX) $(CFLAGS) -fno-exceptions -fno-asynchronous-unwind-tables
+ARCH := -arch x86_64
+XCFLAGS := -O3 -Wall -Wextra -Werror -Ilib $(ARCH)
+override CC := $(CC) $(XCFLAGS) $(CFLAGS)
+override CXX := $(CXX) $(XCFLAGS) $(CFLAGS) -fno-exceptions -fno-asynchronous-unwind-tables
 LIB_LDFLAGS := -lobjc -dynamiclib -fvisibility=hidden
 IMAON2 := /Users/comex/c/imaon2
 GEN_JS := node --harmony --harmony_arrow_functions $(IMAON2)/tables/gen.js
@@ -36,11 +37,11 @@ out/jump-dis.o: $(GENERATED)
 out/transform-dis.o: $(GENERATED)
 
 LIB_OBJS := \
-	out/find-syms.o \
-	out/interpose.o \
-	out/objc.o \
-	out/objc-asm.o \
-	out/substrate-compat.o \
+	out/darwin/find-syms.o \
+	out/darwin/interpose.o \
+	out/darwin/objc-asm.o \
+	out/darwin/objc.o \
+	out/darwin/substrate-compat.o \
 	out/jump-dis.o \
 	out/transform-dis.o
 
