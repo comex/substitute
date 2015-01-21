@@ -46,9 +46,10 @@ LIB_OBJS := \
 	out/darwin/objc.o \
 	out/darwin/read.o \
 	out/darwin/substrate-compat.o \
+	out/darwin-inject-asm.o \
 	out/jump-dis.o \
 	out/transform-dis.o \
-	out/darwin-inject-asm.o
+	out/strerror.o
 
 out/libsubstitute.dylib: $(LIB_OBJS)
 	$(CC) -o $@ $(LIB_OBJS) $(LIB_LDFLAGS)

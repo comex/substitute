@@ -46,10 +46,14 @@ void SubHookFunction(void *symbol, void *replace, void **result) {
 }
 */
 
-#ifdef __APPLE__
-/*void SubHookMessageEx(Class _class, SEL sel, IMP imp, IMP *result) __asm__("SubHookMessageEx");
+EXPORT
+void SubHookMessageEx(Class _class, SEL sel, IMP imp, IMP *result)
+        __asm__("SubHookMessageEx");
+
 void SubHookMessageEx(Class _class, SEL sel, IMP imp, IMP *result) {
-
-}*/
-
-#endif
+    int ret = substitute_hook_objc_message(_class, sel, imp, result, NULL);
+    if (ret) {
+        panic("SubHookMessageEx: substitute_hook_objc_message returned %s\n",
+              substitute_strerror(ret));
+    }
+}

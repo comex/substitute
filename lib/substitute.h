@@ -59,6 +59,9 @@ struct substitute_function_hook {
     void *old_ptr; /* optional: out pointer to function pointer to call old impl */
 };
 
+/* Get a string representation for a SUBSTITUTE_* error code. */
+const char *substitute_strerror(int err);
+
 /* TODO doc */
 int substitute_hook_functions(const struct substitute_function_hook *hooks,
                               size_t nhooks,
