@@ -44,6 +44,12 @@ enum {
      * preventing pages from being marked executable. */
     SUBSTITUTE_ERR_VM,
 
+    /* substitute_hook_functions: not on the main thread (so stopping all other
+     * threads would be unsafe, as concurrent attempts to do the same from
+     * other threads would result in deadlock), and you did not pass
+     * SUBSTITUTE_DONT_STOP_THREADS */
+    SUBSTITUTE_ERR_NOT_ON_MAIN_THREAD,
+
     /* substitute_interpose_imports: couldn't redo relocation for an import
      * because the type was unknown */
     SUBSTITUTE_ERR_UNKNOWN_RELOCATION_TYPE,
@@ -51,6 +57,9 @@ enum {
     /* substitute_hook_objc_message: no such selector existed in the class's
      * inheritance tree */
     SUBSTITUTE_ERR_NO_SUCH_SELECTOR,
+
+    /* substitute_hook_functions: OS error suspending other threads */
+    SUBSTITUTE_ERR_ADJUSTING_THREADS,
 };
 
 struct substitute_function_hook {
@@ -61,6 +70,11 @@ struct substitute_function_hook {
 
 /* Get a string representation for a SUBSTITUTE_* error code. */
 const char *substitute_strerror(int err);
+
+/* substitute_hook_functions options */
+enum {
+    SUBSTITUTE_DONT_STOP_THREADS = 1,
+};
 
 /* TODO doc */
 int substitute_hook_functions(const struct substitute_function_hook *hooks,

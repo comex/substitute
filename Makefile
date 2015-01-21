@@ -5,7 +5,7 @@ ARCH := -arch x86_64
 XCFLAGS := -O3 -Wall -Wextra -Werror -Ilib $(ARCH)
 override CC := $(CC) $(XCFLAGS) $(CFLAGS)
 override CXX := $(CXX) $(XCFLAGS) $(CFLAGS) -fno-exceptions -fno-asynchronous-unwind-tables
-LIB_LDFLAGS := -lobjc -dynamiclib -fvisibility=hidden -install_name /usr/lib/libsubstitute.dylib -dead_strip
+LIB_LDFLAGS := -lobjc -framework CoreFoundation -dynamiclib -fvisibility=hidden -install_name /usr/lib/libsubstitute.dylib -dead_strip
 IMAON2 := /Users/comex/c/imaon2
 GEN_JS := node --harmony --harmony_arrow_functions $(IMAON2)/tables/gen.js
 
@@ -46,9 +46,11 @@ LIB_OBJS := \
 	out/darwin/objc.o \
 	out/darwin/read.o \
 	out/darwin/substrate-compat.o \
+	out/darwin/stop-other-threads.o \
 	out/darwin-inject-asm.o \
 	out/jump-dis.o \
 	out/transform-dis.o \
+	out/hook-functions.o \
 	out/strerror.o
 
 out/libsubstitute.dylib: $(LIB_OBJS)
@@ -96,6 +98,7 @@ $(eval $(call define_test,imp-forwarding,imp-forwarding,$(CC) -std=c11 -framewor
 $(eval $(call define_test,objc-hook,objc-hook,$(CC) -std=c11 -framework Foundation -lsubstitute))
 $(eval $(call define_test,interpose,interpose,$(CC) -std=c11 -lsubstitute))
 $(eval $(call define_test,inject,inject,$(CC) -std=c11 -lsubstitute out/darwin/inject.o out/darwin/read.o))
+$(eval $(call define_test,stop-threads,stop-threads,$(CC) -std=c11 out/darwin/stop-other-threads.o -framework CoreFoundation))
 
 out/insns-arm.o: test/insns-arm.S Makefile
 	clang -arch armv7 -c -o $@ $<
