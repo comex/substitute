@@ -13,7 +13,6 @@ struct transform_dis_ctx {
     bool modify;
     int err;
 
-    bool pc_low_bit;
     uintptr_t pc_patch_start;
     uintptr_t pc_patch_end;
     uintptr_t pc;
@@ -73,13 +72,14 @@ int transform_dis_main(const void *restrict code_ptr,
                        void **restrict rewritten_ptr_ptr,
                        uintptr_t pc_patch_start,
                        uintptr_t pc_patch_end,
-                       bool pc_low_bit,
+                       struct arch_dis_ctx initial_arch_ctx,
                        int *offset_by_pcdiff) {
     struct transform_dis_ctx ctx;
+    memset(&ctx, 0, sizeof(ctx));
     ctx.pc_patch_start = pc_patch_start;
     ctx.pc_patch_end = pc_patch_end;
-    ctx.pc_low_bit = pc_low_bit;
     ctx.pc = pc_patch_start;
+    ctx.arch = initial_arch_ctx;
     /* data is written to rewritten both by this function directly and, in case
      * additional scaffolding is needed, by arch-specific transform_dis_* */
     ctx.rewritten_ptr_ptr = rewritten_ptr_ptr;

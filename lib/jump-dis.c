@@ -25,7 +25,6 @@ struct jump_dis_ctx {
     uintptr_t pc;
     uintptr_t pc_patch_start;
     uintptr_t pc_patch_end;
-    bool pc_low_bit;
     unsigned op;
     const void *ptr;
     int op_size;
@@ -119,15 +118,15 @@ static INLINE UNUSED void jump_dis_bad(struct jump_dis_ctx *ctx) {
 
 static void jump_dis_dis(struct jump_dis_ctx *ctx);
 
-bool jump_dis_main(const void *code_ptr, uintptr_t pc_patch_start,
-                   uintptr_t pc_patch_end, bool pc_low_bit) {
+bool jump_dis_main(void *code_ptr, uintptr_t pc_patch_start, uintptr_t pc_patch_end,
+                   struct arch_dis_ctx initial_dis_ctx) {
     bool ret;
     struct jump_dis_ctx ctx;
     memset(&ctx, 0, sizeof(ctx));
     ctx.pc_patch_start = pc_patch_start;
     ctx.pc_patch_end = pc_patch_end;
-    ctx.pc_low_bit = pc_low_bit;
     ctx.pc = pc_patch_end;
+    ctx.arch = initial_dis_ctx;
     while (1) {
         ctx.bad_insn = false;
         ctx.continue_after_this_insn = true;

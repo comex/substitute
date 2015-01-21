@@ -6,7 +6,12 @@ int main(UNUSED int argc, char **argv) {
     static uint8_t in[1048576];
     UNUSED size_t size = fread(in, 1, sizeof(in), stdin);
     int patch_size = atoi(argv[1]);
+    struct arch_dis_ctx arch;
+    memset(&arch, 0, sizeof(arch));
+#ifdef __arm__
     int thumb = atoi(argv[2]);
+    arch.pc_low_bit = thumb;
+#endif
     uint8_t out[patch_size * 10];
     int offsets[patch_size + 1];
     void *rewritten_ptr = out;
@@ -16,7 +21,7 @@ int main(UNUSED int argc, char **argv) {
         &rewritten_ptr,
         0x10000,
         0x10000 + patch_size,
-        thumb,
+        arch,
         offsets);
     printf("=> %d\n", ret);
     printf("#endif\n");

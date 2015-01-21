@@ -74,7 +74,7 @@ out/inject-asm.S: $(IAR_BINS) Makefile script/gen-inject-asm.sh
 define define_test
 out/test-$(1): test/test-$(2).[cm]* $(HEADERS) $(GENERATED) Makefile out/libsubstitute.dylib
 	$(3) -g -o $$@ $$< -Ilib -Isubstrate -Lout -lsubstitute
-	lipo -info $$@ | grep -q arm && ldid -Sent.plist $$@ || true
+	lipo -info $$@ | grep -q ':.*:.*arm' && ldid -Sent.plist $$@ || true
 	install_name_tool -change /usr/lib/libsubstitute.dylib '@executable_path/libsubstitute.dylib' $$@
 all: out/test-$(1)
 endef

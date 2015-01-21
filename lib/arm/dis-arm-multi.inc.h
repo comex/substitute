@@ -3,7 +3,7 @@
 #include "dis-arm.inc.h"
 
 static INLINE void P(dis)(tdis_ctx ctx) {
-    if (ctx->pc_low_bit) {
+    if (ctx->arch.pc_low_bit) {
         uint16_t op = *(uint16_t *) ctx->ptr;
         bool is_32 = (op >> 13 & 7) == 7 && (op >> 11 & 3) != 0;
         if (is_32)

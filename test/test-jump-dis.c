@@ -7,7 +7,12 @@ int main(UNUSED int argc, char **argv) {
     UNUSED size_t size = fread(buf, 1, sizeof(buf), stdin);
     printf("size=%zd\n", size);
     int patch_size = atoi(argv[1]);
+    struct arch_dis_ctx arch;
+    memset(&arch, 0, sizeof(arch));
+#ifdef __arm__
     int thumb = atoi(argv[2]);
-    bool bad = P(main)(buf, 0x10000, 0x10000 + patch_size, thumb);
+    arch.pc_low_bit = thumb;
+#endif
+    bool bad = P(main)(buf, 0x10000, 0x10000 + patch_size, arch);
     printf("final: bad = %d\n", bad);
 }

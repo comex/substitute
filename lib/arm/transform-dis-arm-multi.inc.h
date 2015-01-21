@@ -1,19 +1,19 @@
 static inline void PUSHone(struct transform_dis_ctx *ctx, int Rt) {
-    if (ctx->pc_low_bit)
+    if (ctx->arch.pc_low_bit)
         op32(ctx, 0x0d04f84d | Rt << 28);
     else
         op32(ctx, 0xe52d0004 | Rt << 12);
 }
 
 static inline void POPone(struct transform_dis_ctx *ctx, int Rt) {
-    if (ctx->pc_low_bit)
+    if (ctx->arch.pc_low_bit)
         op32(ctx, 0x0b04f85d | Rt << 28);
     else
         op32(ctx, 0xe49d0004 | Rt << 12);
 }
 
 static inline void POPmulti(struct transform_dis_ctx *ctx, uint16_t mask) {
-    if (ctx->pc_low_bit)
+    if (ctx->arch.pc_low_bit)
         op32(ctx, 0x0000e8bd | mask << 16);
     else
         op32(ctx, 0xe8bd0000 | mask);
@@ -21,7 +21,7 @@ static inline void POPmulti(struct transform_dis_ctx *ctx, uint16_t mask) {
 
 static inline void MOVW_MOVT(struct transform_dis_ctx *ctx, int Rd, uint32_t val) {
     uint16_t hi = val >> 16, lo = (uint16_t) val;
-    if (ctx->pc_low_bit) {
+    if (ctx->arch.pc_low_bit) {
         op32(ctx, 0x0000f240 | Rd << 24 | lo >> 12 | (lo >> 11 & 1) << 10 |
                                (lo >> 8 & 7) << 28 | (lo & 0xff) << 16);
         op32(ctx, 0x0000f2c0 | Rd << 24 | hi >> 12 | (hi >> 11 & 1) << 10 |
@@ -35,7 +35,7 @@ static inline void MOVW_MOVT(struct transform_dis_ctx *ctx, int Rd, uint32_t val
 }
 
 static inline void STRri(struct transform_dis_ctx *ctx, int Rt, int Rn, uint32_t off) {
-    if (ctx->pc_low_bit)
+    if (ctx->arch.pc_low_bit)
         op32(ctx, 0x0000f8c0 | Rn | Rt << 28 | off << 16);
     else
         op32(ctx, 0xe4800000 | Rn << 16 | Rt << 12 | off);
@@ -43,7 +43,7 @@ static inline void STRri(struct transform_dis_ctx *ctx, int Rt, int Rn, uint32_t
 
 static inline void LDRxi(struct transform_dis_ctx *ctx, int Rt, int Rn, uint32_t off,
                          enum pcrel_load_mode load_mode) {
-    if (ctx->pc_low_bit) {
+    if (ctx->arch.pc_low_bit) {
         int subop, sign;
         switch (load_mode) {
             case PLM_U8:  subop = 0; sign = 0; break;
@@ -118,7 +118,7 @@ static NOINLINE UNUSED void transform_dis_data(struct transform_dis_ctx *ctx,
     }
     if (out_mask & IS_LDRD_STRD)
         in_regs |= 1 << (newval[0] + 1);
-    uint32_t pc = ctx->pc + (ctx->pc_low_bit ? 4 : 8);
+    uint32_t pc = ctx->pc + (ctx->arch.pc_low_bit ? 4 : 8);
     int scratch = __builtin_ctz(~(in_regs | (1 << out_reg)));
 
 #ifdef TRANSFORM_DIS_VERBOSE
