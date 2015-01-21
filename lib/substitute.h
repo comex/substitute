@@ -103,16 +103,17 @@ void substitute_close_image(struct substitute_image *handle);
  *
  * @handle handle opened with substitute_open_image
  * @names  an array of symbol names to search for
- * @syms   an array of substitute_sym *, one per name; on return, each entry
- *         will be a pointer into the symbol table for that image, or NULL if
- *         the symbol wasn't found
+ * @syms   an array of void *, one per name; on return, each entry will be
+ *         filled in with the corresponding symbol address, or NULL if the
+ *         symbol wasn't found
+ *         (on ARM, this will be | 1 for Thumb functions)
  * @nsyms  number of names
  *
  * @return SUBSTITUTE_OK (maybe errors in the future)
  */
 int substitute_find_private_syms(struct substitute_image *handle,
-                                 const char **names,
-                                 substitute_sym **syms,
+                                 const char **__restrict names,
+                                 void **__restrict syms,
                                  size_t nsyms);
 
 /* Get a pointer corresponding to a loaded symbol table entry.

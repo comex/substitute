@@ -38,6 +38,7 @@ out/transform-dis.o: $(GENERATED)
 
 LIB_OBJS := \
 	out/darwin/find-syms.o \
+	out/darwin/inject.o \
 	out/darwin/interpose.o \
 	out/darwin/objc-asm.o \
 	out/darwin/objc.o \

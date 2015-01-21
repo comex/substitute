@@ -32,10 +32,10 @@ void *SubFindSymbol(void *image, const char *name) {
         return NULL;
     }
 
-    substitute_sym *sym;
-    if (substitute_find_private_syms(image, &name, &sym, 1) || !sym)
+    void *ptr;
+    if (substitute_find_private_syms(image, &name, &ptr, 1))
         return NULL;
-    return substitute_sym_to_ptr(image, sym);
+    return ptr;
 }
 
 /*

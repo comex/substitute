@@ -53,3 +53,22 @@ typedef struct section section_x;
 #elif defined(TARGET_arm64)
     #include "arm64/misc.h"
 #endif
+
+#ifdef __APPLE__
+/* This could graduate to a public API but is not yet. */
+enum {
+    SUBSTITUTE_DIP_INJECT_MAIN_THREAD, /* not yet */
+};
+
+enum {
+    /* substitute_dlopen_in_pid: task_for_pid failed; on OS X the reasons this
+     * can happen are really complicated and dumb, but generally one solution
+     * is to be root */
+    SUBSTITUTE_ERR_TASK_FOR_PID = 1000,
+
+    /* substitute_dlopen_in_pid: something didn't work */
+    SUBSTITUTE_ERR_MISC,
+};
+
+int substitute_dlopen_in_pid(int pid, const char *filename, int options, char **error);
+#endif
