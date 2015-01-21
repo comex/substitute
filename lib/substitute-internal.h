@@ -55,10 +55,8 @@ typedef struct section section_x;
 #endif
 
 #ifdef __APPLE__
-/* This could graduate to a public API but is not yet. */
-enum {
-    SUBSTITUTE_DIP_INJECT_MAIN_THREAD, /* not yet */
-};
+/* This could graduate to a public API but is not yet.  Needs more
+ * functionality. */
 
 enum {
     /* substitute_dlopen_in_pid: task_for_pid failed; on OS X the reasons this

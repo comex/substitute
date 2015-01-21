@@ -9,14 +9,16 @@
 
 __attribute__((always_inline))
 #if defined(__x86_64__)
-static int syscall(long s, long a, long b, long c, long d, long _) {
+static int syscall(long s, long a, long b, long c, long d, long e) {
     if (s < 0)
         s = -s | 1 << 24;
     else
         s |= 2 << 24;
     REG(s, rax); REG(a, rdi); REG(b, rsi); REG(c, rdx); REG(d, rcx);
     OREG(out, rax);
-    asm volatile("syscall" : "=r"(out) : "r"(_s), "r"(_a), "r"(_b), "r"(_c), "r"(_d));
+    asm volatile("push %1; syscall; pop %1"
+                 : "=r"(out)
+                 : "r"(e), "r"(_s), "r"(_a), "r"(_b), "r"(_c), "r"(_d));
     return out;
 }
 #elif defined(__i386__)
@@ -36,17 +38,21 @@ static int syscall(long s, long a, long b, long c, long d, long e) {
     return out;
 }
 #elif defined(__arm__)
-static int syscall(long s, long a, long b, long c, long d, long _) {
+static int syscall(long s, long a, long b, long c, long d, long e) {
     REG(s, r12); REG(a, r0); REG(b, r1); REG(c, r2); REG(d, r3);
     OREG(out, r0);
-    asm volatile("svc #0x80" : "=r"(out) : "r"(_s), "r"(_a), "r"(_b), "r"(_c), "r"(_d));
+    asm volatile("push {%1}; svc #0x80; pop {%1}"
+                 : "=r"(out)
+                 : "r"(e), "r"(_s), "r"(_a), "r"(_b), "r"(_c), "r"(_d));
     return out;
 }
 #elif defined(__arm64__)
-static int syscall(long s, long a, long b, long c, long d, long _) {
+static int syscall(long s, long a, long b, long c, long d, long e) {
     REG(s, x16); REG(a, x0); REG(b, x1); REG(c, x2); REG(d, x3);
     OREG(out, x0);
-    asm volatile("svc #0x80" : "=r"(out) : "r"(_s), "r"(_a), "r"(_b), "r"(_c), "r"(_d));
+    asm volatile("str %1, [sp, #-0x10]!\n svc #0x80\n ldr %1, [sp], #0x10"
+                 : "=r"(out)
+                 : "r"(e), "r"(_s), "r"(_a), "r"(_b), "r"(_c), "r"(_d));
     return out;
 }
 #else

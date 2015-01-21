@@ -206,6 +206,7 @@ static int get_foreign_image_export(mach_port_t task, uint64_t hdr_addr,
     if (total_size > hdr_buf_size) {
         vm_deallocate(mach_task_self(), (vm_offset_t) hdr_buf, (vm_size_t) hdr_buf_size);
         hdr_buf_size = total_size;
+        hdr_buf = 0;
         kr = mach_vm_remap(mach_task_self(), &hdr_buf, hdr_buf_size, 0,
                            VM_FLAGS_ANYWHERE, task, hdr_addr, /*copy*/ true,
                            &cur, &max, VM_INHERIT_NONE);
@@ -277,7 +278,7 @@ static int get_foreign_image_export(mach_port_t task, uint64_t hdr_addr,
     }
 
     uint64_t linkedit_addr = vmaddr + slide;
-    mach_vm_address_t linkedit_buf;
+    mach_vm_address_t linkedit_buf = 0;
     kr = mach_vm_remap(mach_task_self(), &linkedit_buf, filesize, 0,
                        VM_FLAGS_ANYWHERE, task, linkedit_addr, /*copy*/ true,
                        &cur, &max, VM_INHERIT_NONE);
@@ -375,8 +376,6 @@ struct _arm_thread_state_64 {
     uint32_t cpsr, pad;
 };
 
-
-EXPORT
 int substitute_dlopen_in_pid(int pid, const char *filename, int options, char **error) {
     mach_port_t task;
     mach_vm_address_t target_stack = 0;
@@ -421,6 +420,7 @@ int substitute_dlopen_in_pid(int pid, const char *filename, int options, char **
         }
     }
 
+    __attribute__((unused))
     extern char inject_page_start[],
                 inject_start_x86_64[],
                 inject_start_i386[],
@@ -479,7 +479,6 @@ int substitute_dlopen_in_pid(int pid, const char *filename, int options, char **
         p[2] = (uint32_t) vals[2];
     }
 
-    printf("target_stack=%llx\n", target_stack_top);
     kr = mach_vm_write(task, target_stack_top,
                        (mach_vm_address_t) stackbuf, baton_len + filelen_rounded);
     free(stackbuf);
@@ -500,6 +499,7 @@ int substitute_dlopen_in_pid(int pid, const char *filename, int options, char **
     memset(&u, 0, sizeof(u));
 
     switch (cputype) {
+#if defined(__x86_64__) || defined(__i386__)
     case CPU_TYPE_X86_64:
         u.x64.rsp = target_stack_top;
         u.x64.rdi = target_stack_top;
@@ -514,6 +514,8 @@ int substitute_dlopen_in_pid(int pid, const char *filename, int options, char **
         state_size = sizeof(u.x32);
         flavor = 1;
         break;
+#endif
+#if defined(__arm__) || defined(__arm64__)
     case CPU_TYPE_ARM:
         u.a32.sp = target_stack_top;
         u.a32.r[0] = target_stack_top;
@@ -528,6 +530,11 @@ int substitute_dlopen_in_pid(int pid, const char *filename, int options, char **
         state_size = sizeof(u.a64);
         flavor = 6;
         break;
+#endif
+    default:
+        asprintf(error, "unknown target cputype %d", cputype);
+        ret = SUBSTITUTE_ERR_MISC;
+        goto fail;
     }
 
     mach_port_t thread;
