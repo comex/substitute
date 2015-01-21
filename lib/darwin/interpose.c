@@ -5,6 +5,7 @@
 
 #include "substitute.h"
 #include "substitute-internal.h"
+#include "darwin/read.h"
 
 struct interpose_state {
     size_t nsegments;
@@ -16,39 +17,13 @@ struct interpose_state {
     segment_command_x *stack_segments[32];
 };
 
-static uintptr_t read_leb128(void **ptr, void *end, bool is_signed) {
-    uintptr_t result = 0;
-    uint8_t *p = *ptr;
-    uint8_t bit;
-    unsigned int shift = 0;
-    do {
-        if (p >= (uint8_t *) end)
-            return 0;
-        bit = *p++;
-        uintptr_t k = bit & 0x7f;
-        if (shift < sizeof(uintptr_t) * 8)
-            result |= k << shift;
-        shift += 7;
-    } while (bit & 0x80);
-    if (is_signed && (bit & 0x40))
-        result |= ~((uintptr_t) 0) << shift;
-    *ptr = p;
-    return result;
-}
-
-static inline char *read_cstring(void **ptr, void *end) {
-    char *s = *ptr;
-    *ptr = s + strnlen(s, (char *) end - s);
-    return s;
-}
-
 static int try_bind_section(void *bind, size_t size, const struct interpose_state *st,
                             bool lazy) {
     void *ptr = bind, *end = bind + size;
-    const char *sym = NULL;
+    char *sym = NULL;
     uint8_t type = lazy ? BIND_TYPE_POINTER : 0;
-    intptr_t addend = 0;
-    size_t offset = 0;
+    uint64_t addend = 0;
+    uint64_t offset = 0, added_offset;
     void *segment = NULL;
     while (ptr < end) {
         uint8_t byte = *(uint8_t *) ptr;
@@ -56,7 +31,7 @@ static int try_bind_section(void *bind, size_t size, const struct interpose_stat
         uint8_t immediate = byte & BIND_IMMEDIATE_MASK;
         uint8_t opcode = byte & BIND_OPCODE_MASK;
 
-        uintptr_t count, stride;
+        uint64_t count, stride;
 
         switch(opcode) {
         case BIND_OPCODE_DONE:
@@ -64,25 +39,26 @@ static int try_bind_section(void *bind, size_t size, const struct interpose_stat
         case BIND_OPCODE_SET_DYLIB_SPECIAL_IMM:
             break;
         case BIND_OPCODE_SET_DYLIB_ORDINAL_ULEB:
-            read_leb128(&ptr, end, false);
+            read_leb128(&ptr, end, false, NULL);
             break;
         case BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM:
-            sym = read_cstring(&ptr, end);
+            read_cstring(&ptr, end, &sym);
             /* ignoring flags for now */
             break;
         case BIND_OPCODE_SET_TYPE_IMM:
             type = immediate;
             break;
         case BIND_OPCODE_SET_ADDEND_SLEB:
-            addend = read_leb128(&ptr, end, true);
+            read_leb128(&ptr, end, true, &addend);
             break;
         case BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB:
             if (immediate < st->nsegments)
                 segment = (void *) (st->segments[immediate]->vmaddr + st->slide);
-            offset = read_leb128(&ptr, end, false);
+            read_leb128(&ptr, end, false, &offset);
             break;
         case BIND_OPCODE_ADD_ADDR_ULEB:
-            offset += read_leb128(&ptr, end, false);
+            read_leb128(&ptr, end, false, &added_offset);
+            offset += added_offset;
             break;
         case BIND_OPCODE_DO_BIND:
             count = 1;
@@ -90,15 +66,17 @@ static int try_bind_section(void *bind, size_t size, const struct interpose_stat
             goto bind;
         case BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB:
             count = 1;
-            stride = read_leb128(&ptr, end, false) + sizeof(void *);
+            read_leb128(&ptr, end, false, &stride);
+            stride += sizeof(void *);
             goto bind;
         case BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED:
             count = 1;
             stride = immediate * sizeof(void *) + sizeof(void *);
             goto bind;
         case BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB:
-            count = read_leb128(&ptr, end, false);
-            stride = read_leb128(&ptr, end, false) + sizeof(void *);
+            read_leb128(&ptr, end, false, &count);
+            read_leb128(&ptr, end, false, &stride);
+            stride += sizeof(void *);
             goto bind;
         bind:
             if (segment && sym) {
@@ -111,7 +89,7 @@ static int try_bind_section(void *bind, size_t size, const struct interpose_stat
                 }
                 if (i != st->nhooks) {
                     while (count--) {
-                        uintptr_t new = (uintptr_t) h->replacement + addend;
+                        uintptr_t new = (uintptr_t) h->replacement + (intptr_t) addend;
                         uintptr_t old;
                         void *p = (void *) (segment + offset);
                         switch (type) {
