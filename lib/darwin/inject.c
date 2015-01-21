@@ -3,6 +3,9 @@
 #include "substitute-internal.h"
 #include "darwin/read.h"
 #include <mach/mach.h>
+#include <mach-o/dyld_images.h>
+#include <dlfcn.h>
+#include <pthread.h>
 #include <sys/param.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -14,6 +17,7 @@ kern_return_t mach_vm_write(vm_map_t, mach_vm_address_t, vm_offset_t, mach_msg_t
 kern_return_t mach_vm_allocate(vm_map_t, mach_vm_address_t *, mach_vm_size_t, int);
 kern_return_t mach_vm_deallocate(vm_map_t, mach_vm_address_t, mach_vm_size_t);
 
+extern const struct dyld_all_image_infos *_dyld_get_all_image_infos();
 
 #define DEFINE_STRUCTS
 
@@ -50,6 +54,8 @@ struct dyld_all_image_infos_64 {
     dyld_image_infos_fields(uint64_t)
 };
 
+#define FFI_SHORT_CIRCUIT -1
+
 static int find_foreign_images(mach_port_t task, uint64_t *libdyld_p, uint64_t *libpthread_p, char **error) {
     *libdyld_p = 0;
     *libpthread_p = 0;
@@ -69,6 +75,7 @@ static int find_foreign_images(mach_port_t task, uint64_t *libdyld_p, uint64_t *
         asprintf(error, "TASK_DYLD_INFO obviously malformed");
         return SUBSTITUTE_ERR_MISC;
     }
+
     char all_image_infos_buf[1024];
 
     cnt = tdi.all_image_info_size;
@@ -91,6 +98,19 @@ static int find_foreign_images(mach_port_t task, uint64_t *libdyld_p, uint64_t *
         asprintf(error, "dyld_all_image_infos version too low");
         return SUBSTITUTE_ERR_MISC;
     }
+
+    /* If we are on the same shared cache with the same slide, then we can just
+     * look up the symbols locally and don't have to do the rest of the
+     * syscalls... not sure if this is any faster, but whatever. */
+    if (FIELD(version) >= 13) {
+        const struct dyld_all_image_infos *local_aii = _dyld_get_all_image_infos();
+        if (local_aii->version >= 13 &&
+            FIELD(sharedCacheSlide) == local_aii->sharedCacheSlide &&
+            !memcmp(FIELD(sharedCacheUUID), local_aii->sharedCacheUUID, 16)) {
+            return FFI_SHORT_CIRCUIT;
+        }
+    }
+
 
     uint64_t info_array_addr = FIELD(infoArray);
     uint32_t info_array_count = FIELD(infoArrayCount);
@@ -388,36 +408,53 @@ int substitute_dlopen_in_pid(int pid, const char *filename, int options, char **
     }
 
     uint64_t libdyld_addr, libpthread_addr;
-    if ((ret = find_foreign_images(task, &libdyld_addr, &libpthread_addr, error)))
+    if ((ret = find_foreign_images(task, &libdyld_addr, &libpthread_addr, error)) > 0)
         goto fail;
 
-    struct {
-        uint64_t addr;
-        const char *symname;
-        uint64_t symaddr;
-    } libs[2] = {
-        {libdyld_addr, "_dlopen", 0},
-        {libpthread_addr, "_pthread_create", 0}
-    };
-
+    uint64_t dlopen_addr, pthread_create_addr;
     cpu_type_t cputype;
+    if (ret == FFI_SHORT_CIRCUIT) {
+        dlopen_addr = (uint64_t) dlopen;
+        pthread_create_addr = (uint64_t) pthread_create;
+#if defined(__x86_64__)
+        cputype = CPU_TYPE_X86_64;
+#elif defined(__i386__)
+        cputype = CPU_TYPE_I386;
+#elif defined(__arm__)
+        cputype = CPU_TYPE_ARM;
+#elif defined(__arm64__)
+        cputype = CPU_TYPE_ARM64;
+#endif
+    } else {
+        struct {
+            uint64_t addr;
+            const char *symname;
+            uint64_t symaddr;
+        } libs[2] = {
+            {libdyld_addr, "_dlopen", 0},
+            {libpthread_addr, "_pthread_create", 0}
+        };
 
-    for (int i = 0; i < 2; i++) {
-        void *linkedit, *export;
-        size_t linkedit_size, export_size;
-        if ((ret = get_foreign_image_export(task, libs[i].addr,
-                                            &linkedit, &linkedit_size,
-                                            &export, &export_size,
-                                            &cputype, error)))
-            goto fail;
-        bool fesr = find_export_symbol(export, export_size, libs[i].symname,
-                                       libs[i].addr, &libs[i].symaddr);
-        vm_deallocate(mach_task_self(), (vm_offset_t) linkedit, (vm_size_t) linkedit_size);
-        if (!fesr) {
-            asprintf(error, "couldn't find _dlopen in libdyld");
-            ret = SUBSTITUTE_ERR_MISC;
-            goto fail;
+        for (int i = 0; i < 2; i++) {
+            void *linkedit, *export;
+            size_t linkedit_size, export_size;
+            if ((ret = get_foreign_image_export(task, libs[i].addr,
+                                                &linkedit, &linkedit_size,
+                                                &export, &export_size,
+                                                &cputype, error)))
+                goto fail;
+            bool fesr = find_export_symbol(export, export_size, libs[i].symname,
+                                           libs[i].addr, &libs[i].symaddr);
+            vm_deallocate(mach_task_self(), (vm_offset_t) linkedit, (vm_size_t) linkedit_size);
+            if (!fesr) {
+                asprintf(error, "couldn't find _dlopen in libdyld");
+                ret = SUBSTITUTE_ERR_MISC;
+                goto fail;
+            }
         }
+
+        dlopen_addr = libs[0].symaddr;
+        pthread_create_addr = libs[1].symaddr;
     }
 
     __attribute__((unused))
@@ -466,7 +503,7 @@ int substitute_dlopen_in_pid(int pid, const char *filename, int options, char **
     }
     strcpy(stackbuf + baton_len, filename);
 
-    uint64_t vals[3] = {libs[1].symaddr, libs[0].symaddr, target_stack_top + baton_len};
+    uint64_t vals[3] = {pthread_create_addr, dlopen_addr, target_stack_top + baton_len};
     if (cputype & CPU_ARCH_ABI64) {
         uint64_t *p = (void *) stackbuf;
         p[0] = vals[0];
