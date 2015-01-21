@@ -71,8 +71,10 @@ out/inject-asm-raw-arm.o: lib/darwin/inject-asm-raw.c Makefile
 out/inject-asm-raw-arm64.o: lib/darwin/inject-asm-raw.c Makefile
 	$(IACLANG) -arch arm64 -o $@ $<
 IAR_BINS := out/inject-asm-raw-x86_64.bin out/inject-asm-raw-i386.bin out/inject-asm-raw-arm.bin out/inject-asm-raw-arm64.bin
-out/inject-asm.S: $(IAR_BINS) Makefile script/gen-inject-asm.sh
+out/darwin-inject-asm.S: $(IAR_BINS) Makefile script/gen-inject-asm.sh
 	./script/gen-inject-asm.sh > $@ || rm -f $@
+generateds: out/darwin-inject-asm.S
+	cp $< generated/
 
 define define_test
 out/test-$(1): test/test-$(2).[cm]* $(HEADERS) $(GENERATED) Makefile out/libsubstitute.dylib
