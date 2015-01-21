@@ -5,7 +5,7 @@ ARCH := -arch x86_64
 XCFLAGS := -O3 -Wall -Wextra -Werror -Ilib $(ARCH)
 override CC := $(CC) $(XCFLAGS) $(CFLAGS)
 override CXX := $(CXX) $(XCFLAGS) $(CFLAGS) -fno-exceptions -fno-asynchronous-unwind-tables
-LIB_LDFLAGS := -lobjc -dynamiclib -fvisibility=hidden
+LIB_LDFLAGS := -lobjc -dynamiclib -fvisibility=hidden -install_name /usr/lib/libsubstitute.dylib
 IMAON2 := /Users/comex/c/imaon2
 GEN_JS := node --harmony --harmony_arrow_functions $(IMAON2)/tables/gen.js
 
@@ -54,28 +54,35 @@ out/libsubstitute.dylib: $(LIB_OBJS)
 # this doesn't need to be done on the building machine, just in case someone is
 # trying to build with some Linux compiler that doesn't support all the
 # architectures or something - meh
-ASCLANG := clang -dynamiclib -nostartfiles -nodefaultlibs
-out/inject-asm-raw-x86_64.o: lib/darwin/inject-asm-raw.S Makefile
-	$(ASCLANG) -arch x86_64 -o $@ $<
-out/inject-asm-raw-i386.o: lib/darwin/inject-asm-raw.S Makefile
-	$(ASCLANG) -arch i386 -o $@ $<
-out/inject-asm-raw-arm.o: lib/darwin/inject-asm-raw.S Makefile
-	$(ASCLANG) -arch armv7 -o $@ $<
-out/inject-asm-raw-arm64.o: lib/darwin/inject-asm-raw.S Makefile
-	$(ASCLANG) -arch arm64 -o $@ $<
+# Did you know?  With -Oz + -marm, Apple clang-600.0.56 actually generated
+# wrong code for the ARM version.  It works with -Os and with newer clang.
+IACLANG := clang -Os -dynamiclib -nostartfiles -nodefaultlibs -isysroot /dev/null -fPIC
+out/inject-asm-raw-x86_64.o: lib/darwin/inject-asm-raw.c Makefile
+	$(IACLANG) -arch x86_64 -o $@ $<
+out/inject-asm-raw-i386.o: lib/darwin/inject-asm-raw.c Makefile
+	$(IACLANG) -arch i386 -o $@ $<
+out/inject-asm-raw-arm.o: lib/darwin/inject-asm-raw.c Makefile
+	$(IACLANG) -arch armv7 -marm -o $@ $<
+out/inject-asm-raw-arm64.o: lib/darwin/inject-asm-raw.c Makefile
+	$(IACLANG) -arch arm64 -o $@ $<
 IAR_BINS := out/inject-asm-raw-x86_64.bin out/inject-asm-raw-i386.bin out/inject-asm-raw-arm.bin out/inject-asm-raw-arm64.bin
 out/inject-asm.S: $(IAR_BINS) Makefile
+	(echo ".align 12"; \
+	echo ".globl _inject_page_start"; \
+	echo "_inject_page_start:"; \
 	for i in x86_64 i386 arm arm64; do \
-		echo ".globl inject_start_$$i"; \
-		echo "inject_start_$$i:"; \
 		echo ".align 2"; \
+		echo ".globl _inject_start_$$i"; \
+		echo "_inject_start_$$i:"; \
 		printf  ".byte "; \
 		xxd -i < out/inject-asm-raw-$$i.bin | xargs echo; \
-	done > $@
+	done) > $@ || rm -f $@
 
 define define_test
 out/test-$(1): test/test-$(2).[cm]* $(HEADERS) $(GENERATED) Makefile out/libsubstitute.dylib
 	$(3) -g -o $$@ $$< -Ilib -Isubstrate -Lout -lsubstitute
+	ldid -Sent.plist $$@
+	install_name_tool -change /usr/lib/libsubstitute.dylib '@executable_path/libsubstitute.dylib' $$@
 all: out/test-$(1)
 endef
 $(eval $(call define_test,tdarm-simple,td-simple,$(CC) -std=c11 -DHDR='"arm/dis-arm.inc.h"' -Dxdis=dis_arm -DFORCE_TARGET_arm))

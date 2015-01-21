@@ -10,6 +10,10 @@
 
 kern_return_t mach_vm_read_overwrite(vm_map_t, mach_vm_address_t, mach_vm_size_t, mach_vm_address_t, mach_vm_size_t *);
 kern_return_t mach_vm_remap(vm_map_t, mach_vm_address_t *, mach_vm_size_t, mach_vm_offset_t, int, vm_map_t, mach_vm_address_t, boolean_t, vm_prot_t *, vm_prot_t *, vm_inherit_t);
+kern_return_t mach_vm_write(vm_map_t, mach_vm_address_t, vm_offset_t, mach_msg_type_number_t);
+kern_return_t mach_vm_allocate(vm_map_t, mach_vm_address_t *, mach_vm_size_t, int);
+kern_return_t mach_vm_deallocate(vm_map_t, mach_vm_address_t, mach_vm_size_t);
+
 
 #define DEFINE_STRUCTS
 
@@ -47,6 +51,9 @@ struct dyld_all_image_infos_64 {
 };
 
 static int find_foreign_images(mach_port_t task, uint64_t *libdyld_p, uint64_t *libpthread_p, char **error) {
+    *libdyld_p = 0;
+    *libpthread_p = 0;
+
     struct task_dyld_info tdi;
     mach_msg_type_number_t cnt = TASK_DYLD_INFO_COUNT;
 
@@ -73,7 +80,7 @@ static int find_foreign_images(mach_port_t task, uint64_t *libdyld_p, uint64_t *
         return SUBSTITUTE_ERR_MISC;
     }
 
-    bool is64 = tdi.all_image_info_format = TASK_DYLD_ALL_IMAGE_INFO_64;
+    bool is64 = tdi.all_image_info_format == TASK_DYLD_ALL_IMAGE_INFO_64;
     const struct dyld_all_image_infos_32 *aii32 = (void *) all_image_infos_buf;
     const struct dyld_all_image_infos_64 *aii64 = (void *) all_image_infos_buf;
 
@@ -95,7 +102,6 @@ static int find_foreign_images(mach_port_t task, uint64_t *libdyld_p, uint64_t *
         asprintf(error, "unreasonable number of loaded libraries: %u", info_array_count);
         return SUBSTITUTE_ERR_MISC;
     }
-
     size_t info_array_size = info_array_count * info_array_elm_size;
     void *info_array = malloc(info_array_count * info_array_elm_size);
     if (!info_array)
@@ -105,6 +111,7 @@ static int find_foreign_images(mach_port_t task, uint64_t *libdyld_p, uint64_t *
                                 (mach_vm_address_t) info_array, &size);
     if (kr || size != info_array_size) {
         asprintf(error, "mach_vm_read_overwrite(info_array): kr=%d", kr);
+        free(info_array);
         return SUBSTITUTE_ERR_MISC;
     }
 
@@ -147,30 +154,29 @@ static int find_foreign_images(mach_port_t task, uint64_t *libdyld_p, uint64_t *
 
         if (!strcmp(path_buf, "/usr/lib/system/libdyld.dylib"))
             *libdyld_p = load_address;
-        else if (!strcmp(path_buf, "/usr/lib/system/libpthread.dylib"))
+        else if (!strcmp(path_buf, "/usr/lib/system/libsystem_pthread.dylib"))
             *libpthread_p = load_address;
 
-        if (*libdyld_p && *libpthread_p)
+        if (*libdyld_p && *libpthread_p) {
+            free(info_array);
             return SUBSTITUTE_OK;
+        }
 
         info_array_ptr += info_array_elm_size;
     }
 
-    asprintf(error, "couldn't find libpthread");
+    free(info_array);
+    asprintf(error, "couldn't find libdyld or libpthread");
     return SUBSTITUTE_ERR_MISC;
 }
 
 static int get_foreign_image_export(mach_port_t task, uint64_t hdr_addr,
                                     void **linkedit_p, size_t *linkedit_size_p,
                                     void **export_p, size_t *export_size_p,
-                                    char **error) {
-    mach_vm_offset_t hdr_buf;
+                                    cpu_type_t *cputype_p, char **error) {
+    mach_vm_offset_t hdr_buf = 0;
     mach_vm_size_t hdr_buf_size;
     int ret;
-    if (hdr_addr & (PAGE_SIZE - 1)) {
-        asprintf(error, "unaligned mach_header");
-        return SUBSTITUTE_ERR_MISC;
-    }
 
     vm_prot_t cur, max;
     hdr_buf_size = PAGE_SIZE;
@@ -188,6 +194,8 @@ static int get_foreign_image_export(mach_port_t task, uint64_t hdr_addr,
         ret = SUBSTITUTE_ERR_MISC;
         goto fail;
     }
+
+    *cputype_p = mh->cputype;
 
     size_t mh_size = mh->magic == MH_MAGIC_64 ? sizeof(struct mach_header_64)
                                               : sizeof(struct mach_header);
@@ -350,9 +358,28 @@ got_symbol:;
     return true;
 }
 
+struct _x86_thread_state_32 {
+    uint32_t eax, ebx, ecx, edx, edi, esi, ebp, esp;
+    uint32_t ss, eflags, eip, cs, ds, es, fs, gs;
+};
+struct _x86_thread_state_64 {
+    uint64_t rax, rbx, rcx, rdx, rdi, rsi, rbp, rsp;
+    uint64_t r8, r9, r10, r11, r12, r13, r14, r15;
+    uint64_t rip, rflags, cs, fs, gs;
+};
+struct _arm_thread_state_32 {
+    uint32_t r[13], sp, lr, pc, cpsr;
+};
+struct _arm_thread_state_64 {
+    uint64_t x[29], fp, lr, sp, pc;
+    uint32_t cpsr, pad;
+};
+
+
 EXPORT
 int substitute_dlopen_in_pid(int pid, const char *filename, int options, char **error) {
     mach_port_t task;
+    mach_vm_address_t target_stack = 0;
     *error = NULL;
     kern_return_t kr = task_for_pid(mach_task_self(), pid, &task);
     int ret;
@@ -374,15 +401,16 @@ int substitute_dlopen_in_pid(int pid, const char *filename, int options, char **
         {libpthread_addr, "_pthread_create", 0}
     };
 
+    cpu_type_t cputype;
+
     for (int i = 0; i < 2; i++) {
         void *linkedit, *export;
         size_t linkedit_size, export_size;
         if ((ret = get_foreign_image_export(task, libs[i].addr,
                                             &linkedit, &linkedit_size,
                                             &export, &export_size,
-                                            error)))
+                                            &cputype, error)))
             goto fail;
-        printf("%p\n", (void *) libdyld_addr);
         bool fesr = find_export_symbol(export, export_size, libs[i].symname,
                                        libs[i].addr, &libs[i].symaddr);
         vm_deallocate(mach_task_self(), (vm_offset_t) linkedit, (vm_size_t) linkedit_size);
@@ -392,14 +420,136 @@ int substitute_dlopen_in_pid(int pid, const char *filename, int options, char **
             goto fail;
         }
     }
-    printf("%p\n", (void *) libs[0].symaddr);
-    printf("%p\n", (void *) libs[0].symaddr);
 
-    (void) filename;
+    extern char inject_page_start[],
+                inject_start_x86_64[],
+                inject_start_i386[],
+                inject_start_arm[],
+                inject_start_arm64[];
+
+    int target_page_size = cputype == CPU_TYPE_ARM64 ? 0x4000 : 0x1000;
+    kr = mach_vm_allocate(task, &target_stack, 2 * target_page_size, VM_FLAGS_ANYWHERE);
+    if (kr) {
+        asprintf(error, "couldn't allocate target stack");
+        ret = SUBSTITUTE_ERR_OOM;
+        goto fail;
+    }
+
+    mach_vm_address_t target_code_page = target_stack + target_page_size;
+    vm_prot_t cur, max;
+    kr = mach_vm_remap(task, &target_code_page, target_page_size, 0,
+                       VM_FLAGS_OVERWRITE, mach_task_self(),
+                       (mach_vm_address_t) inject_page_start,
+                       /*copy*/ false,
+                       &cur, &max, VM_INHERIT_NONE);
+    if (kr) {
+        asprintf(error, "couldn't remap target code");
+        ret = SUBSTITUTE_ERR_VM;
+        goto fail;
+    }
+
+    size_t filelen = strlen(filename);
+    if (filelen >= 0x400) {
+        asprintf(error, "you gave me a terrible filename (%s)", filename);
+        ret = SUBSTITUTE_ERR_MISC;
+        goto fail;
+    }
+    size_t filelen_rounded = (filelen + 7) & ~7;
+
+    size_t baton_len = (cputype & CPU_ARCH_ABI64) ? 32 : 16;
+    mach_vm_address_t target_stack_top = target_stack + target_page_size
+                                         - baton_len - filelen_rounded;
+    char *stackbuf = calloc(baton_len + filelen_rounded, 1);
+    if (!stackbuf) {
+        ret = SUBSTITUTE_ERR_OOM;
+        goto fail;
+    }
+    strcpy(stackbuf + baton_len, filename);
+
+    uint64_t vals[3] = {libs[1].symaddr, libs[0].symaddr, target_stack_top + baton_len};
+    if (cputype & CPU_ARCH_ABI64) {
+        uint64_t *p = (void *) stackbuf;
+        p[0] = vals[0];
+        p[1] = vals[1];
+        p[2] = vals[2];
+    } else {
+        uint32_t *p = (void *) stackbuf;
+        p[0] = (uint32_t) vals[0];
+        p[1] = (uint32_t) vals[1];
+        p[2] = (uint32_t) vals[2];
+    }
+
+    printf("target_stack=%llx\n", target_stack_top);
+    kr = mach_vm_write(task, target_stack_top,
+                       (mach_vm_address_t) stackbuf, baton_len + filelen_rounded);
+    free(stackbuf);
+    if (kr) {
+        asprintf(error, "mach_vm_write(stack data): kr=%d", kr);
+        ret = SUBSTITUTE_ERR_MISC;
+        goto fail;
+    }
+
+    union {
+        struct _x86_thread_state_32 x32;
+        struct _x86_thread_state_64 x64;
+        struct _arm_thread_state_32 a32;
+        struct _arm_thread_state_64 a64;
+    } u;
+    size_t state_size;
+    thread_state_flavor_t flavor;
+    memset(&u, 0, sizeof(u));
+
+    switch (cputype) {
+    case CPU_TYPE_X86_64:
+        u.x64.rsp = target_stack_top;
+        u.x64.rdi = target_stack_top;
+        u.x64.rip = target_code_page + (inject_start_x86_64 - inject_page_start);
+        state_size = sizeof(u.x64);
+        flavor = 4;
+        break;
+    case CPU_TYPE_I386:
+        u.x32.esp = target_stack_top;
+        u.x32.ecx = target_stack_top;
+        u.x32.eip = target_code_page + (inject_start_i386 - inject_page_start);
+        state_size = sizeof(u.x32);
+        flavor = 1;
+        break;
+    case CPU_TYPE_ARM:
+        u.a32.sp = target_stack_top;
+        u.a32.r[0] = target_stack_top;
+        u.a32.pc = target_code_page + (inject_start_arm - inject_page_start);
+        state_size = sizeof(u.a32);
+        flavor = 9;
+        break;
+    case CPU_TYPE_ARM64:
+        u.a64.sp = target_stack_top;
+        u.a64.x[0] = target_stack_top;
+        u.a64.pc = target_code_page + (inject_start_arm64 - inject_page_start);
+        state_size = sizeof(u.a64);
+        flavor = 6;
+        break;
+    }
+
+    mach_port_t thread;
+    kr = thread_create_running(task, flavor, (thread_state_t) &u,
+                               state_size / sizeof(int), &thread);
+    if (kr) {
+        asprintf(error, "thread_create_running: kr=%d", kr);
+        ret = SUBSTITUTE_ERR_MISC;
+        goto fail;
+    }
+
+    target_stack = 0;
+
+    /* it will terminate itself */
+    mach_port_deallocate(mach_task_self(), thread);
+
     (void) options;
 
     ret = 0;
 fail:
+    if (target_stack)
+        mach_vm_deallocate(task, target_stack, 2 * target_page_size);
     mach_port_deallocate(mach_task_self(), task);
     return ret;
 }
