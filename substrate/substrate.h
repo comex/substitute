@@ -2,6 +2,20 @@
  * Copyright (C) 2008-2011  Jay Freeman (saurik)
 */
 
+/* Modified from git revision 904d20f414c79a2716680f4d29d833e6ce0dcea2 by comex
+ * to act as a compatibility shim for libsubstitute; the changes consist of
+ * removing MSHookMessage, MSHookProcess (for now), and some internal
+ * functions, and setting custom asm names for all non-inline functions.
+ *
+ * The purpose of the custom asm names is to allow the shim to be applied at
+ * either the source or binary level (the latter mainly for testing purposes).
+ * Normally, due to two-level name lookup, exposing the regular names in
+ * libsubstitute.dylib would suffice for this, even if it's loaded in the same
+ * process as Substrate, but not with DYLD_FORCE_FLAT_NAMESPACE etc.
+ * Therefore, making a binary use this requires hacking it up with sed.  With
+ * source, just put the directory containing this file in your include path.
+ */
+
 /* GNU Lesser General Public License, Version 3 {{{ */
 /*
  * Substrate is free software: you can redistribute it and/or modify it under
