@@ -1,5 +1,7 @@
 #include "substitute.h"
 #include "substitute-internal.h"
+#include "execmem.h"
+#include "stop-other-threads.h"
 
 static uintptr_t patch_callback(UNUSED void *ctx, uintptr_t pc) {
     printf("patch_callback: pc=%llx\n", (long long) pc);

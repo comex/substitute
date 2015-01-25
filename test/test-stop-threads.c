@@ -1,4 +1,5 @@
 #include "substitute-internal.h"
+#include "stop-other-threads.h"
 #include <stdio.h>
 #include <unistd.h>
 #include <pthread.h>

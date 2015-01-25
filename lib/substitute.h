@@ -39,6 +39,7 @@ enum {
 
     /* substitute_hook_functions:    mmap or mprotect failure other than ENOMEM
      *                               (preserved in errno on return)
+     * substitute_hook_functions:    vm_region failure (errno = 0)
      * substitute_hook_objc_message: vm_remap failure
      * Most likely to come up with substitute_hook_functions if the kernel is
      * preventing pages from being marked executable. */
