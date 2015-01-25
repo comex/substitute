@@ -4,8 +4,8 @@ static inline void MOVi64(void **codep, int Rd, uint64_t val) {
     int shift_nybbles = 0;
     do {
         int k = shift_nybbles != 0 ? 1 : 0;
-        op32(codep, 0x69400000 | k << 28 | Rd | (val & 0xffff) << 4 |
-                    shift_nybbles << 20);
+        op32(codep, 0xd2800000 | k << 29 | Rd | (val & 0xffff) << 5 |
+                    shift_nybbles << 21);
         shift_nybbles++;
         val >>= 16;
     } while(val);
@@ -16,6 +16,7 @@ static inline void LDRxi(void **codep, int Rt, int Rn, uint32_t off,
     int size, opc;
     bool sign, simd;
     switch (load_mode) {
+        case PLM_ADR: return;
         case PLM_U8:  size = 0; sign = false;  simd = false; break;
         case PLM_S8:  size = 0; sign = true;   simd = false; break;
         case PLM_U16: size = 1; sign = false;  simd = false; break;
@@ -41,8 +42,8 @@ static inline void LDRxi(void **codep, int Rt, int Rn, uint32_t off,
 static inline void ADRP_ADD(void **codep, int reg, uint64_t pc, uint64_t dpc) {
     uintptr_t diff = (dpc & ~0xfff) - (pc & ~0xfff);
     /* ADRP reg, dpc */
-    op32(codep, 0x90000000 | reg | (diff & 0x3000) << 17 | (diff & 0xffffc000) >> 8);
-    uint32_t lo = pc & 0xfff;
+    op32(codep, 0x90000000 | reg | (diff & 0x3000) << 17 | (diff & 0x1ffffc000) >> 9);
+    uint32_t lo = dpc & 0xfff;
     if (lo) {
         /* ADD reg, reg, #lo */
         op32(codep, 0x91000000 | reg | reg << 5 | lo << 10);

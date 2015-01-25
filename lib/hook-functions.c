@@ -8,7 +8,7 @@
 #include TARGET_JUMP_PATCH_HDR
 
 struct hook_internal {
-    int offset_by_pcdiff[JUMP_PATCH_SIZE + 1];
+    int offset_by_pcdiff[MAX_JUMP_PATCH_SIZE + 1];
     uint8_t jump_patch[MAX_JUMP_PATCH_SIZE];
     size_t jump_patch_size;
     void *code;
@@ -21,6 +21,7 @@ struct hook_internal {
 struct pc_callback_info {
     struct hook_internal *his;
     size_t nhooks;
+    bool encountered_bad_pc;
 };
 
 static uintptr_t pc_callback(void *ctx, uintptr_t pc) {
@@ -32,8 +33,14 @@ static uintptr_t pc_callback(void *ctx, uintptr_t pc) {
     for (size_t i = 0; i < info->nhooks; i++) {
         struct hook_internal *hi = &info->his[i];
         uintptr_t diff = real_pc - (uintptr_t) hi->code;
-        if (diff < hi->jump_patch_size)
-            return (uintptr_t) hi->outro_trampoline + hi->offset_by_pcdiff[diff];
+        if (diff < hi->jump_patch_size) {
+            int offset = hi->offset_by_pcdiff[diff];
+            if (offset == -1) {
+                info->encountered_bad_pc = true;
+                return pc;
+            }
+            return (uintptr_t) hi->outro_trampoline + offset;
+        }
     }
     return pc;
 }
@@ -76,9 +83,9 @@ static int check_intro_trampoline(void **trampoline_ptr_p,
     if (*patch_size_p != -1 && (size_t) *patch_size_p <= *trampoline_size_left_p)
         return SUBSTITUTE_OK;
 
-    /* Allocate new trampoline - try after dpc.  If this fails, we can try
-     * before dpc before giving up. */
-    int ret = execmem_alloc_unsealed(dpc, &trampoline_ptr, &trampoline_size_left);
+    /* Allocate new trampoline - try after pc.  If this fails, we can try
+     * before pc before giving up. */
+    int ret = execmem_alloc_unsealed(pc, &trampoline_ptr, &trampoline_size_left);
     if (ret)
         goto skip_after;
 
@@ -93,8 +100,8 @@ static int check_intro_trampoline(void **trampoline_ptr_p,
     execmem_free(trampoline_ptr);
 
 skip_after:;
-    /* Allocate new trampoline - try before dpc (xxx only meaningful on arm64) */
-    uintptr_t start_address = dpc - 0xffff0000;
+    /* Allocate new trampoline - try before pc (xxx only meaningful on arm64) */
+    uintptr_t start_address = pc - 0xffff0000;
     ret = execmem_alloc_unsealed(start_address, &trampoline_ptr, &trampoline_size_left);
     if (ret)
         return ret;
@@ -234,9 +241,13 @@ int substitute_hook_functions(const struct substitute_function_hook *hooks,
 
     /* *sigh of relief* now we can rewrite the PCs. */
     if (stopped) {
-        struct pc_callback_info info = {his, nhooks};
+        struct pc_callback_info info = {his, nhooks, false};
         if ((ret = apply_pc_patch_callback(stop_token, pc_callback, &info)))
             goto end;
+        if (info.encountered_bad_pc) {
+            ret = SUBSTITURE_ERR_UNEXPECTED_PC_ON_OTHER_THREAD;
+            goto end;
+        }
     }
 
 end:

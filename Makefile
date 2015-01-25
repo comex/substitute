@@ -14,7 +14,7 @@ all: \
 
 $(shell mkdir -p out generated)
 
-HEADERS := lib/*.h lib/darwin/*.h
+HEADERS := lib/*.h lib/*/*.h
 GENERATED := generated/generic-dis-arm.inc.h generated/generic-dis-thumb.inc.h generated/generic-dis-thumb2.inc.h generated/generic-dis-arm64.inc.h
 define do_prefix
 generated/generic-dis-$(1).inc.h:

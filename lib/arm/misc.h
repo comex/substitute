@@ -10,5 +10,3 @@ struct arch_dis_ctx {
 };
 enum { IS_LDRD_STRD = 1 << 16 };
 
-#define JUMP_PATCH_SIZE 8
-#define MAX_REWRITTEN_SIZE (12 * 4) /* actually should be less */

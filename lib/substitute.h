@@ -51,6 +51,14 @@ enum {
      * SUBSTITUTE_DONT_STOP_THREADS */
     SUBSTITUTE_ERR_NOT_ON_MAIN_THREAD,
 
+    /* substitute_hook_functions: when trying to patch the PC of other threads
+     * (in case they were inside the patched prolog when they were suspended),
+     * found a PC that was in the patch region but seemingly not at an
+     * instruction boundary
+     * The hooks were otherwise completed, but the thread in question will
+     * probably crash now that its code has changed under it. */
+    SUBSTITURE_ERR_UNEXPECTED_PC_ON_OTHER_THREAD,
+
     /* substitute_hook_functions: destination was out of range, and mmap
      * wouldn't give us a trampoline in range */
     SUBSTITUTE_ERR_OUT_OF_RANGE,
