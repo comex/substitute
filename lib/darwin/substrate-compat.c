@@ -38,13 +38,18 @@ void *SubFindSymbol(void *image, const char *name) {
     return ptr;
 }
 
-/*
+#ifdef TARGET_DIS_SUPPORTED
 EXPORT
 void SubHookFunction(void *symbol, void *replace, void **result) __asm__("SubHookFunction");
 void SubHookFunction(void *symbol, void *replace, void **result) {
-    // ...
+    struct substitute_function_hook hook = {symbol, replace, result};
+    int ret = substitute_hook_functions(&hook, 1, 0);
+    if (ret) {
+        panic("SubHookFunction: substitute_hook_functions returned %s\n",
+              substitute_strerror(ret));
+    }
 }
-*/
+#endif
 
 EXPORT
 void SubHookMessageEx(Class _class, SEL sel, IMP imp, IMP *result)
