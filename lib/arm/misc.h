@@ -12,6 +12,3 @@ enum { IS_LDRD_STRD = 1 << 16 };
 
 #define JUMP_PATCH_SIZE 8
 #define MAX_REWRITTEN_SIZE (12 * 4) /* actually should be less */
-static inline bool can_reach_with_jump_patch(uintptr_t pc, uintptr_t dpc) {
-    return true;
-}

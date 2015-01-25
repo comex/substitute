@@ -16,6 +16,7 @@ static NOINLINE UNUSED void transform_dis_data(struct transform_dis_ctx *ctx,
     newval[3] = o3;
 
     void **codep = ctx->rewritten_ptr_ptr;
+    struct assemble_ctx actx = {ctx->rewritten_ptr_ptr, ctx->arch.pc_low_bit};
 
     /* A few cases:
      * 1. Move to PC that does not read PC.  Probably fine.
@@ -54,33 +55,33 @@ static NOINLINE UNUSED void transform_dis_data(struct transform_dis_ctx *ctx,
         if (in_regs & 1 << 15)
             return; /* case 1 */
         /* case 2 */
-        PUSHone(codep, scratch);
-        PUSHone(codep, scratch);
-        MOVW_MOVT(codep, scratch, pc);
+        PUSHone(actx, scratch);
+        PUSHone(actx, scratch);
+        MOVW_MOVT(actx, scratch, pc);
         for (int i = 0; i < 4; i++)
             if (newval[i] == 15)
                 newval[i] = scratch;
         ctx->write_newop_here = *codep; *codep += ctx->op_size;
-        STRri(codep, scratch, 13, 4);
-        POPmulti(codep, 1 << scratch | 1 << 15);
+        STRri(actx, scratch, 13, 4);
+        POPmulti(actx, 1 << scratch | 1 << 15);
         transform_dis_ret(ctx);
     } else {
         if (out_reg != -1 && !(in_regs & 1 << out_reg)) {
             /* case 3 - ignore scratch */
-            MOVW_MOVT(codep, out_reg, pc);
+            MOVW_MOVT(actx, out_reg, pc);
             for (int i = 0; i < 4; i++)
                 if (newval[i] == 15)
                     newval[i] = out_reg;
             ctx->write_newop_here = *codep; *codep += ctx->op_size;
         } else {
             /* case 4 */
-            PUSHone(codep, scratch);
-            MOVW_MOVT(codep, scratch, pc);
+            PUSHone(actx, scratch);
+            MOVW_MOVT(actx, scratch, pc);
             for (int i = 0; i < 4; i++)
                 if (newval[i] == 15)
                     newval[i] = scratch;
-            ctx->write_newop_here = *rpp; *rpp += ctx->op_size;
-            POPone(codep, scratch);
+            ctx->write_newop_here = *codep; *codep += ctx->op_size;
+            POPone(actx, scratch);
         }
     }
     ctx->modify = true;
@@ -97,20 +98,20 @@ static NOINLINE UNUSED void transform_dis_pcrel(struct transform_dis_ctx *ctx,
            (void *) dpc, reg, load_mode);
 #endif
     ctx->write_newop_here = NULL;
-    void **codep = ctx->rewritten_ptr_ptr;
+    struct assemble_ctx actx = {ctx->rewritten_ptr_ptr, ctx->arch.pc_low_bit};
     if (reg == 15) {
         int scratch = 0;
-        PUSHone(codep, scratch);
-        PUSHone(codep, scratch);
-        MOVW_MOVT(codep, scratch, dpc);
+        PUSHone(actx, scratch);
+        PUSHone(actx, scratch);
+        MOVW_MOVT(actx, scratch, dpc);
         if (load_mode != PLM_ADR)
-            LDRxi(codep, scratch, scratch, 0, load_mode);
-        STRri(codep, scratch, 13, 4);
-        POPmulti(codep, 1 << scratch | 1 << 15);
-        transform_dis_ret(codep);
+            LDRxi(actx, scratch, scratch, 0, load_mode);
+        STRri(actx, scratch, 13, 4);
+        POPmulti(actx, 1 << scratch | 1 << 15);
+        transform_dis_ret(ctx);
     } else {
-        MOVW_MOVT(codep, reg, dpc);
+        MOVW_MOVT(actx, reg, dpc);
         if (load_mode != PLM_ADR)
-            LDRxi(codep, reg, reg, 0, load_mode);
+            LDRxi(actx, reg, reg, 0, load_mode);
     }
 }

@@ -47,7 +47,9 @@ static inline void ADRP_ADD(void **codep, int reg, uint64_t pc, uint64_t dpc) {
         /* ADD reg, reg, #lo */
         op32(codep, 0x91000000 | reg | reg << 5 | lo << 10);
     }
-    /* BR reg */
+}
+
+static inline void BR(void **codep, int reg) {
     op32(codep, 0xd61f0000 | reg << 5);
 }
 

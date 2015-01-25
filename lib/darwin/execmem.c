@@ -55,3 +55,22 @@ int execmem_write(void *dest, const void *src, size_t len) {
     }
     return SUBSTITUTE_OK;
 }
+
+int execmem_alloc_unsealed(uintptr_t hint, void **page_p, size_t *size_p) {
+    *size_p = PAGE_SIZE;
+    *page_p = mmap((void *) hint, *size_p, PROT_READ | PROT_WRITE,
+                   MAP_ANON | MAP_SHARED, -1, 0);
+    if (*page_p == MAP_FAILED)
+        return SUBSTITUTE_ERR_VM;
+    return SUBSTITUTE_OK;
+}
+
+int execmem_seal(void *page) {
+    if (mprotect(page, PAGE_SIZE, PROT_READ | PROT_EXEC))
+        return SUBSTITUTE_ERR_VM;
+    return SUBSTITUTE_OK;
+}
+
+void execmem_free(void *page) {
+    munmap(page, PAGE_SIZE);
+}

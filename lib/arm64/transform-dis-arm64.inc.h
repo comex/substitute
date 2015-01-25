@@ -1,3 +1,4 @@
+#include "arm64/assemble.h"
 
 static NOINLINE UNUSED void transform_dis_pcrel(struct transform_dis_ctx *ctx,
         uintptr_t dpc, unsigned reg, enum pcrel_load_mode load_mode) {
