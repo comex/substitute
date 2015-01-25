@@ -49,9 +49,19 @@ static bool apply_one_pcp(mach_port_t thread,
 #elif defined(__arm__) || defined(__arm64__)
     pcp = (uintptr_t *) &state.pc;
 #endif
+    uintptr_t old = *pcp;
+#ifdef __arm__
+    /* thumb */
+    if (state.cpsr & 0x20)
+        old |= 1;
+#endif
     uintptr_t new = callback(ctx, *pcp);
-    if (new != *pcp) {
+    if (new != old) {
         *pcp = new;
+#ifdef __arm__
+        *pcp &= ~1;
+        state.cpsr = (state.cpsr & ~0x20) | ((new & 1) * 0x20);
+#endif
         kr = thread_set_state(thread, flavor, (thread_state_t) &state, real_cnt);
         if (kr)
             return false;

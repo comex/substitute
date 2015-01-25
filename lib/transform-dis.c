@@ -117,12 +117,6 @@ int transform_dis_main(const void *restrict code_ptr,
     return SUBSTITUTE_OK;
 }
 
-static inline void op32(struct transform_dis_ctx *ctx, uint32_t op) {
-    void **rpp = ctx->rewritten_ptr_ptr;
-    *(uint32_t *) *rpp = op;
-    *rpp += 4;
-}
-
 #include TARGET_TRANSFORM_DIS_HEADER
 #include TARGET_DIS_HEADER
 

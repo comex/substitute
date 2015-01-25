@@ -110,3 +110,9 @@ static const unsigned null_op = -0x100;
 #ifndef TARGET_DIS_SUPPORTED
     #error "no disassembler for the target architecture yet"
 #endif
+
+static inline void op32(void **codep, uint32_t op) {
+    *(uint32_t *) *codep = op;
+    *codep += 4;
+}
+

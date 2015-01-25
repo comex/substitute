@@ -51,6 +51,10 @@ enum {
      * SUBSTITUTE_DONT_STOP_THREADS */
     SUBSTITUTE_ERR_NOT_ON_MAIN_THREAD,
 
+    /* substitute_hook_functions: destination was out of range, and mmap
+     * wouldn't give us a trampoline in range */
+    SUBSTITUTE_ERR_OUT_OF_RANGE,
+
     /* substitute_interpose_imports: couldn't redo relocation for an import
      * because the type was unknown */
     SUBSTITUTE_ERR_UNKNOWN_RELOCATION_TYPE,
@@ -66,7 +70,7 @@ enum {
 struct substitute_function_hook {
     void *function;
     void *replacement;
-    void *old_ptr; /* optional: out pointer to function pointer to call old impl */
+    void *old_ptr; /* optional: out *pointer* to function pointer to call old impl */
 };
 
 /* Get a string representation for a SUBSTITUTE_* error code. */
