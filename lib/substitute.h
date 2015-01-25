@@ -57,7 +57,7 @@ enum {
      * instruction boundary
      * The hooks were otherwise completed, but the thread in question will
      * probably crash now that its code has changed under it. */
-    SUBSTITURE_ERR_UNEXPECTED_PC_ON_OTHER_THREAD,
+    SUBSTITUTE_ERR_UNEXPECTED_PC_ON_OTHER_THREAD,
 
     /* substitute_hook_functions: destination was out of range, and mmap
      * wouldn't give us a trampoline in range */

@@ -245,7 +245,7 @@ int substitute_hook_functions(const struct substitute_function_hook *hooks,
         if ((ret = apply_pc_patch_callback(stop_token, pc_callback, &info)))
             goto end;
         if (info.encountered_bad_pc) {
-            ret = SUBSTITURE_ERR_UNEXPECTED_PC_ON_OTHER_THREAD;
+            ret = SUBSTITUTE_ERR_UNEXPECTED_PC_ON_OTHER_THREAD;
             goto end;
         }
     }
