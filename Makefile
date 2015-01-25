@@ -6,7 +6,7 @@ CC := clang
 CXX := clang++
 ARCH := -arch x86_64
 XCFLAGS := -O3 -Wall -Wextra -Werror -Ilib $(ARCH)
-LIB_LDFLAGS := -lobjc -framework CoreFoundation -dynamiclib -fvisibility=hidden -install_name /usr/lib/libsubstitute.dylib -dead_strip
+LIB_LDFLAGS := -lobjc -framework CoreFoundation -dynamiclib -fvisibility=hidden -install_name /usr/lib/libsubstitute.0.dylib -dead_strip
 override CC := $(CC) $(XCFLAGS) $(CFLAGS)
 override CXX := $(CXX) $(XCFLAGS) $(CFLAGS) -fno-exceptions -fno-asynchronous-unwind-tables
 IS_IOS := $(findstring -arch arm,$(CC))
@@ -99,7 +99,7 @@ out/test-$(1): test/test-$(2).[cm]* $(HEADERS) $(GENERATED) Makefile out/libsubs
 ifneq (,$(IS_IOS))
 	ldid -Sent.plist $$@
 endif
-	install_name_tool -change /usr/lib/libsubstitute.dylib '@executable_path/libsubstitute.dylib' $$@
+	install_name_tool -change /usr/lib/libsubstitute.0.dylib '@executable_path/libsubstitute.dylib' $$@
 all: out/test-$(1)
 endef
 $(eval $(call define_test,tdarm-simple,td-simple,$(CC) -std=c11 -DHDR='"arm/dis-arm.inc.h"' -Dxdis=dis_arm -DFORCE_TARGET_arm))

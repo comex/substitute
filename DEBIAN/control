@@ -1,0 +1,11 @@
+Package: com.ex.substitute
+Architecture: iphoneos-arm
+Name: Substitute
+Depiction: http://jslinux.org
+Author: comex <comexk+da@gmail.com>
+Priority: optional
+Version: {VERSION}
+Description: Substrate substitute for code substitution
+Maintainer: comex <comexk+dm@gmail.com>
+Section: System
+
