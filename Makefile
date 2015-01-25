@@ -102,6 +102,7 @@ $(eval $(call define_test,interpose,interpose,$(CC) -std=c11 -lsubstitute))
 $(eval $(call define_test,inject,inject,$(CC) -std=c11 -lsubstitute out/darwin/inject.o out/darwin/read.o))
 $(eval $(call define_test,stop-threads,stop-threads,$(CC) -std=c11 out/darwin/stop-other-threads.o -framework CoreFoundation))
 $(eval $(call define_test,execmem,execmem,$(CC) -std=c11 out/darwin/execmem.o -segprot __TEST rwx rx))
+$(eval $(call define_test,hook-functions,hook-functions,$(CC) -std=c11 -lsubstitute))
 
 out/insns-arm.o: test/insns-arm.S Makefile
 	clang -arch armv7 -c -o $@ $<
