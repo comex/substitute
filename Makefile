@@ -1,11 +1,24 @@
-# todo
+# I really want to rewrite this with some configure script written in a real
+# language, that supports cross compilation properly, etc.  In fact, making a
+# good generic configure framework is on my todo list; but since that's a lot
+# of work, have fun with this hacky Makefile.
 CC := clang
 CXX := clang++
 ARCH := -arch x86_64
 XCFLAGS := -O3 -Wall -Wextra -Werror -Ilib $(ARCH)
+LIB_LDFLAGS := -lobjc -framework CoreFoundation -dynamiclib -fvisibility=hidden -install_name /usr/lib/libsubstitute.dylib -dead_strip
 override CC := $(CC) $(XCFLAGS) $(CFLAGS)
 override CXX := $(CXX) $(XCFLAGS) $(CFLAGS) -fno-exceptions -fno-asynchronous-unwind-tables
-LIB_LDFLAGS := -lobjc -framework CoreFoundation -dynamiclib -fvisibility=hidden -install_name /usr/lib/libsubstitute.dylib -dead_strip
+IS_IOS := $(findstring -arch arm,$(CC))
+
+ifneq (,$(IS_IOS))
+# I don't know anything in particular that would break this on older versions,
+# but I don't have any good way to test it and don't really care.  So ensure it
+# doesn't get run on them.
+XCFLAGS := $(XCFLAGS) -miphoneos-version-min=7.0
+endif
+
+# These are only required to rebuild the generated disassemblers.
 IMAON2 := /Users/comex/c/imaon2
 GEN_JS := node --harmony --harmony_arrow_functions $(IMAON2)/tables/gen.js
 
@@ -14,8 +27,7 @@ all: \
 
 $(shell mkdir -p out generated)
 
-HEADERS := lib/*.h lib/*/*.h
-GENERATED := generated/generic-dis-arm.inc.h generated/generic-dis-thumb.inc.h generated/generic-dis-thumb2.inc.h generated/generic-dis-arm64.inc.h
+GENERATED_DIS_HEADERS := generated/generic-dis-arm.inc.h generated/generic-dis-thumb.inc.h generated/generic-dis-thumb2.inc.h generated/generic-dis-arm64.inc.h
 define do_prefix
 generated/generic-dis-$(1).inc.h:
 	$(GEN_JS) --gen-hook-disassembler $(2) --dis-pattern='P(XXX)' $(IMAON2)/out/out-$(3).json > $$@ || rm -f $$@
@@ -26,6 +38,8 @@ $(eval $(call do_prefix,thumb,-n _thumb,ARM))
 $(eval $(call do_prefix,arm,-n _arm,ARM))
 $(eval $(call do_prefix,arm64,,AArch64))
 
+HEADERS := lib/*.h lib/*/*.h
+
 out/%.o: lib/%.c Makefile $(HEADERS)
 	@mkdir -p $(dir $@)
 	$(CC) -fvisibility=hidden -std=c11 -c -o $@ $<
@@ -34,8 +48,8 @@ out/%.o: generated/%.S Makefile $(HEADERS)
 out/%.o: lib/%.S Makefile $(HEADERS)
 	@mkdir -p $(dir $@)
 	$(CC) -fvisibility=hidden -c -o $@ $<
-out/jump-dis.o: $(GENERATED)
-out/transform-dis.o: $(GENERATED)
+out/jump-dis.o: $(GENERATED_DIS_HEADERS)
+out/transform-dis.o: $(GENERATED_DIS_HEADERS)
 
 LIB_OBJS := \
 	out/darwin/find-syms.o \
@@ -56,9 +70,9 @@ LIB_OBJS := \
 out/libsubstitute.dylib: $(LIB_OBJS)
 	$(CC) -o $@ $(LIB_OBJS) $(LIB_LDFLAGS)
 
-# this doesn't need to be done on the building machine, just in case someone is
+# The result of this is also checked into generated, just in case someone is
 # trying to build with some Linux compiler that doesn't support all the
-# architectures or something - meh
+# architectures or something - meh.
 # Did you know?  With -Oz + -marm, Apple clang-600.0.56 actually generated
 # wrong code for the ARM version.  It works with -Os and with newer clang.
 IACLANG := clang -Os -dynamiclib -nostartfiles -nodefaultlibs -isysroot /dev/null -Ilib -fPIC
@@ -76,10 +90,15 @@ out/darwin-inject-asm.S: $(IAR_BINS) Makefile script/gen-inject-asm.sh
 generateds: out/darwin-inject-asm.S
 	cp $< generated/
 
+out/%.bin: out/%.o Makefile
+	segedit -extract __TEXT __text $@ $<
+
 define define_test
 out/test-$(1): test/test-$(2).[cm]* $(HEADERS) $(GENERATED) Makefile out/libsubstitute.dylib
 	$(3) -g -o $$@ $$< -Ilib -Isubstrate -Lout -lsubstitute
-	lipo -info $$@ | grep -q ':.*:.*arm' && ldid -Sent.plist $$@ || true
+ifneq (,$(IS_IOS))
+	ldid -Sent.plist $$@
+endif
 	install_name_tool -change /usr/lib/libsubstitute.dylib '@executable_path/libsubstitute.dylib' $$@
 all: out/test-$(1)
 endef
@@ -104,6 +123,9 @@ $(eval $(call define_test,stop-threads,stop-threads,$(CC) -std=c11 out/darwin/st
 $(eval $(call define_test,execmem,execmem,$(CC) -std=c11 out/darwin/execmem.o -segprot __TEST rwx rx))
 $(eval $(call define_test,hook-functions,hook-functions,$(CC) -std=c11 -lsubstitute))
 
+# These are just random sequences of instructions which you can compile to .bin
+# for testing.
+
 out/insns-arm.o: test/insns-arm.S Makefile
 	clang -arch armv7 -c -o $@ $<
 out/insns-thumb2.o: test/insns-arm.S Makefile
@@ -114,11 +136,5 @@ out/insns-libz-arm.o: test/insns-libz-arm.S Makefile
 out/insns-libz-thumb2.o: test/insns-libz-arm.S Makefile
 	clang -arch armv7 -c -o $@ $< -DTHUMB2
 
-out/%.bin: out/%.o Makefile
-	segedit -extract __TEXT __text $@ $<
-
 clean:
 	rm -rf out
-distclean:
-	make clean
-	rm -rf generated
