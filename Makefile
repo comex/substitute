@@ -51,7 +51,17 @@ out/%.o: lib/%.S Makefile $(HEADERS)
 out/jump-dis.o: $(GENERATED_DIS_HEADERS)
 out/transform-dis.o: $(GENERATED_DIS_HEADERS)
 
+# Note: the order of darwin-inject-asm.o is significant.  Per man page, ld is
+# guaranteed to link objects in order, which is necessary because
+# darwin-inject-asm.S does not itself ensure there is at least 0x4000 bytes of
+# executable stuff after inject_page_start (so that arm can remap into arm64).
+# By putting it at the beginning, we can just reuse the space for the rest of
+# the library rather than having to pad with zeroes.
+# (This only matters on 32-bit ARM, and the text segment is currently 0xa000
+# bytes there, more than enough.)
+
 LIB_OBJS := \
+	out/darwin-inject-asm.o \
 	out/darwin/find-syms.o \
 	out/darwin/inject.o \
 	out/darwin/interpose.o \
@@ -61,7 +71,6 @@ LIB_OBJS := \
 	out/darwin/substrate-compat.o \
 	out/darwin/stop-other-threads.o \
 	out/darwin/execmem.o \
-	out/darwin-inject-asm.o \
 	out/jump-dis.o \
 	out/transform-dis.o \
 	out/hook-functions.o \
@@ -75,7 +84,7 @@ out/libsubstitute.dylib: $(LIB_OBJS)
 # architectures or something - meh.
 # Did you know?  With -Oz + -marm, Apple clang-600.0.56 actually generated
 # wrong code for the ARM version.  It works with -Os and with newer clang.
-IACLANG := clang -Os -dynamiclib -nostartfiles -nodefaultlibs -isysroot /dev/null -Ilib -fPIC
+IACLANG := clang -Os -fno-stack-protector -dynamiclib -nostartfiles -nodefaultlibs -isysroot /dev/null -Ilib -fPIC
 out/inject-asm-raw-x86_64.o: lib/darwin/inject-asm-raw.c Makefile
 	$(IACLANG) -arch x86_64 -o $@ $<
 out/inject-asm-raw-i386.o: lib/darwin/inject-asm-raw.c Makefile
@@ -100,7 +109,7 @@ ifneq (,$(IS_IOS))
 	ldid -Sent.plist $$@
 endif
 	install_name_tool -change /usr/lib/libsubstitute.0.dylib '@executable_path/libsubstitute.dylib' $$@
-all: out/test-$(1)
+tests: out/test-$(1)
 endef
 $(eval $(call define_test,tdarm-simple,td-simple,$(CC) -std=c11 -DHDR='"arm/dis-arm.inc.h"' -Dxdis=dis_arm -DFORCE_TARGET_arm))
 $(eval $(call define_test,tdthumb-simple,td-simple,$(CC) -std=c11 -DHDR='"arm/dis-thumb.inc.h"' -Dxdis=dis_thumb -DFORCE_TARGET_arm))
@@ -122,6 +131,10 @@ $(eval $(call define_test,inject,inject,$(CC) -std=c11 -lsubstitute out/darwin/i
 $(eval $(call define_test,stop-threads,stop-threads,$(CC) -std=c11 out/darwin/stop-other-threads.o -framework CoreFoundation))
 $(eval $(call define_test,execmem,execmem,$(CC) -std=c11 out/darwin/execmem.o -segprot __TEST rwx rx))
 $(eval $(call define_test,hook-functions,hook-functions,$(CC) -std=c11 -lsubstitute))
+
+out/injected-test-dylib.dylib: test/injected-test-dylib.c Makefile
+	$(CC) -std=c11 -dynamiclib -o $@ $<
+tests: out/injected-test-dylib.dylib
 
 # These are just random sequences of instructions which you can compile to .bin
 # for testing.

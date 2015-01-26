@@ -9,7 +9,7 @@ cat <<END
  * disabled in case any future Rosetta-like emulator breaks naive attempts to
  * inject into foreign-architecture processes), but we need two architectures
  * anyway, so the rest are included in case doing so is useful someday. */
-.align 12
+.align 14
 .globl _inject_page_start
 _inject_page_start:
 END

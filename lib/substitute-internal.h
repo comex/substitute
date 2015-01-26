@@ -67,5 +67,22 @@ enum {
     SUBSTITUTE_ERR_MISC,
 };
 
-int substitute_dlopen_in_pid(int pid, const char *filename, int options, char **error);
+enum shuttle_type {
+    SUBSTITUTE_SHUTTLE_MACH_PORT,
+    /* ... */
+};
+
+struct shuttle {
+    int type;
+    union {
+        struct {
+            mach_port_t port;
+            mach_msg_type_name_t right_type;
+        } mach;
+    } u;
+};
+
+int substitute_dlopen_in_pid(int pid, const char *filename, int options,
+                             const struct shuttle *shuttle, size_t nshuttle,
+                             char **error);
 #endif

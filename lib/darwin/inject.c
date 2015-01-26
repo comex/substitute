@@ -8,6 +8,7 @@
 #include <dlfcn.h>
 #include <pthread.h>
 #include <sys/param.h>
+#include <sys/mman.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -57,10 +58,14 @@ struct dyld_all_image_infos_64 {
 
 #define FFI_SHORT_CIRCUIT -1
 
-static int find_foreign_images(mach_port_t task, uint64_t *libdyld_p, uint64_t *libpthread_p, char **error) {
-    *libdyld_p = 0;
-    *libpthread_p = 0;
+struct foreign_image {
+    const char *name;
+    uint64_t address;
+};
 
+static int find_foreign_images(mach_port_t task,
+                               struct foreign_image *images, size_t nimages,
+                               char **error) {
     struct task_dyld_info tdi;
     mach_msg_type_number_t cnt = TASK_DYLD_INFO_COUNT;
 
@@ -139,6 +144,7 @@ static int find_foreign_images(mach_port_t task, uint64_t *libdyld_p, uint64_t *
     /* yay, slow file path reads! */
 
     void *info_array_ptr = info_array;
+    size_t images_left = nimages;
     for (uint32_t i = 0; i < info_array_count; i++) {
         uint64_t load_address;
         uint64_t file_path;
@@ -160,7 +166,7 @@ static int find_foreign_images(mach_port_t task, uint64_t *libdyld_p, uint64_t *
         kr = mach_vm_read_overwrite(task, file_path, toread,
                                     (mach_vm_address_t) path_buf, &size);
         if (kr) {
-            printf("kr=%d <%p %p>\n", kr, (void *) file_path, path_buf);
+            /* printf("kr=%d <%p %p>\n", kr, (void *) file_path, path_buf); */
             continue;
         }
         if (strlen(path_buf) == toread && toread < MAXPATHLEN) {
@@ -173,14 +179,15 @@ static int find_foreign_images(mach_port_t task, uint64_t *libdyld_p, uint64_t *
             path_buf[MAXPATHLEN] = '\0';
         }
 
-        if (!strcmp(path_buf, "/usr/lib/system/libdyld.dylib"))
-            *libdyld_p = load_address;
-        else if (!strcmp(path_buf, "/usr/lib/system/libsystem_pthread.dylib"))
-            *libpthread_p = load_address;
-
-        if (*libdyld_p && *libpthread_p) {
-            free(info_array);
-            return SUBSTITUTE_OK;
+        for (size_t i = 0; i < nimages; i++) {
+            if (!images[i].address &&
+                !strcmp(path_buf, images[i].name)) {
+                images[i].address = load_address;
+                if (--images_left == 0) {
+                    free(info_array);
+                    return SUBSTITUTE_OK;
+                }
+            }
         }
 
         info_array_ptr += info_array_elm_size;
@@ -380,26 +387,170 @@ got_symbol:;
     return true;
 }
 
-int substitute_dlopen_in_pid(int pid, const char *filename, int options, char **error) {
+static int do_baton(const char *filename, size_t filelen, bool is64,
+                    mach_vm_address_t target_stackpage_end,
+                    mach_vm_address_t *target_stack_top_p,
+                    uint64_t sym_addrs[static 4],
+                    const struct shuttle *shuttle, size_t nshuttle,
+                    struct shuttle **target_shuttle_p,
+                    semaphore_t *sem_port_p,
+                    mach_port_t task,
+                    char **error) {
+    int ret;
+
+    size_t baton_len = 7 * (is64 ? 8 : 4);
+    size_t shuttles_len = nshuttle * sizeof(struct shuttle);
+    size_t filelen_rounded = (filelen + 7) & ~7;
+    size_t total_len = baton_len + shuttles_len + filelen_rounded;
+    mach_vm_address_t target_stack_top = target_stackpage_end - total_len;
+    *target_stack_top_p = target_stack_top;
+    char *stackbuf = calloc(total_len, 1);
+    if (!stackbuf) {
+        asprintf(error, "out of memory allocating stackbuf");
+        ret = SUBSTITUTE_ERR_OOM;
+        goto fail;
+    }
+    strcpy(stackbuf + baton_len + shuttles_len, filename);
+
+    struct shuttle *target_shuttle = calloc(nshuttle, sizeof(*target_shuttle));
+    *target_shuttle_p = target_shuttle;
+    for (size_t i = 0; i < nshuttle; i++) {
+        const struct shuttle *in = &shuttle[i];
+        struct shuttle *out = &target_shuttle[i];
+        out->type = in->type;
+        switch (in->type) {
+        case SUBSTITUTE_SHUTTLE_MACH_PORT:
+            out->u.mach.right_type = in->u.mach.right_type;
+            while (1) {
+                mach_port_name_t name;
+                kern_return_t kr = mach_port_allocate(task,
+                                                      MACH_PORT_RIGHT_DEAD_NAME,
+                                                      &name);
+                if (kr) {
+                    asprintf(error, "mach_port_allocate(temp dead name): kr=%d",
+                             kr);
+                    ret = SUBSTITUTE_ERR_MISC;
+                    goto fail;
+                }
+                kr = mach_port_deallocate(task, name);
+                if (kr) {
+                    asprintf(error, "mach_port_deallocate(temp dead name): kr=%d",
+                             kr);
+                    ret = SUBSTITUTE_ERR_MISC;
+                    goto fail;
+                }
+                kr = mach_port_insert_right(task, name, in->u.mach.port,
+                                            in->u.mach.right_type);
+                if (kr == KERN_NAME_EXISTS) {
+                    /* between the deallocate and the insert, someone must have
+                     * grabbed this name - just try again */
+                     continue;
+                } else if (kr) {
+                    asprintf(error, "mach_port_insert_right(shuttle %zu): kr=%d",
+                                     i, kr);
+                    ret = SUBSTITUTE_ERR_MISC;
+                    goto fail;
+                }
+
+                /* ok */
+                out->u.mach.port = name;
+                break;
+            }
+            break;
+        default:
+            asprintf(error, "bad shuttle type %d", in->type);
+            ret = SUBSTITUTE_ERR_MISC;
+            goto fail;
+        }
+    }
+
+    memcpy(stackbuf + baton_len, target_shuttle, nshuttle * sizeof(*target_shuttle));
+
+    semaphore_t sem_port = MACH_PORT_NULL;
+    kern_return_t kr = semaphore_create(task, &sem_port, SYNC_POLICY_FIFO, 0);
+    if (kr) {
+        asprintf(error, "semaphore_create: kr=%d", kr);
+        ret = SUBSTITUTE_ERR_MISC;
+        goto fail;
+    }
+    *sem_port_p = sem_port;
+
+    uint64_t baton_vals[] = {
+        sym_addrs[0],
+        sym_addrs[1],
+        sym_addrs[2],
+        sym_addrs[3],
+        target_stack_top + baton_len + shuttles_len,
+        sem_port,
+        nshuttle
+    };
+
+    if (is64) {
+        uint64_t *p = (void *) stackbuf;
+        for (size_t i = 0; i < sizeof(baton_vals)/sizeof(*baton_vals); i++)
+            p[i] = baton_vals[i];
+    } else {
+        uint32_t *p = (void *) stackbuf;
+        for (size_t i = 0; i < sizeof(baton_vals)/sizeof(*baton_vals); i++)
+            p[i] = (uint32_t) baton_vals[i];
+    }
+
+    kr = mach_vm_write(task, target_stack_top,
+                       (mach_vm_address_t) stackbuf, total_len);
+    if (kr) {
+        asprintf(error, "mach_vm_write(stack data): kr=%d", kr);
+        ret = SUBSTITUTE_ERR_MISC;
+        goto fail;
+    }
+
+    ret = SUBSTITUTE_OK;
+
+fail:
+    free(stackbuf);
+    return ret;
+}
+
+int substitute_dlopen_in_pid(int pid, const char *filename, int options,
+                             const struct shuttle *shuttle, size_t nshuttle,
+                             char **error) {
+    if (nshuttle > 10) {
+        asprintf(error, "nshuttle too high");
+        return SUBSTITUTE_ERR_MISC;
+    }
+    size_t filelen = strlen(filename);
+    if (filelen >= 0x400) {
+        asprintf(error, "you gave me a terrible filename (%s)", filename);
+        return SUBSTITUTE_ERR_MISC;
+    }
+
     mach_port_t task;
     mach_vm_address_t target_stack = 0;
-    *error = NULL;
-    kern_return_t kr = task_for_pid(mach_task_self(), pid, &task);
+    struct shuttle *target_shuttle = NULL;
+    semaphore_t sem_port = MACH_PORT_NULL;
     int ret;
+    *error = NULL;
+
+    kern_return_t kr = task_for_pid(mach_task_self(), pid, &task);
     if (kr) {
         asprintf(error, "task_for_pid: kr=%d", kr);
         return SUBSTITUTE_ERR_TASK_FOR_PID;
     }
 
-    uint64_t libdyld_addr, libpthread_addr;
-    if ((ret = find_foreign_images(task, &libdyld_addr, &libpthread_addr, error)) > 0)
+    struct foreign_image images[] = {
+        {"/usr/lib/system/libdyld.dylib", 0},
+        {"/usr/lib/system/libsystem_pthread.dylib", 0},
+        {"/usr/lib/system/libsystem_kernel.dylib", 0}
+    };
+    if ((ret = find_foreign_images(task, images, 3, error)) > 0)
         goto fail;
 
-    uint64_t dlopen_addr, pthread_create_addr;
+    uint64_t pthread_create_addr, dlopen_addr, dlsym_addr, munmap_addr;
     cpu_type_t cputype;
     if (ret == FFI_SHORT_CIRCUIT) {
-        dlopen_addr = (uint64_t) dlopen;
         pthread_create_addr = (uint64_t) pthread_create;
+        dlopen_addr = (uint64_t) dlopen;
+        dlsym_addr = (uint64_t) dlsym;
+        munmap_addr = (uint64_t) munmap;
 #if defined(__x86_64__)
         cputype = CPU_TYPE_X86_64;
 #elif defined(__i386__)
@@ -412,14 +563,18 @@ int substitute_dlopen_in_pid(int pid, const char *filename, int options, char **
     } else {
         struct {
             uint64_t addr;
-            const char *symname;
-            uint64_t symaddr;
-        } libs[2] = {
-            {libdyld_addr, "_dlopen", 0},
-            {libpthread_addr, "_pthread_create", 0}
+            int nsyms;
+            struct {
+                const char *symname;
+                uint64_t symaddr;
+            } syms[2];
+        } libs[3] = {
+            {images[0].address, 2, {{"_dlopen", 0}, {"_dlsym", 0}}},
+            {images[1].address, 1, {{"_pthread_create", 0}}},
+            {images[2].address, 1, {{"_munmap", 0}}},
         };
 
-        for (int i = 0; i < 2; i++) {
+        for (int i = 0; i < 3; i++) {
             void *linkedit, *export;
             size_t linkedit_size, export_size;
             if ((ret = get_foreign_image_export(task, libs[i].addr,
@@ -427,18 +582,26 @@ int substitute_dlopen_in_pid(int pid, const char *filename, int options, char **
                                                 &export, &export_size,
                                                 &cputype, error)))
                 goto fail;
-            bool fesr = find_export_symbol(export, export_size, libs[i].symname,
-                                           libs[i].addr, &libs[i].symaddr);
+            const char *failed_symbol = NULL;
+            for (int j = 0; j < libs[i].nsyms; j++) {
+                if (!find_export_symbol(export, export_size, libs[i].syms[j].symname,
+                                        libs[i].addr, &libs[i].syms[j].symaddr)) {
+                    failed_symbol = libs[i].syms[j].symname;
+                    break;
+                }
+            }
+
             vm_deallocate(mach_task_self(), (vm_offset_t) linkedit, (vm_size_t) linkedit_size);
-            if (!fesr) {
-                asprintf(error, "couldn't find _dlopen in libdyld");
+            if (failed_symbol) {
+                asprintf(error, "couldn't find target symbol %s", failed_symbol);
                 ret = SUBSTITUTE_ERR_MISC;
                 goto fail;
             }
         }
 
-        dlopen_addr = libs[0].symaddr;
-        pthread_create_addr = libs[1].symaddr;
+        dlopen_addr = libs[0].syms[0].symaddr;
+        dlsym_addr = libs[0].syms[1].symaddr;
+        pthread_create_addr = libs[1].syms[0].symaddr;
     }
 
     UNUSED
@@ -469,45 +632,13 @@ int substitute_dlopen_in_pid(int pid, const char *filename, int options, char **
         goto fail;
     }
 
-    size_t filelen = strlen(filename);
-    if (filelen >= 0x400) {
-        asprintf(error, "you gave me a terrible filename (%s)", filename);
-        ret = SUBSTITUTE_ERR_MISC;
+    uint64_t sym_addrs[] = {pthread_create_addr, dlopen_addr, dlsym_addr, munmap_addr};
+    mach_vm_address_t target_stack_top;
+    if ((ret = do_baton(filename, filelen, cputype & CPU_ARCH_ABI64,
+                        target_code_page, &target_stack_top,
+                        sym_addrs, shuttle, nshuttle, &target_shuttle, &sem_port,
+                        task, error)))
         goto fail;
-    }
-    size_t filelen_rounded = (filelen + 7) & ~7;
-
-    size_t baton_len = (cputype & CPU_ARCH_ABI64) ? 32 : 16;
-    mach_vm_address_t target_stack_top = target_stack + target_page_size
-                                         - baton_len - filelen_rounded;
-    char *stackbuf = calloc(baton_len + filelen_rounded, 1);
-    if (!stackbuf) {
-        ret = SUBSTITUTE_ERR_OOM;
-        goto fail;
-    }
-    strcpy(stackbuf + baton_len, filename);
-
-    uint64_t vals[3] = {pthread_create_addr, dlopen_addr, target_stack_top + baton_len};
-    if (cputype & CPU_ARCH_ABI64) {
-        uint64_t *p = (void *) stackbuf;
-        p[0] = vals[0];
-        p[1] = vals[1];
-        p[2] = vals[2];
-    } else {
-        uint32_t *p = (void *) stackbuf;
-        p[0] = (uint32_t) vals[0];
-        p[1] = (uint32_t) vals[1];
-        p[2] = (uint32_t) vals[2];
-    }
-
-    kr = mach_vm_write(task, target_stack_top,
-                       (mach_vm_address_t) stackbuf, baton_len + filelen_rounded);
-    free(stackbuf);
-    if (kr) {
-        asprintf(error, "mach_vm_write(stack data): kr=%d", kr);
-        ret = SUBSTITUTE_ERR_MISC;
-        goto fail;
-    }
 
     union {
         struct _x86_thread_state_32 x32;
@@ -558,7 +689,7 @@ int substitute_dlopen_in_pid(int pid, const char *filename, int options, char **
         goto fail;
     }
 
-    mach_port_t thread;
+    mach_port_t thread = MACH_PORT_NULL;
     kr = thread_create_running(task, flavor, (thread_state_t) &u,
                                state_size / sizeof(int), &thread);
     if (kr) {
@@ -578,6 +709,22 @@ int substitute_dlopen_in_pid(int pid, const char *filename, int options, char **
 fail:
     if (target_stack)
         mach_vm_deallocate(task, target_stack, 2 * target_page_size);
+    if (target_shuttle) {
+        if (ret) {
+            for (size_t i = 0; i < nshuttle; i++) {
+                const struct shuttle *out = &target_shuttle[i];
+                switch (out->type) {
+                case SUBSTITUTE_SHUTTLE_MACH_PORT:
+                    if (out->u.mach.port)
+                        mach_port_deallocate(task, out->u.mach.port);
+                    break;
+                }
+            }
+        }
+        free(target_shuttle);
+    }
+    if (sem_port && ret)
+        mach_port_deallocate(task, sem_port);
     mach_port_deallocate(mach_task_self(), task);
     return ret;
 }

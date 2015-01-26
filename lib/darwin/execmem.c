@@ -34,7 +34,7 @@ int execmem_write(void *dest, const void *src, size_t len) {
      * (Obviously, it will still break if the user targets some libsubstitute
      * function within the same page as this one, though.) */
     int ret = manual_syscall(SYS_mprotect, lopage, hipage - lopage,
-                             PROT_READ | PROT_WRITE, 0, 0);
+                             PROT_READ | PROT_WRITE, 0);
     if (ret) {
         errno = ret;
         return SUBSTITUTE_ERR_VM;
@@ -48,7 +48,7 @@ int execmem_write(void *dest, const void *src, size_t len) {
 
     int oldprot = info.protection & (PROT_READ | PROT_WRITE | PROT_EXEC);
     ret = manual_syscall(SYS_mprotect, lopage, hipage - lopage,
-                         oldprot, 0, 0);
+                         oldprot, 0);
     if (ret) {
         errno = ret;
         return SUBSTITUTE_ERR_VM;
