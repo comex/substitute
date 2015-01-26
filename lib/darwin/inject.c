@@ -390,7 +390,7 @@ got_symbol:;
 static int do_baton(const char *filename, size_t filelen, bool is64,
                     mach_vm_address_t target_stackpage_end,
                     mach_vm_address_t *target_stack_top_p,
-                    uint64_t sym_addrs[static 4],
+                    uint64_t sym_addrs[static 5],
                     const struct shuttle *shuttle, size_t nshuttle,
                     struct shuttle **target_shuttle_p,
                     semaphore_t *sem_port_p,
@@ -398,7 +398,7 @@ static int do_baton(const char *filename, size_t filelen, bool is64,
                     char **error) {
     int ret;
 
-    size_t baton_len = 7 * (is64 ? 8 : 4);
+    size_t baton_len = 8 * (is64 ? 8 : 4);
     size_t shuttles_len = nshuttle * sizeof(struct shuttle);
     size_t filelen_rounded = (filelen + 7) & ~7;
     size_t total_len = baton_len + shuttles_len + filelen_rounded;
@@ -480,6 +480,7 @@ static int do_baton(const char *filename, size_t filelen, bool is64,
         sym_addrs[1],
         sym_addrs[2],
         sym_addrs[3],
+        sym_addrs[4],
         target_stack_top + baton_len + shuttles_len,
         sem_port,
         nshuttle
@@ -544,10 +545,12 @@ int substitute_dlopen_in_pid(int pid, const char *filename, int options,
     if ((ret = find_foreign_images(task, images, 3, error)) > 0)
         goto fail;
 
-    uint64_t pthread_create_addr, dlopen_addr, dlsym_addr, munmap_addr;
+    uint64_t pthread_create_addr, pthread_detach_addr;
+    uint64_t dlopen_addr, dlsym_addr, munmap_addr;
     cpu_type_t cputype;
     if (ret == FFI_SHORT_CIRCUIT) {
         pthread_create_addr = (uint64_t) pthread_create;
+        pthread_detach_addr = (uint64_t) pthread_detach;
         dlopen_addr = (uint64_t) dlopen;
         dlsym_addr = (uint64_t) dlsym;
         munmap_addr = (uint64_t) munmap;
@@ -570,7 +573,7 @@ int substitute_dlopen_in_pid(int pid, const char *filename, int options,
             } syms[2];
         } libs[3] = {
             {images[0].address, 2, {{"_dlopen", 0}, {"_dlsym", 0}}},
-            {images[1].address, 1, {{"_pthread_create", 0}}},
+            {images[1].address, 2, {{"_pthread_create", 0}, {"_pthread_detach", 0}}},
             {images[2].address, 1, {{"_munmap", 0}}},
         };
 
@@ -602,6 +605,8 @@ int substitute_dlopen_in_pid(int pid, const char *filename, int options,
         dlopen_addr = libs[0].syms[0].symaddr;
         dlsym_addr = libs[0].syms[1].symaddr;
         pthread_create_addr = libs[1].syms[0].symaddr;
+        pthread_detach_addr = libs[1].syms[1].symaddr;
+        munmap_addr = libs[2].syms[0].symaddr;
     }
 
     UNUSED
@@ -632,7 +637,11 @@ int substitute_dlopen_in_pid(int pid, const char *filename, int options,
         goto fail;
     }
 
-    uint64_t sym_addrs[] = {pthread_create_addr, dlopen_addr, dlsym_addr, munmap_addr};
+    uint64_t sym_addrs[] = {pthread_create_addr,
+                            pthread_detach_addr,
+                            dlopen_addr,
+                            dlsym_addr,
+                            munmap_addr};
     mach_vm_address_t target_stack_top;
     if ((ret = do_baton(filename, filelen, cputype & CPU_ARCH_ABI64,
                         target_code_page, &target_stack_top,
