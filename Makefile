@@ -7,16 +7,16 @@ CXX := clang++
 ARCH := -arch x86_64
 XCFLAGS := -O3 -Wall -Wextra -Werror -Ilib $(ARCH)
 LIB_LDFLAGS := -lobjc -framework CoreFoundation -dynamiclib -fvisibility=hidden -install_name /usr/lib/libsubstitute.0.dylib -dead_strip
-override CC := $(CC) $(XCFLAGS) $(CFLAGS)
-override CXX := $(CXX) $(XCFLAGS) $(CFLAGS) -fno-exceptions -fno-asynchronous-unwind-tables
-IS_IOS := $(findstring -arch arm,$(CC))
-
+IOS_APP_LDFLAGS := -framework UIKit -framework Foundation -dead_strip
 ifneq (,$(IS_IOS))
 # I don't know anything in particular that would break this on older versions,
 # but I don't have any good way to test it and don't really care.  So ensure it
 # doesn't get run on them.
 XCFLAGS := $(XCFLAGS) -miphoneos-version-min=7.0
 endif
+override CC := $(CC) $(XCFLAGS) $(CFLAGS)
+override CXX := $(CXX) $(XCFLAGS) $(CFLAGS) -fno-exceptions -fno-asynchronous-unwind-tables
+IS_IOS := $(findstring -arch arm,$(CC))
 
 # These are only required to rebuild the generated disassemblers.
 IMAON2 := /Users/comex/c/imaon2
@@ -148,6 +148,25 @@ out/insns-libz-arm.o: test/insns-libz-arm.S Makefile
 	clang -arch armv7 -c -o $@ $<
 out/insns-libz-thumb2.o: test/insns-libz-arm.S Makefile
 	clang -arch armv7 -c -o $@ $< -DTHUMB2
+
+# iOS bootstrap...
+ifneq (,$(IS_IOS))
+SD_OBJS := out/safety-dance/main.o out/safety-dance/AutoGrid.o
+out/safety-dance/%.o: ios-bootstrap/safety-dance/%.m ios-bootstrap/safety-dance/*.h Makefile
+	@mkdir -p $(dir $@)
+	$(CC) -c -o $@ $< -fobjc-arc -Wno-unused-parameter
+out/safety-dance/SafetyDance.app/SafetyDance: $(SD_OBJS) Makefile
+	@mkdir -p $(dir $@)
+	$(CC) -o $@ $(SD_OBJS) $(IOS_APP_LDFLAGS)
+	ldid -S $@
+out/safety-dance/SafetyDance.app/Info.plist: ios-bootstrap/safety-dance/Info.plist Makefile
+	@mkdir -p $(dir $@)
+	plutil -convert binary1 -o $< $@
+	cp ios-bootstrap/safety-dance/white.png out/safety-dance/SafetyDance.app/Default.png
+	cp ios-bootstrap/safety-dance/white.png out/safety-dance/SafetyDance.app/Default@2x.png
+safety-dance: out/safety-dance/SafetyDance.app/SafetyDance out/safety-dance/SafetyDance.app/Info.plist
+endif
+
 
 clean:
 	rm -rf out
