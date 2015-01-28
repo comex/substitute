@@ -63,7 +63,7 @@ enum {
      * can happen are really complicated and dumb, but generally one solution
      * is to be root */
     SUBSTITUTE_ERR_TASK_FOR_PID = 1000,
-
+    SUBSTITUTE_ERR_TIMEOUT = 1000,
     SUBSTITUTE_ERR_MISC,
 };
 
@@ -85,4 +85,6 @@ struct shuttle {
 int substitute_dlopen_in_pid(int pid, const char *filename, int options,
                              const struct shuttle *shuttle, size_t nshuttle,
                              char **error);
+
+int substitute_ios_unrestrict(pid_t pid, bool should_resume);
 #endif

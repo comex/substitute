@@ -1,6 +1,6 @@
 #include "substitute.h"
 #include "substitute-internal.h"
-#include "darwin/thread-state.h"
+#include "darwin/mach-decls.h"
 #include <pthread.h>
 #include <mach/mach.h>
 #include <CoreFoundation/CoreFoundation.h>

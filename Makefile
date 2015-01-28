@@ -71,6 +71,7 @@ LIB_OBJS := \
 	out/darwin/substrate-compat.o \
 	out/darwin/stop-other-threads.o \
 	out/darwin/execmem.o \
+	out/darwin/unrestrict.o \
 	out/jump-dis.o \
 	out/transform-dis.o \
 	out/hook-functions.o \
@@ -161,10 +162,17 @@ out/safety-dance/SafetyDance.app/SafetyDance: $(SD_OBJS) Makefile
 	ldid -S $@
 out/safety-dance/SafetyDance.app/Info.plist: ios-bootstrap/safety-dance/Info.plist Makefile
 	@mkdir -p $(dir $@)
-	plutil -convert binary1 -o $< $@
+	plutil -convert binary1 -o $@ $<
 	cp ios-bootstrap/safety-dance/white.png out/safety-dance/SafetyDance.app/Default.png
 	cp ios-bootstrap/safety-dance/white.png out/safety-dance/SafetyDance.app/Default@2x.png
 safety-dance: out/safety-dance/SafetyDance.app/SafetyDance out/safety-dance/SafetyDance.app/Info.plist
+all: safety-dance
+
+out/posixspawn-hook.dylib: ios-bootstrap/posixspawn-hook.c out/libsubstitute.dylib
+	$(CC) -dynamiclib -o $@ $< -Lout -lsubstitute
+out/unrestrict-me: ios-bootstrap/unrestrict-me.c out/libsubstitute.dylib
+	$(CC) -o $@ $< -Lout -lsubstitute
+all: out/posixspawn-hook.dylib out/unrestrict-me
 endif
 
 

@@ -2,7 +2,7 @@
 #include "substitute.h"
 #include "substitute-internal.h"
 #include "darwin/read.h"
-#include "darwin/thread-state.h"
+#include "darwin/mach-decls.h"
 #include <mach/mach.h>
 #include <mach-o/dyld_images.h>
 #include <dlfcn.h>
@@ -12,12 +12,6 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdbool.h>
-
-kern_return_t mach_vm_read_overwrite(vm_map_t, mach_vm_address_t, mach_vm_size_t, mach_vm_address_t, mach_vm_size_t *);
-kern_return_t mach_vm_remap(vm_map_t, mach_vm_address_t *, mach_vm_size_t, mach_vm_offset_t, int, vm_map_t, mach_vm_address_t, boolean_t, vm_prot_t *, vm_prot_t *, vm_inherit_t);
-kern_return_t mach_vm_write(vm_map_t, mach_vm_address_t, vm_offset_t, mach_msg_type_number_t);
-kern_return_t mach_vm_allocate(vm_map_t, mach_vm_address_t *, mach_vm_size_t, int);
-kern_return_t mach_vm_deallocate(vm_map_t, mach_vm_address_t, mach_vm_size_t);
 
 extern const struct dyld_all_image_infos *_dyld_get_all_image_infos();
 

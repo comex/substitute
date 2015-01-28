@@ -172,9 +172,9 @@ struct substitute_import_hook {
  * This can be used to 'hook' functions or even exported variables.  Compared
  * to substitute_hook_functions, it has the following advantages:
  *
- * - Because it does not require the ability to patch executable code;
- *   accordingly, it can (from a technical rather than policy perspective) be
- *   used in sandboxed environments like iOS or PaX MPROTECT.
+ * - It does not require the ability to patch executable code; accordingly, it
+ *   can (from a technical rather than policy perspective) be used in sandboxed
+ *   environments like iOS or PaX MPROTECT.
  * - On platforms without RELRO or similar, it is thread safe, as the patches
  *   are done using atomic instructions.
  * - It does not require architecture specific code.
