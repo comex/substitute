@@ -397,6 +397,7 @@ static int do_baton(const char *filename, size_t filelen, bool is64,
     size_t filelen_rounded = (filelen + 7) & ~7;
     size_t total_len = baton_len + shuttles_len + filelen_rounded;
     mach_vm_address_t target_stack_top = target_stackpage_end - total_len;
+    target_stack_top &= ~7;
     *target_stack_top_p = target_stack_top;
     char *stackbuf = calloc(total_len, 1);
     if (!stackbuf) {
@@ -505,6 +506,7 @@ fail:
     return ret;
 }
 
+EXPORT
 int substitute_dlopen_in_pid(int pid, const char *filename, int options,
                              const struct shuttle *shuttle, size_t nshuttle,
                              char **error) {

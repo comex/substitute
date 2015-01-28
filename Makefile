@@ -171,9 +171,15 @@ all: safety-dance
 
 out/posixspawn-hook.dylib: ios-bootstrap/posixspawn-hook.c out/libsubstitute.dylib
 	$(CC) -dynamiclib -o $@ $< -Lout -lsubstitute
+out/generic-dyld-inserted.dylib: ios-bootstrap/generic-dyld-inserted.m out/libsubstitute.dylib
+	$(CC) -dynamiclib -o $@ $< -Lout -lsubstitute
 out/unrestrict-me: ios-bootstrap/unrestrict-me.c out/libsubstitute.dylib
 	$(CC) -o $@ $< -Lout -lsubstitute
-all: out/posixspawn-hook.dylib out/unrestrict-me
+	ldid -Sent.plist $@
+out/inject-into-launchd: ios-bootstrap/inject-into-launchd.c out/libsubstitute.dylib
+	$(CC) -o $@ $< -Lout -lsubstitute -framework IOKit -framework CoreFoundation
+	ldid -Sent.plist $@
+all: out/posixspawn-hook.dylib out/generic-dyld-inserted.dylib out/unrestrict-me out/inject-into-launchd
 endif
 
 

@@ -2,6 +2,8 @@
 #include "substitute-internal.h"
 #include <stdlib.h>
 #include <syslog.h>
+#include <errno.h>
+#include <stdio.h>
 
 int main(int argc, char **argv) {
     if (argc != 3) {
@@ -20,6 +22,15 @@ int main(int argc, char **argv) {
     if (strcmp(should_resume, "0") && strcmp(should_resume, "1")) {
         syslog(LOG_EMERG, "unrestrict-me: should_resume not 0 or 1");
         return 1;
+    }
+
+    /* double fork to avoid zombies */
+    int ret = fork();
+    if (ret == -1) {
+        syslog(LOG_EMERG, "unrestrict-me: fork: %s", strerror(errno));
+        return 1;
+    } else if (ret) {
+        return 0;
     }
 
     char *err = NULL;

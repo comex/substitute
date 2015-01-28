@@ -67,7 +67,6 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
     const char *p = orig_dyld_insert;
     while (*p) { /* W.N.H. */
         const char *next = strchr(p, ':') ?: (p + strlen(p));
-        printf("p:%s next:%s\n", p, next);
         /* append if it isn't a copy of ours */
         if (!(next - p == sizeof(my_dylib) - 1 &&
               memcmp(next, my_dylib, sizeof(my_dylib) - 1))) {
@@ -76,9 +75,10 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
             memcpy(newp, p, next - p);
             newp += next - p;
         }
-        p = next;
+        if (!*next)
+            break;
+        p = next + 1;
     }
-    printf("ok\n");
     /* append ours if necessary */
     if (!safe_mode) {
         if (newp != newp_orig)
@@ -138,6 +138,10 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
                    "posixspawn-hook: couldn't start unrestrict-me - oh well...");
             goto skip;
         }
+        int xstat;
+        /* reap intermediate to avoid zombie - if it doesn't work, not a big deal */
+        if (waitpid(prog_pid, &xstat, 0))
+            syslog(LOG_ERR, "posixspawn-hook: couldn't waitpid");
     }
 
     int ret = old(pid, path, file_actions, &my_attr, argv, envp_to_use);

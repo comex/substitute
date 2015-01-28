@@ -2,6 +2,9 @@
 #include "substitute-internal.h"
 #include "darwin/mach-decls.h"
 #include <unistd.h>
+#include <stdio.h>
+#include <signal.h>
+#include <errno.h>
 #include <mach/vm_region.h>
 
 static int unrestrict_macho_header(void *header, size_t size, bool *did_modify_p,
@@ -73,21 +76,19 @@ setback:
     while (1) {
         /* if calling from unrestrict-me, the process might not have transitioned
          * yet.  if it has, then TASK_DYLD_INFO will be filled with 0. */
-        struct task_dyld_info tdi;
-        mach_msg_type_number_t cnt = TASK_DYLD_INFO_COUNT;
+        task_basic_info_data_t tbi;
+        mach_msg_type_number_t cnt = TASK_BASIC_INFO_COUNT;
 
-        kern_return_t kr = task_info(task, TASK_DYLD_INFO, (void *) &tdi, &cnt);
-        if (kr || cnt != TASK_DYLD_INFO_COUNT) {
+        kern_return_t kr = task_info(task, TASK_BASIC_INFO, (void *) &tbi, &cnt);
+        if (kr || cnt != TASK_BASIC_INFO_COUNT) {
             asprintf(error, "task_info: %x", kr);
             ret = SUBSTITUTE_ERR_MISC;
             goto fail;
         }
-        printf("=>%llx\n", tdi.all_image_info_addr);
-        printf("=>%llx\n", tdi.all_image_info_size);
-        if (tdi.all_image_info_size == 0)
+        if (tbi.user_time.seconds == 0 && tbi.user_time.microseconds == 0)
             break;
         if (retries++ == 20) {
-            asprintf(error, "all_image_info_size was not 0 after 20 retries");
+            asprintf(error, "user_time was not 0 after 20 retries");
             ret = SUBSTITUTE_ERR_MISC;
             goto fail;
         }
@@ -168,8 +169,8 @@ setback:
     ret = SUBSTITUTE_OK;
 fail:
     if (should_resume) {
-        if ((kr = task_resume(task))) {
-            asprintf(error, "task_resume: %x", kr);
+        if ((kill(pid, SIGCONT))) {
+            asprintf(error, "kill: %s", strerror(errno));
             ret = SUBSTITUTE_ERR_MISC;
         }
     }
