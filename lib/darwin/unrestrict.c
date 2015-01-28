@@ -4,7 +4,8 @@
 #include <unistd.h>
 #include <mach/vm_region.h>
 
-static int unrestrict_macho_header(void *header, size_t size, bool *did_modify_p) {
+static int unrestrict_macho_header(void *header, size_t size, bool *did_modify_p,
+                                   char **error) {
     *did_modify_p = false;
     struct mach_header *mh = header;
     if (mh->magic != MH_MAGIC && mh->magic != MH_MAGIC_64)
@@ -30,8 +31,10 @@ static int unrestrict_macho_header(void *header, size_t size, bool *did_modify_p
         CASES(
             segment_command_y *sc = (void *) lc;
             if (lc->cmdsize < sizeof(*sc) ||
-                sc->nsects > (lc->cmdsize - sizeof(*sc)) / sizeof(struct section))
+                sc->nsects > (lc->cmdsize - sizeof(*sc)) / sizeof(struct section)) {
+                asprintf(error, "bad segment_command");
                 return SUBSTITUTE_ERR_MISC;
+            }
             if (!strncmp(sc->segname, "__RESTRICT", 16)) {
                 section_y *sect = (void *) (sc + 1);
                 for (uint32_t i = 0; i < sc->nsects; i++, sect++) {
@@ -44,15 +47,18 @@ static int unrestrict_macho_header(void *header, size_t size, bool *did_modify_p
         )
         #undef CASES
 
-        if (off + lc->cmdsize < off)
+        if (off + lc->cmdsize < off) {
+            asprintf(error, "overflowing lc->cmdsize");
             return SUBSTITUTE_ERR_MISC;
+        }
         off += lc->cmdsize;
     }
     return SUBSTITUTE_OK;
 }
 
 EXPORT
-int substitute_ios_unrestrict(pid_t pid, bool should_resume) {
+int substitute_ios_unrestrict(pid_t pid, bool should_resume, char **error) {
+    *error = NULL;
     mach_port_t task;
     kern_return_t kr = task_for_pid(mach_task_self(), pid, &task);
     if (kr)
@@ -72,12 +78,16 @@ setback:
 
         kern_return_t kr = task_info(task, TASK_DYLD_INFO, (void *) &tdi, &cnt);
         if (kr || cnt != TASK_DYLD_INFO_COUNT) {
+            asprintf(error, "task_info: %x", kr);
             ret = SUBSTITUTE_ERR_MISC;
             goto fail;
         }
+        printf("=>%llx\n", tdi.all_image_info_addr);
+        printf("=>%llx\n", tdi.all_image_info_size);
         if (tdi.all_image_info_size == 0)
             break;
         if (retries++ == 20) {
+            asprintf(error, "all_image_info_size was not 0 after 20 retries");
             ret = SUBSTITUTE_ERR_MISC;
             goto fail;
         }
@@ -102,6 +112,7 @@ setback:
             /* nothing! maybe it's not there *yet*? this actually is possible */
             goto setback;
         } else if (kr) {
+            asprintf(error, "mach_vm_region(%lx): %x", (long) segm_addr, kr);
             ret = SUBSTITUTE_ERR_VM;
             goto fail;
         }
@@ -116,6 +127,7 @@ setback:
         toread = segm_size;
     if ((kr = vm_allocate(mach_task_self(), &header_addr, toread,
                           VM_FLAGS_ANYWHERE))) {
+        asprintf(error, "vm_allocate(%zx): %x", toread, kr);
         ret = SUBSTITUTE_ERR_MISC;
         goto fail;
     }
@@ -123,18 +135,21 @@ setback:
     kr = mach_vm_read_overwrite(task, segm_addr, toread, header_addr,
                                 &actual);
     if (kr || actual != toread) {
+        asprintf(error, "mach_vm_read_overwrite: %x", kr);
         ret = SUBSTITUTE_ERR_MISC;
         goto fail;
     }
 
     bool did_modify;
     if ((ret = unrestrict_macho_header((void *) header_addr, toread,
-                                       &did_modify)))
+                                       &did_modify, error)))
         goto fail;
 
     if (did_modify) {
         if ((kr = vm_protect(mach_task_self(), header_addr, toread,
                              FALSE, info.protection))) {
+            asprintf(error, "vm_protect(%lx=>%d): %x",
+                     (long) header_addr, info.protection, kr);
             ret = SUBSTITUTE_ERR_VM;
             goto fail;
         }
@@ -142,7 +157,9 @@ setback:
         if ((kr = mach_vm_remap(task, &segm_addr, toread, 0,
                                 VM_FLAGS_OVERWRITE,
                                 mach_task_self(), header_addr, FALSE,
-                                &cur, &max,  info.inheritance))) {
+                                &cur, &max, info.inheritance))) {
+            asprintf(error, "mach_vm_remap(%lx=>%lx * %zx): %x",
+                     (long) header_addr, (long) segm_addr, toread, kr);
             ret = SUBSTITUTE_ERR_VM;
             goto fail;
         }
@@ -151,8 +168,10 @@ setback:
     ret = SUBSTITUTE_OK;
 fail:
     if (should_resume) {
-        if ((kr = task_resume(task)))
+        if ((kr = task_resume(task))) {
+            asprintf(error, "task_resume: %x", kr);
             ret = SUBSTITUTE_ERR_MISC;
+        }
     }
     mach_port_deallocate(mach_task_self(), task);
     if (header_addr)

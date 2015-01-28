@@ -6,6 +6,7 @@
 #include <sys/wait.h>
 #include <syslog.h>
 #include <malloc/malloc.h>
+#include <assert.h>
 
 extern char ***_NSGetEnviron(void);
 
@@ -66,6 +67,7 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
     const char *p = orig_dyld_insert;
     while (*p) { /* W.N.H. */
         const char *next = strchr(p, ':') ?: (p + strlen(p));
+        printf("p:%s next:%s\n", p, next);
         /* append if it isn't a copy of ours */
         if (!(next - p == sizeof(my_dylib) - 1 &&
               memcmp(next, my_dylib, sizeof(my_dylib) - 1))) {
@@ -74,7 +76,9 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
             memcpy(newp, p, next - p);
             newp += next - p;
         }
+        p = next;
     }
+    printf("ok\n");
     /* append ours if necessary */
     if (!safe_mode) {
         if (newp != newp_orig)
@@ -90,7 +94,7 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
     envp_to_use = new_envp;
     char **outp = new_envp;
     for (size_t idx = 0; idx < env_count; idx++) {
-        char *env = envp[idx];
+        char *env = my_envp[idx];
         /* remove *all* D_I_L, including duplicates */
         if (!advance(&env, "DYLD_INSERT_LIBRARIES="))
             *outp++ = env;
@@ -141,10 +145,13 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
         goto cleanup;
     /* Since it returned, obviously it was not SETEXEC, so we need to
      * unrestrict ourself. */
-    int sret = substitute_ios_unrestrict(*pid, !was_suspended);
+    char *error;
+    int sret = substitute_ios_unrestrict(*pid, !was_suspended, &error);
     if (sret) {
-        syslog(LOG_EMERG, "posixspawn-hook: substitute_ios_unrestrict => %d", sret);
+        syslog(LOG_EMERG, "posixspawn-hook: substitute_ios_unrestrict => %d (%s)",
+               sret, error);
     }
+    free(error);
     goto cleanup;
 crap:
     syslog(LOG_EMERG, "posixspawn-hook: weird error - OOM?  skipping our stuff");
@@ -238,4 +245,18 @@ end:
     done_hdr.msgh_id = 42;
     if (mach_msg_send(&done_hdr)) /* MOVE deallocates port */
         syslog(LOG_EMERG, "posixspawn-hook: mach_msg_send failed");
+}
+
+__attribute__((constructor))
+static void init() {
+    if (getenv("TEST_POSIXSPAWN_HOOK")) {
+        mach_port_t port;
+        assert(!mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_DEAD_NAME,
+                                   &port));
+        struct shuttle shuttle = {
+            .type = SUBSTITUTE_SHUTTLE_MACH_PORT,
+            .u.mach.port = port
+        };
+        substitute_init(&shuttle, 1);
+    }
 }

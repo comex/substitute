@@ -106,10 +106,10 @@ out/%.bin: out/%.o Makefile
 define define_test
 out/test-$(1): test/test-$(2).[cm]* $(HEADERS) $(GENERATED) Makefile out/libsubstitute.dylib
 	$(3) -g -o $$@ $$< -Ilib -Isubstrate -Lout -lsubstitute
+	install_name_tool -change /usr/lib/libsubstitute.0.dylib '@executable_path/libsubstitute.dylib' $$@
 ifneq (,$(IS_IOS))
 	ldid -Sent.plist $$@
 endif
-	install_name_tool -change /usr/lib/libsubstitute.0.dylib '@executable_path/libsubstitute.dylib' $$@
 tests: out/test-$(1)
 endef
 $(eval $(call define_test,tdarm-simple,td-simple,$(CC) -std=c11 -DHDR='"arm/dis-arm.inc.h"' -Dxdis=dis_arm -DFORCE_TARGET_arm))
@@ -132,6 +132,7 @@ $(eval $(call define_test,inject,inject,$(CC) -std=c11 -lsubstitute out/darwin/i
 $(eval $(call define_test,stop-threads,stop-threads,$(CC) -std=c11 out/darwin/stop-other-threads.o -framework CoreFoundation))
 $(eval $(call define_test,execmem,execmem,$(CC) -std=c11 out/darwin/execmem.o -segprot __TEST rwx rx))
 $(eval $(call define_test,hook-functions,hook-functions,$(CC) -std=c11 -lsubstitute))
+$(eval $(call define_test,posixspawn-hook,posixspawn-hook,$(CC) -std=c11))
 
 out/injected-test-dylib.dylib: test/injected-test-dylib.c Makefile
 	$(CC) -std=c11 -dynamiclib -o $@ $<

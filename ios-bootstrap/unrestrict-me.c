@@ -22,9 +22,11 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    int sret = substitute_ios_unrestrict((pid_t) pid, should_resume[0] == '1');
+    char *err = NULL;
+    int sret = substitute_ios_unrestrict((pid_t) pid, should_resume[0] == '1', &err);
     if (sret) {
-        syslog(LOG_EMERG, "unrestrict-me: substitute_ios_unrestrict => %d", sret);
+        syslog(LOG_EMERG, "unrestrict-me: substitute_ios_unrestrict => %d (%s)",
+               sret, err);
         return 1;
     }
 
