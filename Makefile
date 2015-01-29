@@ -6,7 +6,7 @@ CC := clang
 CXX := clang++
 ARCH := -arch x86_64
 XCFLAGS := -O3 -Wall -Wextra -Werror -Ilib $(ARCH)
-LIB_LDFLAGS := -lobjc -framework CoreFoundation -dynamiclib -fvisibility=hidden -install_name /usr/lib/libsubstitute.0.dylib -dead_strip
+LIB_LDFLAGS := -lobjc -dynamiclib -fvisibility=hidden -install_name /usr/lib/libsubstitute.0.dylib -dead_strip
 IOS_APP_LDFLAGS := -framework UIKit -framework Foundation -dead_strip
 ifneq (,$(IS_IOS))
 # I don't know anything in particular that would break this on older versions,
@@ -105,7 +105,7 @@ out/%.bin: out/%.o Makefile
 
 define define_test
 out/test-$(1): test/test-$(2).[cm]* $(HEADERS) $(GENERATED) Makefile out/libsubstitute.dylib
-	$(3) -g -o $$@ $$< -Ilib -Isubstrate -Lout -lsubstitute
+	$(3) -g -o $$@ $$< -Ilib -Isubstrate -Lout -lsubstitute -dead_strip
 	install_name_tool -change /usr/lib/libsubstitute.0.dylib '@executable_path/libsubstitute.dylib' $$@
 ifneq (,$(IS_IOS))
 	ldid -Sent.plist $$@
@@ -129,7 +129,7 @@ $(eval $(call define_test,imp-forwarding,imp-forwarding,$(CC) -std=c11 -framewor
 $(eval $(call define_test,objc-hook,objc-hook,$(CC) -std=c11 -framework Foundation -lsubstitute))
 $(eval $(call define_test,interpose,interpose,$(CC) -std=c11 -lsubstitute))
 $(eval $(call define_test,inject,inject,$(CC) -std=c11 -lsubstitute out/darwin/inject.o out/darwin/read.o))
-$(eval $(call define_test,stop-threads,stop-threads,$(CC) -std=c11 out/darwin/stop-other-threads.o -framework CoreFoundation))
+$(eval $(call define_test,stop-threads,stop-threads,$(CC) -std=c11 out/darwin/stop-other-threads.o))
 $(eval $(call define_test,execmem,execmem,$(CC) -std=c11 out/darwin/execmem.o -segprot __TEST rwx rx))
 $(eval $(call define_test,hook-functions,hook-functions,$(CC) -std=c11 -lsubstitute))
 $(eval $(call define_test,posixspawn-hook,posixspawn-hook,$(CC) -std=c11))

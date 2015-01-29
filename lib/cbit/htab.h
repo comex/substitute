@@ -95,7 +95,6 @@ struct htab_internal {
             key_ty *bucket = (void *) (buckets + i * entry_size); \
             if (null_func(bucket)) { \
                 if (add) { \
-                    *bucket = *key; \
                     hi->length++; \
                     return bucket; \
                 } else { \
@@ -213,15 +212,25 @@ struct htab_internal {
     } \
     UNUSED_STATIC_INLINE \
     bucket_ty *htab_setbucket_##name(htab_ty *restrict ht, \
-                                                const key_ty *restrict key) { \
+                                     const key_ty *restrict key) { \
         return __htab_key_lookup_##key_name(&ht->hi, key, sizeof(bucket_ty), \
                                             true, true); \
     } \
     UNUSED_STATIC_INLINE \
     value_ty *htab_setp_##name(const htab_ty *restrict ht, \
-                               const key_ty *restrict key) { \
+                               const key_ty *restrict key, \
+                               bool *new_p) { \
         bucket_ty *bucket = htab_setbucket_##name((void *) ht, key); \
-        return bucket ? &bucket->value : NULL; \
+        bool new = false; \
+        if (__htab_key_is_null_##key_name(&bucket->key)) { \
+            bucket->key = *key; \
+            new = true; \
+        } else { \
+            new = false; \
+        } \
+        if (new_p) \
+            *new_p = new; \
+        return &bucket->value; \
     } \
     UNUSED_STATIC_INLINE \
     bool htab_remove_##name(htab_ty *restrict ht, const key_ty *restrict key) { \
@@ -240,7 +249,7 @@ struct htab_internal {
         return __htab_key_resize_##key_name(&ht->hi, size, sizeof(bucket_ty)); \
     } \
     UNUSED_STATIC_INLINE \
-    void htab_free_##name(htab_ty *ht) { \
+    void htab_free_storage_##name(htab_ty *ht) { \
         if (ht->base != ht->storage) \
             free(ht->base); \
     }

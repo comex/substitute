@@ -1,6 +1,7 @@
 #include "cbit/htab.h"
 #include <string.h>
 #include <stdio.h>
+#include <assert.h>
 struct teststr {
     bool valid;
     const char *what;
@@ -19,15 +20,23 @@ int main() {
     for(int i = 0; i < 100; i++) {
         const char *k;
         asprintf((char **) &k, "foo%d", i);
-        *htab_setp_teststr_int(hp, &k) = i;
+        bool new;
+        *htab_setp_teststr_int(hp, &k, &new) = i;
+        assert(new);
     }
-    const char *to_remove = "foo31";
-    htab_remove_teststr_int(hp, &to_remove);
+    {
+        const char *k = "foo31";
+        bool new;
+        htab_setp_teststr_int(hp, &k, NULL);
+        htab_setp_teststr_int(hp, &k, &new);
+        assert(!new);
+        htab_remove_teststr_int(hp, &k);
+    }
     HTAB_FOREACH(hp, const char **k, int *v, teststr_int) {
         if(*v % 10 == 1)
             printf("%s -> %d\n", *k, *v);
     }
-    htab_free_teststr_int(hp);
+    htab_free_storage_teststr_int(hp);
 }
 
 /*

@@ -1,19 +1,17 @@
-#if 0
 #include "substitute.h"
 #include "substitute-internal.h"
 #include "darwin/mach-decls.h"
+#include "stop-other-threads.h"
+#include "cbit/htab.h"
 #include <pthread.h>
 #include <mach/mach.h>
 
-static void release_port(UNUSED CFAllocatorRef allocator, const void *value) {
-    mach_port_t thread = (mach_port_t) value;
-    thread_resume(thread);
-    mach_port_deallocate(mach_task_self(), thread);
-}
-static CFSetCallBacks suspend_port_callbacks = {
-    .version = 0,
-    .release = release_port,
-};
+#define port_hash(portp) (*(portp))
+#define port_eq(port1p, port2p) (*(port1p) == *(port2p))
+#define port_null(portp) (*(portp) == MACH_PORT_NULL)
+DECL_STATIC_HTAB_KEY(mach_port_t, mach_port_t, port_hash, port_eq, port_null, 0);
+struct empty {};
+DECL_HTAB(mach_port_set, mach_port_t, struct empty);
 
 static bool apply_one_pcp(mach_port_t thread,
                           uintptr_t (*callback)(void *ctx, uintptr_t pc),
@@ -69,27 +67,6 @@ static bool apply_one_pcp(mach_port_t thread,
     return true;
 }
 
-int apply_pc_patch_callback(void *token,
-                            uintptr_t (*pc_patch_callback)(void *ctx, uintptr_t pc),
-                            void *ctx) {
-    CFMutableSetRef suspended_set = token;
-    CFIndex count = CFSetGetCount(suspended_set);
-    if (!count)
-        return SUBSTITUTE_OK;
-    /* great API there CF */
-    const void **ports = malloc(sizeof(*ports) * count);
-    CFSetGetValues(suspended_set, ports);
-    int ret = SUBSTITUTE_OK;
-    for (CFIndex i = 0; i < count; i++) {
-        if (!apply_one_pcp((mach_port_t) ports[i], pc_patch_callback, ctx)) {
-            ret = SUBSTITUTE_ERR_ADJUSTING_THREADS;
-            break;
-        }
-    }
-    free(ports);
-    return ret;
-}
-
 int stop_other_threads(void **token_ptr) {
     if (!pthread_main_np())
         return SUBSTITUTE_ERR_NOT_ON_MAIN_THREAD;
@@ -101,7 +78,9 @@ int stop_other_threads(void **token_ptr) {
      * created while we're looping, without suspending anything twice.  Keep
      * looping until only threads we already suspended before this loop are
      * there. */
-    CFMutableSetRef suspended_set = CFSetCreateMutable(NULL, 0, &suspend_port_callbacks);
+    HTAB_STORAGE(mach_port_set) *hs = malloc(sizeof(*hs));
+    HTAB_STORAGE_INIT(hs, mach_port_set);
+    struct htab_mach_port_set *suspended_set = &hs->h;
 
     thread_act_array_t ports = 0;
     mach_msg_type_number_t nports = 0;
@@ -118,14 +97,14 @@ int stop_other_threads(void **token_ptr) {
 
         for (mach_msg_type_number_t i = 0; i < nports; i++) {
             mach_port_t port = ports[i];
-            void *casted_port = (void *) (uintptr_t) port;
+            struct htab_bucket_mach_port_set *bucket;
             if (port == self ||
-                CFSetContainsValue(suspended_set, casted_port)) {
+                (bucket = htab_setbucket_mach_port_set(suspended_set, &port),
+                 bucket->key)) {
                 /* already suspended, ignore */
                 mach_port_deallocate(mach_task_self(), port);
             } else {
                 got_new = true;
-                printf("suspending %d (self=%d)\n", port, self);
                 kr = thread_suspend(port);
                 if (kr == KERN_TERMINATED) {
                     /* too late */
@@ -138,7 +117,7 @@ int stop_other_threads(void **token_ptr) {
                                   nports * sizeof(*ports));
                     goto fail;
                 }
-                CFSetAddValue(suspended_set, casted_port);
+                bucket->key = port;
             }
         }
         vm_deallocate(mach_task_self(), (vm_address_t) ports,
@@ -150,13 +129,36 @@ int stop_other_threads(void **token_ptr) {
     return SUBSTITUTE_OK;
 
 fail:
-    CFRelease(suspended_set);
+    resume_other_threads(suspended_set);
     return ret;
 }
 
+int apply_pc_patch_callback(void *token,
+                            uintptr_t (*pc_patch_callback)(void *ctx, uintptr_t pc),
+                            void *ctx) {
+    struct htab_mach_port_set *suspended_set = token;
+    int ret = SUBSTITUTE_OK;
+    HTAB_FOREACH(suspended_set, mach_port_t *threadp,
+                 UNUSED struct empty *_,
+                 mach_port_set) {
+        if (!apply_one_pcp(*threadp, pc_patch_callback, ctx)) {
+            ret = SUBSTITUTE_ERR_ADJUSTING_THREADS;
+            break;
+        }
+    }
+    return ret;
+}
+
+
 int resume_other_threads(void *token) {
-    CFMutableSetRef suspended_set = token;
-    CFRelease(suspended_set);
+    struct htab_mach_port_set *suspended_set = token;
+    HTAB_FOREACH(suspended_set, mach_port_t *threadp,
+                 UNUSED struct empty *_,
+                 mach_port_set) {
+        thread_resume(*threadp);
+        mach_port_deallocate(mach_task_self(), *threadp);
+    }
+    htab_free_storage_mach_port_set(suspended_set);
+    free(suspended_set);
     return SUBSTITUTE_OK; /* eh */
 }
-#endif
