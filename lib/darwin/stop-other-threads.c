@@ -1,9 +1,9 @@
+#if 0
 #include "substitute.h"
 #include "substitute-internal.h"
 #include "darwin/mach-decls.h"
 #include <pthread.h>
 #include <mach/mach.h>
-#include <CoreFoundation/CoreFoundation.h>
 
 static void release_port(UNUSED CFAllocatorRef allocator, const void *value) {
     mach_port_t thread = (mach_port_t) value;
@@ -159,3 +159,4 @@ int resume_other_threads(void *token) {
     CFRelease(suspended_set);
     return SUBSTITUTE_OK; /* eh */
 }
+#endif

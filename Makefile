@@ -133,6 +133,7 @@ $(eval $(call define_test,stop-threads,stop-threads,$(CC) -std=c11 out/darwin/st
 $(eval $(call define_test,execmem,execmem,$(CC) -std=c11 out/darwin/execmem.o -segprot __TEST rwx rx))
 $(eval $(call define_test,hook-functions,hook-functions,$(CC) -std=c11 -lsubstitute))
 $(eval $(call define_test,posixspawn-hook,posixspawn-hook,$(CC) -std=c11))
+$(eval $(call define_test,htab,htab,$(CC) -std=c11))
 
 out/injected-test-dylib.dylib: test/injected-test-dylib.c Makefile
 	$(CC) -std=c11 -dynamiclib -o $@ $<
