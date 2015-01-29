@@ -149,7 +149,6 @@ int apply_pc_patch_callback(void *token,
     return ret;
 }
 
-
 int resume_other_threads(void *token) {
     struct htab_mach_port_set *suspended_set = token;
     HTAB_FOREACH(suspended_set, mach_port_t *threadp,

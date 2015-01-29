@@ -5,7 +5,7 @@
 CC := clang
 CXX := clang++
 ARCH := -arch x86_64
-XCFLAGS := -O3 -Wall -Wextra -Werror -Ilib $(ARCH)
+XCFLAGS := -g -O3 -Wall -Wextra -Werror -Ilib $(ARCH)
 LIB_LDFLAGS := -lobjc -dynamiclib -fvisibility=hidden -install_name /usr/lib/libsubstitute.0.dylib -dead_strip
 IOS_APP_LDFLAGS := -framework UIKit -framework Foundation -dead_strip
 ifneq (,$(IS_IOS))
@@ -79,6 +79,7 @@ LIB_OBJS := \
 
 out/libsubstitute.dylib: $(LIB_OBJS)
 	$(CC) -o $@ $(LIB_OBJS) $(LIB_LDFLAGS)
+	dsymutil $@
 
 # The result of this is also checked into generated, just in case someone is
 # trying to build with some Linux compiler that doesn't support all the
@@ -105,7 +106,7 @@ out/%.bin: out/%.o Makefile
 
 define define_test
 out/test-$(1): test/test-$(2).[cm]* $(HEADERS) $(GENERATED) Makefile out/libsubstitute.dylib
-	$(3) -g -o $$@ $$< -Ilib -Isubstrate -Lout -lsubstitute -dead_strip
+	$(3) -o $$@ $$< -Ilib -Isubstrate -Lout -lsubstitute -dead_strip
 	install_name_tool -change /usr/lib/libsubstitute.0.dylib '@executable_path/libsubstitute.dylib' $$@
 ifneq (,$(IS_IOS))
 	ldid -Sent.plist $$@

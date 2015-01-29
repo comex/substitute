@@ -213,6 +213,9 @@ void substitute_init(struct shuttle *shuttle, UNUSED size_t nshuttle) {
      * what the notify port is for.  Meanwhile, the jailbreak I have installed
      * properly runs rc.d sequentially, so the injection tools won't do their
      * thing at the same time.  But just in case any of that doesn't hold up...
+     *
+     * (it also decreases the amount of library code necessary to load from
+     * disk...)
      */
 
     struct substitute_image *im = substitute_open_image(_dyld_get_image_name(0));
