@@ -36,7 +36,7 @@ static bool spawn_unrestrict(pid_t pid, bool should_resume, bool is_exec) {
     const char *argv[] = {prog, pid_s, should_resume_s, is_exec_s, NULL};
     pid_t prog_pid;
     if (old_posix_spawn(&prog_pid, prog, NULL, NULL, (char **) argv, NULL)) {
-        ib_log("posixspawn-hook: couldn't start unrestrict-me - oh well...");
+        ib_log("posixspawn-hook: couldn't start unrestrict - oh well...");
         return false;
     }
     int xstat;
@@ -162,24 +162,37 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
     if (safe_mode)
         goto skip;
 
+
+    /* XXX Even async on a separate thread, task_for_pid from launchd hangs in
+     * kernel - AMFI permitUnrestrictedDebugging waiting on some mach port.
+     * Normally (from other processes) task_for_pid doesn't even ask amfid
+     * because we have the right entitlements, but it doesn't usually *hang*.
+     * Probably should do what Substrate does and only launch a process for the
+     * few actually restricted executables.  I was originally hesitant about
+     * this because of complications with fat files.  Whatever. */
+    bool need_unrestrict = getuid() == 0;
+
     /* Deal with the dumb __restrict section.  A complication is that this
      * could actually be an exec. */
     /* TODO skip this if Substrate is doing it anyway */
-    bool was_suspended = flags & POSIX_SPAWN_START_SUSPENDED;
-    flags |= POSIX_SPAWN_START_SUSPENDED;
-    if (posix_spawnattr_setflags(&my_attr, flags))
-        goto crap;
-    if (flags & POSIX_SPAWN_SETEXEC) {
-        /* make the marker fd; hope you weren't using that */
-        if (dup2(2, 255) != 255) {
-            ib_log("dup2 failure - %s", strerror(errno));
-            goto skip;
-        }
-        if (fcntl(255, F_SETFD, FD_CLOEXEC))
+    bool was_suspended;
+    if (need_unrestrict) {
+        was_suspended = flags & POSIX_SPAWN_START_SUSPENDED;
+        flags |= POSIX_SPAWN_START_SUSPENDED;
+        if (posix_spawnattr_setflags(&my_attr, flags))
             goto crap;
-        ib_log("spawning unrestrict");
-        if (!spawn_unrestrict(getpid(), !was_suspended, true))
-            goto skip;
+        if (flags & POSIX_SPAWN_SETEXEC) {
+            /* make the marker fd; hope you weren't using that */
+            if (dup2(2, 255) != 255) {
+                ib_log("dup2 failure - %s", strerror(errno));
+                goto skip;
+            }
+            if (fcntl(255, F_SETFD, FD_CLOEXEC))
+                goto crap;
+            ib_log("spawning unrestrict");
+            if (!spawn_unrestrict(getpid(), !was_suspended, true))
+                goto skip;
+        }
     }
     ib_log("**");
     int ret = old(pidp, path, file_actions, &my_attr, argv, envp_to_use);
@@ -189,13 +202,6 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
     /* Since it returned, obviously it was not SETEXEC, so we need to
      * unrestrict it ourself. */
     pid_t pid = *pidp;
-    /* XXX Even async on a separate thread, task_for_pid from launchd hangs in
-     * kernel - AMFI permitUnrestrictedDebugging waiting on some mach port.
-     * Normally (from other processes) task_for_pid doesn't even ask amfid
-     * because we have the right entitlements, but it doesn't usually *hang*.
-     * Probably should do what Substrate does and only launch a process for the
-     * few actually restricted executables.  I was originally hesitant about
-     * this because of complications with fat files.  Whatever. */
 #if 0
     dispatch_queue_t q = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT,
                                                    0);
@@ -211,7 +217,8 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
         free(error);
     });
 #else
-    spawn_unrestrict(pid, !was_suspended, false);
+    if (need_unrestrict)
+        spawn_unrestrict(pid, !was_suspended, false);
 #endif
     goto cleanup;
 crap:

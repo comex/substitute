@@ -17,6 +17,7 @@ int main(int argc, char **argv) {
         ib_log("unrestrict: wrong number of args");
         return 1;
     }
+
     const char *pids = argv[1];
     char *end;
     long pid = strtol(pids, &end, 10);
@@ -46,14 +47,16 @@ int main(int argc, char **argv) {
         return 0;
     }
 
-    ib_log("unrestrict: unrestricting %d (sr=%s, ie=%s)", (int) pid,
+    ib_log("unrestrict: unrestricting %ld (sr=%s, ie=%s)", pid,
            should_resume, is_exec);
 
+    int ec = 1;
+
     mach_port_t task;
-    kern_return_t kr = task_for_pid(mach_task_self(), pid, &task);
+    kern_return_t kr = task_for_pid(mach_task_self(), (pid_t) pid, &task);
     if (kr) {
         ib_log("unrestrict: TFP fail: %d", kr);
-        return 1;
+        goto fail;
     }
 
     if (is_exec[0] == '1') {
@@ -73,12 +76,12 @@ int main(int argc, char **argv) {
                 break;
             } else if (ret == -1) {
                 ib_log("proc_pidfdinfo: %s", strerror(errno));
-                return 1;
+                goto fail;
             }
 
             if (retries++ == 20) {
                 ib_log("still in parent process after 20 retries");
-                return 1;
+                goto fail;
             }
             wait_us *= 2;
             if (wait_us > 200000)
@@ -93,8 +96,11 @@ int main(int argc, char **argv) {
     if (sret) {
         ib_log("unrestrict: substitute_ios_unrestrict => %d (%s)",
                sret, err);
+        ec = 1;
     }
 
+    ec = 0;
+fail:
     if (should_resume[0] == '1') {
         if ((kill(pid, SIGCONT))) {
             ib_log("unrestrict: kill SIGCONT: %s", strerror(errno));
@@ -102,5 +108,5 @@ int main(int argc, char **argv) {
         }
     }
 
-    return sret;
+    return ec;
 }
