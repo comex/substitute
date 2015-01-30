@@ -52,6 +52,8 @@ static INLINE UNUSED void transform_dis_branch(struct transform_dis_ctx *ctx,
         ctx->err = SUBSTITUTE_ERR_FUNC_BAD_INSN_AT_START;
     }
     /* branch out of bounds is fine */
+    /* XXX just kidding, the instruction needs to be rewritten obviously.  what
+     * was I thinking? */
 }
 
 static INLINE UNUSED void transform_dis_unidentified(UNUSED struct transform_dis_ctx *ctx) {
