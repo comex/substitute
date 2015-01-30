@@ -46,7 +46,7 @@ Substitute compared to Substrate
       appropriate error code is returned.
 * `+` API returns error codes.
 * `+` Some more functionality - interposing...
-* `+` cross-platform
+* `+` cross-platform support will be high priority soon(tm)
 * `?` C, not C++
 * `-` not yet stable
 * `-` bigger binary size (because of the disassemblers)
