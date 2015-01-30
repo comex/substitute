@@ -47,8 +47,10 @@ int main(int argc, char **argv) {
         return 0;
     }
 
-    ib_log("unrestrict: unrestricting %ld (sr=%s, ie=%s)", pid,
-           should_resume, is_exec);
+    if (IB_VERBOSE) {
+        ib_log("unrestrict: unrestricting %ld (sr=%s, ie=%s)", pid,
+               should_resume, is_exec);
+    }
 
     int ec = 1;
 

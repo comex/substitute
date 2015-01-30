@@ -24,3 +24,4 @@ static void open_logfp_if_necessary() {
     fflush(logfp); \
 } while(0)
 
+#define IB_VERBOSE 0

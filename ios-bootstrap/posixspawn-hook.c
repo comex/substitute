@@ -74,12 +74,14 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
     short flags;
     if (posix_spawnattr_getflags(&my_attr, &flags))
         goto crap;
-    ib_log("hook_posix_spawn_generic: path=%s%s%s",
-           path,
-           (flags & POSIX_SPAWN_SETEXEC) ? " (exec)" : "",
-           (flags & POSIX_SPAWN_START_SUSPENDED) ? " (suspend)" : "");
-    for (char *const *ap = argv; *ap; ap++)
-        ib_log("   %s", *ap);
+    if (IB_VERBOSE) {
+        ib_log("hook_posix_spawn_generic: path=%s%s%s",
+               path,
+               (flags & POSIX_SPAWN_SETEXEC) ? " (exec)" : "",
+               (flags & POSIX_SPAWN_START_SUSPENDED) ? " (suspend)" : "");
+        for (char *const *ap = argv; *ap; ap++)
+            ib_log("   %s", *ap);
+    }
 
     /* This mirrors Substrate's logic with safe mode.  I don't really
      * understand the point of the difference between its 'safe' (which removes
@@ -156,7 +158,8 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
                                    : my_dylib_1;
         newp = stpcpy(newp, dylib_to_add);
     }
-    ib_log("using %s", new);
+    if (IB_VERBOSE)
+        ib_log("using %s", new);
     /* no libraries? then just get rid of it */
     if (newp == newp_orig) {
         free(new);
@@ -205,14 +208,17 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
             }
             if (fcntl(255, F_SETFD, FD_CLOEXEC))
                 goto crap;
-            ib_log("spawning unrestrict");
+            if (IB_VERBOSE)
+                ib_log("spawning unrestrict");
             if (!spawn_unrestrict(getpid(), !was_suspended, true))
                 goto skip;
         }
     }
-    ib_log("**");
+    if (IB_VERBOSE)
+        ib_log("**");
     int ret = old(pidp, path, file_actions, &my_attr, argv, envp_to_use);
-    ib_log("ret=%d pid=%ld", ret, (long) *pidp);
+    if (IB_VERBOSE)
+        ib_log("ret=%d pid=%ld", ret, (long) *pidp);
     if (ret)
         goto cleanup;
     /* Since it returned, obviously it was not SETEXEC, so we need to
