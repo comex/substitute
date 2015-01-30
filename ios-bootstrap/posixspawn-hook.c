@@ -1,3 +1,5 @@
+#define IB_LOG_NAME "posixspawn-hook"
+#include "ib-log.h"
 #include "substitute.h"
 #include "substitute-internal.h"
 #include <mach/mach.h>
@@ -7,32 +9,9 @@
 #include <syslog.h>
 #include <malloc/malloc.h>
 #include <assert.h>
-#include <dispatch/dispatch.h>
 #include <errno.h>
 
 extern char ***_NSGetEnviron(void);
-
-static FILE *logfp;
-static void open_logfp_if_necessary() {
-    /* syslog() doesn't seem to work from launchd... */
-    static dispatch_once_t pred;
-    dispatch_once(&pred, ^{
-        char filename[128];
-        sprintf(filename, "/tmp/substitute-posixspawn-hook-log.%ld",
-                (long) getpid());
-        logfp = fopen(filename, "w");
-        if (!logfp) {
-            /* Ack... */
-            logfp = stderr;
-        }
-    });
-}
-#define psh_log(fmt, args...) do { \
-    open_logfp_if_necessary(); \
-    syslog(LOG_EMERG, fmt, ##args); \
-    fprintf(logfp, fmt "\n", ##args); \
-    fflush(logfp); \
-} while(0)
 
 static __typeof__(posix_spawn) *old_posix_spawn, *old_posix_spawnp,
                                hook_posix_spawn, hook_posix_spawnp;
@@ -48,22 +27,23 @@ static bool advance(char **strp, const char *template) {
     return false;
 }
 
-static bool spawn_unrestrict(pid_t pid, bool should_resume) {
+static bool spawn_unrestrict(pid_t pid, bool should_resume, bool is_exec) {
     const char *prog = "/Library/Substitute/unrestrict";
     char pid_s[32];
     sprintf(pid_s, "%ld", (long) pid);
     const char *should_resume_s = should_resume ? "1" : "0";
-    const char *argv[] = {prog, pid_s, should_resume_s, NULL};
+    const char *is_exec_s = is_exec ? "1" : "0";
+    const char *argv[] = {prog, pid_s, should_resume_s, is_exec_s, NULL};
     pid_t prog_pid;
     if (old_posix_spawn(&prog_pid, prog, NULL, NULL, (char **) argv, NULL)) {
-        psh_log("posixspawn-hook: couldn't start unrestrict-me - oh well...");
+        ib_log("posixspawn-hook: couldn't start unrestrict-me - oh well...");
         return false;
     }
     int xstat;
     /* reap intermediate to avoid zombie - if it doesn't work, not a big deal */
     if (waitpid(prog_pid, &xstat, 0) == -1)
-        psh_log("posixspawn-hook: couldn't waitpid");
-    psh_log("unrestrict xstat=%x", xstat);
+        ib_log("posixspawn-hook: couldn't waitpid");
+    ib_log("unrestrict xstat=%x", xstat);
     return true;
 }
 
@@ -94,12 +74,12 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
     short flags;
     if (posix_spawnattr_getflags(&my_attr, &flags))
         goto crap;
-    psh_log("hook_posix_spawn_generic: path=%s%s%s",
-            path,
-            (flags & POSIX_SPAWN_SETEXEC) ? " (exec)" : "",
-            (flags & POSIX_SPAWN_START_SUSPENDED) ? " (suspend)" : "");
+    ib_log("hook_posix_spawn_generic: path=%s%s%s",
+           path,
+           (flags & POSIX_SPAWN_SETEXEC) ? " (exec)" : "",
+           (flags & POSIX_SPAWN_START_SUSPENDED) ? " (suspend)" : "");
     for (char *const *ap = argv; *ap; ap++)
-        psh_log("   %s", *ap);
+        ib_log("   %s", *ap);
 
     /* This mirrors Substrate's logic with safe mode.  I don't really
      * understand the point of the difference between its 'safe' (which removes
@@ -160,7 +140,7 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
                                    : my_dylib_1;
         newp = stpcpy(newp, dylib_to_add);
     }
-    psh_log("using %s", new);
+    ib_log("using %s", new);
     /* no libraries? then just get rid of it */
     if (newp == newp_orig) {
         free(new);
@@ -192,18 +172,18 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
     if (flags & POSIX_SPAWN_SETEXEC) {
         /* make the marker fd; hope you weren't using that */
         if (dup2(2, 255) != 255) {
-            psh_log("dup2 failure - %s", strerror(errno));
+            ib_log("dup2 failure - %s", strerror(errno));
             goto skip;
         }
         if (fcntl(255, F_SETFD, FD_CLOEXEC))
             goto crap;
-        psh_log("spawning unrestrict");
-        if (!spawn_unrestrict(getpid(), !was_suspended))
+        ib_log("spawning unrestrict");
+        if (!spawn_unrestrict(getpid(), !was_suspended, true))
             goto skip;
     }
-    psh_log("**");
+    ib_log("**");
     int ret = old(pidp, path, file_actions, &my_attr, argv, envp_to_use);
-    psh_log("ret=%d pid=%ld", ret, (long) *pidp);
+    ib_log("ret=%d pid=%ld", ret, (long) *pidp);
     if (ret)
         goto cleanup;
     /* Since it returned, obviously it was not SETEXEC, so we need to
@@ -221,21 +201,21 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
                                                    0);
     dispatch_async(q, ^{
         char *error;
-        psh_log("unrestricting %d", pid);
+        ib_log("unrestricting %d", pid);
         int sret = substitute_ios_unrestrict(pid, !was_suspended, &error);
-        psh_log("unrestricting done");
+        ib_log("unrestricting done");
         if (sret) {
-            psh_log("posixspawn-hook: substitute_ios_unrestrict => %d (%s)",
+            ib_log("posixspawn-hook: substitute_ios_unrestrict => %d (%s)",
                     sret, error);
         }
         free(error);
     });
 #else
-    spawn_unrestrict(pid, !was_suspended);
+    spawn_unrestrict(pid, !was_suspended, false);
 #endif
     goto cleanup;
 crap:
-    psh_log("posixspawn-hook: weird error - OOM?  skipping our stuff");
+    ib_log("posixspawn-hook: weird error - OOM?  skipping our stuff");
 skip:
     ret = old(pidp, path, file_actions, attrp, argv, envp);
 cleanup:
@@ -282,7 +262,7 @@ pid_t hook_waitpid(pid_t pid, int *stat_loc, int options) {
 void substitute_init(struct shuttle *shuttle, size_t nshuttle) {
     /* Just tell them we're done */
     if (nshuttle != 1) {
-        psh_log("nshuttle = %zd?", nshuttle);
+        ib_log("nshuttle = %zd?", nshuttle);
         return;
     }
     mach_port_t notify_port = shuttle[0].u.mach.port;
@@ -295,7 +275,7 @@ void substitute_init(struct shuttle *shuttle, size_t nshuttle) {
     done_hdr.msgh_id = 42;
     kern_return_t kr = mach_msg_send(&done_hdr);
     if (kr)
-        psh_log("posixspawn-hook: mach_msg_send failed: kr=%x", kr);
+        ib_log("posixspawn-hook: mach_msg_send failed: kr=%x", kr);
     /* MOVE deallocated the port */
 }
 
@@ -318,7 +298,7 @@ static void init() {
 
     struct substitute_image *im = substitute_open_image(_dyld_get_image_name(0));
     if (!im) {
-        psh_log("posixspawn-hook: substitute_open_image failed");
+        ib_log("posixspawn-hook: substitute_open_image failed");
         goto end;
     }
 
@@ -331,7 +311,7 @@ static void init() {
 
     int err = substitute_interpose_imports(im, hooks, sizeof(hooks)/sizeof(*hooks), 0);
     if (err) {
-        psh_log("posixspawn-hook: substitute_interpose_imports failed: %s",
+        ib_log("posixspawn-hook: substitute_interpose_imports failed: %s",
                substitute_strerror(err));
         goto end;
     }

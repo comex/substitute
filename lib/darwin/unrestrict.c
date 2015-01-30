@@ -3,13 +3,8 @@
 #include "darwin/mach-decls.h"
 #include <unistd.h>
 #include <stdio.h>
-#include <signal.h>
 #include <errno.h>
 #include <mach/vm_region.h>
-
-#define PROC_PIDFDVNODEINFO 1
-#define PROC_PIDFDVNODEINFO_SIZE 176
-int proc_pidfdinfo(int, int, int, void *, int);
 
 static int unrestrict_macho_header(void *header, size_t size, bool *did_modify_p,
                                    char **error) {
@@ -64,46 +59,12 @@ static int unrestrict_macho_header(void *header, size_t size, bool *did_modify_p
 }
 
 EXPORT
-int substitute_ios_unrestrict(pid_t pid, bool should_resume, char **error) {
+int substitute_ios_unrestrict(task_t task, char **error) {
     *error = NULL;
-    mach_port_t task;
-    kern_return_t kr = task_for_pid(mach_task_self(), pid, &task);
-    if (kr)
-        return SUBSTITUTE_ERR_TASK_FOR_PID;
 
     int ret;
     vm_address_t header_addr = 0;
-
-    int retries = 0;
-    int wait_us = 1;
-    while (1) {
-        /* If calling from unrestrict-me, the process might not have
-         * transitioned yet.  We set up a dummy fd 255 in the parent process
-         * which was marked CLOEXEC, so test if that still exists.
-         * AFAICT, Substrate's equivalent to this is not actually correct.
-         * TODO cleanup
-         */
-        char buf[PROC_PIDFDVNODEINFO_SIZE];
-        int ret = proc_pidfdinfo(pid, 255, PROC_PIDFDVNODEINFO, buf, sizeof(buf));
-        if (ret == -1 && errno == EBADF) {
-            break;
-        } else if (ret == -1) {
-            asprintf(error, "proc_pidfdinfo: %s", strerror(errno));
-            ret = SUBSTITUTE_ERR_MISC;
-            goto fail;
-        }
-
-        if (retries++ == 20) {
-            asprintf(error, "still in parent process after 20 retries");
-            ret = SUBSTITUTE_ERR_MISC;
-            goto fail;
-        }
-        wait_us *= 2;
-        if (wait_us > 100000)
-            wait_us = 100000;
-        while (usleep(wait_us))
-            ;
-    }
+    kern_return_t kr;
 
     /* alrighty then, let's look at the damage.  find the first readable
      * segment */
@@ -176,13 +137,6 @@ setback:;
 
     ret = SUBSTITUTE_OK;
 fail:
-    if (should_resume) {
-        if ((kill(pid, SIGCONT))) {
-            asprintf(error, "kill: %s", strerror(errno));
-            ret = SUBSTITUTE_ERR_MISC;
-        }
-    }
-    mach_port_deallocate(mach_task_self(), task);
     if (header_addr)
         vm_deallocate(mach_task_self(), header_addr, toread);
     return ret;

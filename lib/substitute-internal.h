@@ -86,5 +86,5 @@ int substitute_dlopen_in_pid(int pid, const char *filename, int options,
                              const struct shuttle *shuttle, size_t nshuttle,
                              char **error);
 
-int substitute_ios_unrestrict(pid_t pid, bool should_resume, char **error);
+int substitute_ios_unrestrict(task_t task, char **error);
 #endif

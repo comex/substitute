@@ -175,10 +175,10 @@ out/posixspawn-hook.dylib: ios-bootstrap/posixspawn-hook.c out/libsubstitute.dyl
 	$(CC) -dynamiclib -o $@ $< -Lout -lsubstitute
 out/bundle-loader.dylib: ios-bootstrap/bundle-loader.m out/libsubstitute.dylib
 	$(CC) -dynamiclib -o $@ $< -fobjc-arc -Lout -framework Foundation -framework CoreFoundation
-out/unrestrict: ios-bootstrap/unrestrict.c out/libsubstitute.dylib
+out/unrestrict: ios-bootstrap/unrestrict.c ios-bootstrap/ib-log.h out/libsubstitute.dylib
 	$(CC) -o $@ $< -Lout -lsubstitute
 	ldid -Sent.plist $@
-out/inject-into-launchd: ios-bootstrap/inject-into-launchd.c out/libsubstitute.dylib
+out/inject-into-launchd: ios-bootstrap/inject-into-launchd.c ios-bootstrap/ib-log.h out/libsubstitute.dylib
 	$(CC) -o $@ $< -Lout -lsubstitute -framework IOKit -framework CoreFoundation
 	ldid -Sent.plist $@
 all: out/posixspawn-hook.dylib out/bundle-loader.dylib out/unrestrict out/inject-into-launchd
