@@ -70,11 +70,12 @@ int main(int argc, char **argv) {
              * TODO cleanup
              */
             char buf[PROC_PIDFDVNODEINFO_SIZE];
-            int ret = proc_pidfdinfo(pid, 255, PROC_PIDFDVNODEINFO,
-                                     buf, sizeof(buf));
-            if (ret == -1 && errno == EBADF) {
+            /* A bug in proc_pidfdinfo makes it never return -1.  Yuck. */
+            errno = 0;
+            proc_pidfdinfo(pid, 255, PROC_PIDFDVNODEINFO, buf, sizeof(buf));
+            if (errno == EBADF) {
                 break;
-            } else if (ret == -1) {
+            } else if (errno) {
                 ib_log("proc_pidfdinfo: %s", strerror(errno));
                 goto fail;
             }
