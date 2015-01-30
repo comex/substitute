@@ -124,14 +124,14 @@ with all respect to iMods, I don't think it's likely to supplant Cydia, not in
 the foreseeable future or, in its current form, ever.  And the kind of group
 that could hypothetically supplant Cydia would likely not have difficulty
 replicating Substrate by themselves.  So I consider my own involvement to be a
-low-stakes game in terms of practical consequences, which make the upsides I
+low-stakes game in terms of practical consequences, which makes the upsides I
 perceive more compelling.
 
 What are those upsides?
 
 It's worth noting that between the aforementioned two open source periods for
 Substrate, a younger version of me repeatedly expressed a desire for it to be
-open source, and when the source was released again, I was quite pleased.
+open source, and when the source was released again, was quite pleased.
 (Being slightly less enthusiastic in practice than principle - although much of
 that was just timing - I don't think I noticed when it went back to closed
 source.)  So this really goes back a lot longer than iMods, and the upsides I
@@ -147,7 +147,7 @@ I had to write my own, inferior version.  This is notable because, whether or
 not it was actually useful, the work I was doing was unambiguously pro-social
 and not harmful to the jailbreak community.  saurik has on [various
 occasions](http://forum.xda-developers.com/showthread.php?t=2466101&page=2)
-mentioned the possibility(/history?) of forks of his software hoarding fixes or
+mentioned the possibility (history?) of forks of his software hoarding fixes or
 whatever, and stated that there isn't much legitimate reason to modify
 Substrate, as opposed to building on it; certainly this is mostly true, but
 'not much' is not the same as 'none'.  If my software is useful to anyone else
@@ -166,13 +166,13 @@ use case, there are innumerable environments unrelated to iOS in which
 Substrate-like hooking would be useful; it is for this reason that I intend to
 port Substitute to OS X and Linux, and anyone who just wants function hooking
 in some embedded environment can copy that bit easily enough.  (To be fair,
-Substrate already is ported to both of those platforms, but that doesn't really
-help if it's not freely available.)  Sure, it would be nice if there were an
-official Cydia Store for OS X and Windows and toasters, but saurik doesn't seem
-to have time to work on that (maybe there were other reasons to stop working on
-OS X? don't remember), and I don't think it's reasonable to expect everyone who
-wants this fairly low-level functionality to work with saurik on what is
-otherwise their own project.
+Substrate already is ported to both of the former platforms, but that doesn't
+really help if it's not freely available.)  Sure, it would be nice if there
+were an official Cydia Store for OS X and Windows and toasters, but saurik
+doesn't seem to have time to work on that (maybe there were other reasons to
+stop working on OS X? don't remember), and I don't think it's reasonable to
+expect everyone who wants this fairly low-level functionality to work with
+saurik on what is otherwise their own project.
 
 This isn't just theoretical.  Several years ago, I wrote more primitive version
 of a subset of the functionality found in this library as
@@ -189,13 +189,13 @@ developer offering me a refund, on the basis that I had already supported its
 development by writing inject_and_interpose!  (In case you're reading this:
 Sorry I didn't respond; I tend to be very shy and so often don't reply to
 emails I should.)  I think it's incredible that I was able to help a project
-totally unknown to me get developed; this is the kind of thing only free
-software can do.  I doubt it would have worked out as well if I had demanded
-coordination first.
+totally unknown to me get developed; this is the kind of outcome only free
+software can achieve.  I doubt it would have worked out as well if I had
+demanded coordination first.
 
 Third... this one is more subjective, but it's also probably the most
 important.  The way I see it, jailbreaking is *fundamentally* about taking
-something closed and fixed and opening it up to hacking and modification;
+something closed and fixed and opening it up to hacking and modification:
 perhaps allowing a mess to be made, but quite possibly ending up with something
 unique and different.  This ideal of openness is very similar to that of free
 software, and I therefore believe that it's in the spirit of jailbreaking to
@@ -206,11 +206,11 @@ commercially are one thing (although they too benefit from general openness,
 especially the ones with a lot of reverse engineering behind them, since the
 same reverse engineering can often support multiple use cases), but the
 underlying framework is another - especially since it's free of charge,
-removing at least the most obvious motivation for closed source.
+removing at least the most obvious motivation for closing source.
 
-(For the record, I don't entirely agree with Stallman's rhetoric - otherwise I
-wouldn't have just praised a commercial application! - but all in all my views
-are aligned in a very similar direction, just with less magnitude.)
+(Like most people, I don't entirely agree with Stallman's rhetoric - otherwise
+I wouldn't have just praised a commercial application! - but all in all my
+views are aligned in a very similar direction, just with less magnitude.)
 
 Incidentally, this affects the jailbreaks themselves even more than Substrate.
 I have often advocated for open source jailbreaks, and all of my own jailbreak
@@ -223,11 +223,11 @@ unnecessary speed bump, and unnecessary things frustrate the hell out of me.
 Especially when the jailbreaks are distributed for free!
 
 Oh, and when I say "the spirit of jailbreaking", I don't mean to change history
-by implying "original plan" - iOS jailbreak has always suffered from closed
-source tools.  Indeed, I'm happy that the open source Cydia supplanted the
-closed Installer, and with it saurik's generally open, community-based
-management style.
+by implying "original plan" - iOS jailbreak has always suffered from
+balkanization of closed source tools.  Indeed, I'm happy that the open source
+Cydia supplanted the closed Installer, and with it saurik's generally open,
+community-based management style.
 
-But it's the best part of it.
+But when I say spirit, I do mean the best part of it.
 
 comex, 30 January 2015
