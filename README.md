@@ -1,6 +1,16 @@
 (lib)substitute
 ---------------
+
+NOT EVEN ALPHA YET:
+
+    I wrote the below disclaimer assuming I would at least fix the boot process
+    before publishing this.  I need to sleep, so that will happen tomorrow, but
+    for now it's simply broken.  Please don't install the package yet, but feel
+    free to look at the code.
+
+
 ALPHA VERSION:
+
     This code has not yet been tested anywhere near adequately and is probably
     completely broken.  Especially sharp edges are the iOS bootstrap stuff and
     the disassemblers.
