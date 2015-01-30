@@ -87,6 +87,22 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
      * directly to the original spawn), but I guess I'll just do the same for
      * maximum safety... */
     bool safe_mode = false;
+
+    /* If Foundation is loaded into notifyd, the system doesn't boot.  I spent
+     * some time trying to figure out why, but managed to brick my device
+     * instead (no idea how that happened either).  I want to solve this before
+     * a stable release, but this works for now.
+     * n.b. Substrate isn't affected by this because it uses only
+     * CoreFoundation, not Foundation.  However, CoreFoundation is pretty big
+     * itself, and also brings in libobjc, so it's not necessarily that
+     * principled to switch.  I suppose principled might be to extract the
+     * plist code from CF... */
+    if (!strcmp(path, "/usr/sbin/notifyd")) {
+        /* why? */
+        safe_mode = true;
+    }
+
+
     const char *orig_dyld_insert = "";
     static const char my_dylib_1[] =
         "/Library/Substitute/bundle-loader.dylib";
@@ -108,7 +124,7 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
         }
     }
     new = malloc(sizeof("DYLD_INSERT_LIBRARIES=") - 1 +
-                 sizeof(my_dylib_2) - 1 +
+                 sizeof(my_dylib_2) /* not - 1, because : */ +
                  strlen(orig_dyld_insert) + 1);
     char *newp_orig = stpcpy(new, "DYLD_INSERT_LIBRARIES=");
     char *newp = newp_orig;

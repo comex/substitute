@@ -1,3 +1,5 @@
+#define IB_LOG_NAME "iil"
+#include "ib-log.h"
 #include "substitute.h"
 #include "substitute-internal.h"
 #include <mach/mach.h>
@@ -17,7 +19,7 @@ enum {
     kIOHIDEventFieldKeyboardDown = 3 << 16 | 2,
 };
 
-static bool button_pressed(uint32_t usage_page, uint32_t usage) {
+static bool button_pressed(void *event_system, uint32_t usage_page, uint32_t usage) {
     /* This magic comes straight from Substrate... I don't really understand
      * what it's doing.  In particular, where is the equivalent kernel
      * implementation on OS X?  Does it not exist?  But I guess Substrate is
@@ -26,21 +28,14 @@ static bool button_pressed(uint32_t usage_page, uint32_t usage) {
                                                 usage_page, usage,
                                                 0, 0);
     if (!dummy) {
-        syslog(LOG_EMERG, "couldn't create dummy HID event");
-        return false;
-    }
-    void *event_system = IOHIDEventSystemCreate(NULL);
-    if (!event_system) {
-        syslog(LOG_EMERG, "couldn't create HID event system");
+        ib_log("couldn't create dummy HID event");
         return false;
     }
     void *event = IOHIDEventSystemCopyEvent(event_system,
                                             kIOHIDEventTypeKeyboard,
                                             dummy, 0);
-    if (!event) {
-        syslog(LOG_EMERG, "couldn't copy HID event");
+    if (!event)
         return false;
-    }
     CFIndex ival = IOHIDEventGetIntegerValue(event, kIOHIDEventFieldKeyboardDown);
     return ival;
 }
@@ -48,17 +43,25 @@ static bool button_pressed(uint32_t usage_page, uint32_t usage) {
 int main(UNUSED int argc, char **argv) {
     pid_t pid = argv[1] ? atoi(argv[1]) : 1; /* for testing */
 
-    if (button_pressed(0x0c, 0xe9) || /* consumer page -> Volume Increment */
-        button_pressed(0x0b, 0x21)) { /* telephony page -> Flash */
-        syslog(LOG_WARNING, "disabling due to button press");
-        return 0;
+    void *event_system = IOHIDEventSystemCreate(NULL);
+    if (!event_system) {
+        ib_log("couldn't create HID event system");
+    } else {
+
+            /* consumer page -> Volume Increment */
+        if (button_pressed(event_system, 0x0c, 0xe9) ||
+            /* telephony page -> Flash */
+            button_pressed(event_system, 0x0b, 0x21)) {
+            ib_log("disabling due to button press");
+            return 0;
+        }
     }
     mach_port_t port = 0;
     kern_return_t kr = mach_port_allocate(mach_task_self(),
                                           MACH_PORT_RIGHT_RECEIVE,
                                           &port);
     if (kr) {
-        syslog(LOG_EMERG, "mach_port_allocate: %x", kr);
+        ib_log("mach_port_allocate: %x", kr);
         return 0;
     }
     const char *lib = "/Library/Substitute/posixspawn-hook.dylib";
@@ -70,7 +73,7 @@ int main(UNUSED int argc, char **argv) {
     char *error;
     int ret = substitute_dlopen_in_pid(pid, lib, 0, &shuttle, 1, &error);
     if (ret) {
-        syslog(LOG_EMERG, "substitute_dlopen_in_pid: %s/%s",
+        ib_log("substitute_dlopen_in_pid: %s/%s",
                substitute_strerror(ret), error);
         return 0;
     }
@@ -83,5 +86,5 @@ int main(UNUSED int argc, char **argv) {
                             MACH_MSG_TIMEOUT_NONE, MACH_PORT_NULL,
                             &msg.hdr, 0);
     if (kr)
-        syslog(LOG_EMERG, "mach_msg_overwrite: %x", kr);
+        ib_log("mach_msg_overwrite: %x", kr);
 }
