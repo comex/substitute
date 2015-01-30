@@ -79,15 +79,12 @@ static enum test_filters_ret test_filters(NSDictionary *plist_dict) {
 
     NSArray *bundles = [filter objectForKey:@"Bundles"];
     if (bundles) {
-        NSString *main_identifier = [[NSBundle mainBundle] bundleIdentifier];
-        if (!main_identifier)
-            main_identifier = @"";
         if (![bundles isKindOfClass:[NSArray class]])
             return INVALID;
         for (NSString *identifier in bundles) {
             if (![identifier isKindOfClass:[NSString class]])
                 return INVALID;
-            if ([identifier isEqualToString:main_identifier])
+            if ([NSBundle bundleWithIdentifier:identifier])
                 goto ok2;
         }
         return FAILED;
@@ -132,7 +129,6 @@ static void init() {
         return;
 
     for (NSString *dylib in list) {
-        NSLog(@"?%@", dylib);
         if (![[dylib pathExtension] isEqualToString:@"dylib"])
             continue;
         NSString *plist = [[dylib stringByDeletingPathExtension]
