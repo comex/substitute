@@ -1,22 +1,41 @@
 #pragma once
 
 #define LET_LOOP__(expr, ctr) \
-   if (0) \
-      __done_##ctr: continue; \
-   else if (0) \
-      __break_##ctr: break; \
-   else \
-      for (; ; ({ goto __break_##ctr; })) \
-         for (expr; ; ({ goto __done_##ctr; }))
+    if (0) \
+       __done_##ctr: continue; \
+    else if (0) \
+       __break_##ctr: break; \
+    else \
+        for (expr; ;) \
+            if (1) \
+                goto __body_##ctr; \
+            else \
+                for (;;) \
+                    if (1) \
+                        goto __break_##ctr; \
+                    else \
+                        for (;;) \
+                            if (1) \
+                                goto __done_##ctr; \
+                            else \
+                                __body_##ctr:
 
 #define LET_LOOP_(expr, ctr) LET_LOOP__(expr, ctr)
 #define LET_LOOP(expr) LET_LOOP_(expr, __COUNTER__)
 
 #define LET__(expr, ctr) \
-   if (0) \
-      __done_##ctr: ; \
-   else \
-      for (expr; ; ({ goto __done_##ctr; }))
+    if (0) \
+      __done_##ctr:; \
+    else \
+        for (expr; ;) \
+            if (1) \
+                goto __body_##ctr; \
+            else \
+                for (;;) \
+                    if (1) \
+                        goto __done_##ctr; \
+                    else \
+                            __body_##ctr:
 
 #define LET_(expr, ctr) LET__(expr, ctr)
 #define LET(expr) LET_(expr, __COUNTER__)

@@ -1,6 +1,7 @@
 #include "cbit/htab.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <assert.h>
 struct teststr {
     bool valid;
@@ -13,6 +14,21 @@ DECL_EXTERN_HTAB_KEY(teststr, const char *);
 DECL_HTAB(teststr_int, teststr, int);
 
 int main() {
+    /* test loop crap */
+    LET(int y = 5)
+        printf("5=%d\n", y);
+    for (int i = 0; ; i++) {
+        LET_LOOP(int x = 5) {
+            printf("*%d.%d\n", i, x);
+            if (i == 4)
+                break;
+            else
+                continue;
+        }
+        abort();
+    }
+
+
     struct htab_teststr_int *hp;
     HTAB_STORAGE(teststr_int) stor;
     HTAB_STORAGE_INIT(&stor, teststr_int);
