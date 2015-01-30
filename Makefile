@@ -174,7 +174,7 @@ all: safety-dance
 out/posixspawn-hook.dylib: ios-bootstrap/posixspawn-hook.c out/libsubstitute.dylib
 	$(CC) -dynamiclib -o $@ $< -Lout -lsubstitute
 out/bundle-loader.dylib: ios-bootstrap/bundle-loader.m out/libsubstitute.dylib
-	$(CC) -dynamiclib -o $@ $< -Lout -lsubstitute
+	$(CC) -dynamiclib -o $@ $< -fobjc-arc -Lout -framework Foundation -framework CoreFoundation
 out/unrestrict: ios-bootstrap/unrestrict.c out/libsubstitute.dylib
 	$(CC) -o $@ $< -Lout -lsubstitute
 	ldid -Sent.plist $@

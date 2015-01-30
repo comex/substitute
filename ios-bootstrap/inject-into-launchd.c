@@ -74,4 +74,14 @@ int main(UNUSED int argc, char **argv) {
                substitute_strerror(ret), error);
         return 0;
     }
+    /* wait for it to finish */
+    static struct {
+        mach_msg_header_t hdr;
+        mach_msg_trailer_t huh;
+    } msg;
+    kr = mach_msg_overwrite(NULL, MACH_RCV_MSG, 0, sizeof(msg), port,
+                            MACH_MSG_TIMEOUT_NONE, MACH_PORT_NULL,
+                            &msg.hdr, 0);
+    if (kr)
+        syslog(LOG_EMERG, "mach_msg_overwrite: %x", kr);
 }

@@ -6,6 +6,13 @@
 #include <stdio.h>
 
 int main(int argc, char **argv) {
+    char filename[128];
+    sprintf(filename, "/tmp/wtf.%ld",
+            (long) getpid());
+    FILE *fp = fopen(filename, "w");
+    if (!fp)
+        return 1;
+    #define syslog(a, b...) fprintf(fp, b)
     if (argc != 3) {
         syslog(LOG_EMERG, "unrestrict: wrong number of args");
         return 1;
@@ -34,6 +41,7 @@ int main(int argc, char **argv) {
     }
 
     char *err = NULL;
+    syslog(LOG_EMERG, "unrestrict: unrestricting %d (%s)", (int) pid, should_resume);
     int sret = substitute_ios_unrestrict((pid_t) pid, should_resume[0] == '1', &err);
     if (sret) {
         syslog(LOG_EMERG, "unrestrict: substitute_ios_unrestrict => %d (%s)",

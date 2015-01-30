@@ -13,7 +13,7 @@ ln -s libsubstitute.0.dylib $debroot/usr/lib/libsubstitute.dylib
 mkdir -p $debroot/usr/include/substitute
 cp lib/substitute.h $debroot/usr/include/substitute/
 cp substrate/substrate.h $debroot/usr/include/substitute/
-mkdir -p $debroot/Library/Substitute
+mkdir -p $debroot/Library/Substitute/DynamicLibraries
 cp out/{posixspawn-hook.dylib,bundle-loader.dylib,unrestrict,inject-into-launchd} $debroot/Library/Substitute/
 cp -a DEBIAN $debroot/
 sed "s#{VERSION}#$version#g" DEBIAN/control > $debroot/DEBIAN/control

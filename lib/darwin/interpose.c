@@ -123,6 +123,7 @@ static int try_bind_section(void *bind, size_t size, const struct interpose_stat
                         }
                         if (h->old_ptr)
                             *(uintptr_t *) h->old_ptr = old - addend;
+                        offset += stride;
                     }
                     break;
                 }

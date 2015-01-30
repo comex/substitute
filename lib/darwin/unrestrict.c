@@ -7,6 +7,10 @@
 #include <errno.h>
 #include <mach/vm_region.h>
 
+#define PROC_PIDFDVNODEINFO 1
+#define PROC_PIDFDVNODEINFO_SIZE 176
+int proc_pidfdinfo(int, int, int, void *, int);
+
 static int unrestrict_macho_header(void *header, size_t size, bool *did_modify_p,
                                    char **error) {
     *did_modify_p = false;
@@ -43,7 +47,7 @@ static int unrestrict_macho_header(void *header, size_t size, bool *did_modify_p
                 for (uint32_t i = 0; i < sc->nsects; i++, sect++) {
                     if (!strncmp(sect->sectname, "__restrict", 16)) {
                         strcpy(sect->sectname, "\xf0\x9f\x92\xa9");
-                        *did_modify_p =true;
+                        *did_modify_p = true;
                     }
                 }
             }
@@ -72,23 +76,25 @@ int substitute_ios_unrestrict(pid_t pid, bool should_resume, char **error) {
 
     int retries = 0;
     int wait_us = 1;
-setback:
     while (1) {
-        /* if calling from unrestrict-me, the process might not have transitioned
-         * yet.  if it has, then TASK_DYLD_INFO will be filled with 0. */
-        task_basic_info_data_t tbi;
-        mach_msg_type_number_t cnt = TASK_BASIC_INFO_COUNT;
-
-        kern_return_t kr = task_info(task, TASK_BASIC_INFO, (void *) &tbi, &cnt);
-        if (kr || cnt != TASK_BASIC_INFO_COUNT) {
-            asprintf(error, "task_info: %x", kr);
+        /* If calling from unrestrict-me, the process might not have
+         * transitioned yet.  We set up a dummy fd 255 in the parent process
+         * which was marked CLOEXEC, so test if that still exists.
+         * AFAICT, Substrate's equivalent to this is not actually correct.
+         * TODO cleanup
+         */
+        char buf[PROC_PIDFDVNODEINFO_SIZE];
+        int ret = proc_pidfdinfo(pid, 255, PROC_PIDFDVNODEINFO, buf, sizeof(buf));
+        if (ret == -1 && errno == EBADF) {
+            break;
+        } else if (ret == -1) {
+            asprintf(error, "proc_pidfdinfo: %s", strerror(errno));
             ret = SUBSTITUTE_ERR_MISC;
             goto fail;
         }
-        if (tbi.user_time.seconds == 0 && tbi.user_time.microseconds == 0)
-            break;
+
         if (retries++ == 20) {
-            asprintf(error, "user_time was not 0 after 20 retries");
+            asprintf(error, "still in parent process after 20 retries");
             ret = SUBSTITUTE_ERR_MISC;
             goto fail;
         }
@@ -101,6 +107,7 @@ setback:
 
     /* alrighty then, let's look at the damage.  find the first readable
      * segment */
+setback:;
     mach_vm_address_t segm_addr = 0;
     mach_vm_size_t segm_size = 0;
     vm_region_basic_info_data_64_t info;
@@ -111,6 +118,7 @@ setback:
                             (vm_region_info_t) &info, &info_count, &object_name);
         if (kr == KERN_INVALID_ADDRESS) {
             /* nothing! maybe it's not there *yet*? this actually is possible */
+            usleep(10);
             goto setback;
         } else if (kr) {
             asprintf(error, "mach_vm_region(%lx): %x", (long) segm_addr, kr);

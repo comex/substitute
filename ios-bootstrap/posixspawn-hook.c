@@ -8,6 +8,7 @@
 #include <malloc/malloc.h>
 #include <assert.h>
 #include <dispatch/dispatch.h>
+#include <errno.h>
 
 extern char ***_NSGetEnviron(void);
 
@@ -28,6 +29,7 @@ static void open_logfp_if_necessary() {
 }
 #define psh_log(fmt, args...) do { \
     open_logfp_if_necessary(); \
+    syslog(LOG_EMERG, fmt, ##args); \
     fprintf(logfp, fmt "\n", ##args); \
     fflush(logfp); \
 } while(0)
@@ -46,7 +48,7 @@ static bool advance(char **strp, const char *template) {
     return false;
 }
 
-static bool spawn_unrestrict_me(pid_t pid, bool should_resume) {
+static bool spawn_unrestrict(pid_t pid, bool should_resume) {
     const char *prog = "/Library/Substitute/unrestrict";
     char pid_s[32];
     sprintf(pid_s, "%ld", (long) pid);
@@ -59,8 +61,9 @@ static bool spawn_unrestrict_me(pid_t pid, bool should_resume) {
     }
     int xstat;
     /* reap intermediate to avoid zombie - if it doesn't work, not a big deal */
-    if (waitpid(prog_pid, &xstat, 0))
+    if (waitpid(prog_pid, &xstat, 0) == -1)
         psh_log("posixspawn-hook: couldn't waitpid");
+    psh_log("unrestrict xstat=%x", xstat);
     return true;
 }
 
@@ -75,6 +78,29 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
     char *const *envp_to_use = envp;
     char *const *my_envp = envp ? envp : *_NSGetEnviron();
     posix_spawnattr_t my_attr = NULL;
+
+    if (attrp) {
+        posix_spawnattr_t attr = *attrp;
+        size_t size = malloc_size(attr);
+        my_attr = malloc(size);
+        if (!my_attr)
+            goto crap;
+        memcpy(my_attr, attr, size);
+    } else {
+        if (posix_spawnattr_init(&my_attr))
+            goto crap;
+    }
+
+    short flags;
+    if (posix_spawnattr_getflags(&my_attr, &flags))
+        goto crap;
+    psh_log("hook_posix_spawn_generic: path=%s%s%s",
+            path,
+            (flags & POSIX_SPAWN_SETEXEC) ? " (exec)" : "",
+            (flags & POSIX_SPAWN_START_SUSPENDED) ? " (suspend)" : "");
+    for (char *const *ap = argv; *ap; ap++)
+        psh_log("   %s", *ap);
+
     /* This mirrors Substrate's logic with safe mode.  I don't really
      * understand the point of the difference between its 'safe' (which removes
      * Substrate from DYLD_INSERT_LIBRARIES) and 'quit' (which just skips
@@ -129,11 +155,12 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
     if (!safe_mode) {
         if (newp != newp_orig)
             *newp++ = ':';
-        const char *dylib_to_add = !strncmp(path, "/usr/libexec/xpcproxy")) 
+        const char *dylib_to_add = !strcmp(path, "/usr/libexec/xpcproxy")
                                    ? my_dylib_2
                                    : my_dylib_1;
         newp = stpcpy(newp, dylib_to_add);
     }
+    psh_log("using %s", new);
     /* no libraries? then just get rid of it */
     if (newp == newp_orig) {
         free(new);
@@ -157,34 +184,26 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
 
     /* Deal with the dumb __restrict section.  A complication is that this
      * could actually be an exec. */
-    if (attrp) {
-        posix_spawnattr_t attr = *attrp;
-        size_t size = malloc_size(attr);
-        my_attr = malloc(size);
-        if (!my_attr)
-            goto crap;
-        memcpy(my_attr, attr, size);
-    } else {
-        if (posix_spawnattr_init(&my_attr))
-            goto crap;
-    }
-    short flags;
-    if (posix_spawnattr_getflags(&my_attr, &flags))
-        goto crap;
+    /* TODO skip this if Substrate is doing it anyway */
     bool was_suspended = flags & POSIX_SPAWN_START_SUSPENDED;
     flags |= POSIX_SPAWN_START_SUSPENDED;
     if (posix_spawnattr_setflags(&my_attr, flags))
         goto crap;
     if (flags & POSIX_SPAWN_SETEXEC) {
-        if (!spawn_unrestrict_me(getpid(), !was_suspended))
+        /* make the marker fd; hope you weren't using that */
+        if (dup2(2, 255) != 255) {
+            psh_log("dup2 failure - %s", strerror(errno));
+            goto skip;
+        }
+        if (fcntl(255, F_SETFD, FD_CLOEXEC))
+            goto crap;
+        psh_log("spawning unrestrict");
+        if (!spawn_unrestrict(getpid(), !was_suspended))
             goto skip;
     }
-
-    psh_log("calling old <path=%s>", path);
-    for (char *const *ap = argv; *ap; ap++)
-        psh_log("   %s", *ap);
+    psh_log("**");
     int ret = old(pidp, path, file_actions, &my_attr, argv, envp_to_use);
-    psh_log("ret=%d", ret);
+    psh_log("ret=%d pid=%ld", ret, (long) *pidp);
     if (ret)
         goto cleanup;
     /* Since it returned, obviously it was not SETEXEC, so we need to
@@ -212,7 +231,7 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
         free(error);
     });
 #else
-    spawn_unrestrict_me(pid, !was_suspended);
+    spawn_unrestrict(pid, !was_suspended);
 #endif
     goto cleanup;
 crap:
@@ -227,9 +246,9 @@ cleanup:
 }
 
 static void after_wait_generic(pid_t pid, int stat) {
+    /* TODO safety */
     (void) pid;
     (void) stat;
-
 }
 
 int hook_posix_spawn(pid_t *restrict pid, const char *restrict path,
@@ -260,12 +279,28 @@ pid_t hook_waitpid(pid_t pid, int *stat_loc, int options) {
     return ret;
 }
 
-void substitute_init(struct shuttle *shuttle, UNUSED size_t nshuttle) {
-    /* Don't hook twice - that will just mess things up. */
-    static int already_initted;
-    if (__atomic_exchange_n(&already_initted, 1, __ATOMIC_RELAXED))
+void substitute_init(struct shuttle *shuttle, size_t nshuttle) {
+    /* Just tell them we're done */
+    if (nshuttle != 1) {
+        psh_log("nshuttle = %zd?", nshuttle);
         return;
+    }
+    mach_port_t notify_port = shuttle[0].u.mach.port;
+    mach_msg_header_t done_hdr;
+    done_hdr.msgh_bits = MACH_MSGH_BITS(MACH_MSG_TYPE_MOVE_SEND, 0);
+    done_hdr.msgh_size = sizeof(done_hdr);
+    done_hdr.msgh_remote_port = notify_port;
+    done_hdr.msgh_local_port = 0;
+    done_hdr.msgh_voucher_port = 0;
+    done_hdr.msgh_id = 42;
+    kern_return_t kr = mach_msg_send(&done_hdr);
+    if (kr)
+        psh_log("posixspawn-hook: mach_msg_send failed: kr=%x", kr);
+    /* MOVE deallocated the port */
+}
 
+__attribute__((constructor))
+static void init() {
     /* Note: I'm using interposing to minimize the chance of conflict with
      * Substrate.  This shouldn't actually be necessary, because MSHookProcess,
      * at least as of the old version I'm looking at the source code of, blocks
@@ -305,30 +340,4 @@ end:
     if (im)
         substitute_close_image(im);
 
-    mach_port_t notify_port = shuttle[0].u.mach.port;
-    mach_msg_header_t done_hdr;
-    done_hdr.msgh_bits = MACH_MSGH_BITS(MACH_MSG_TYPE_COPY_SEND, 0);
-    done_hdr.msgh_size = sizeof(done_hdr);
-    done_hdr.msgh_remote_port = notify_port;
-    done_hdr.msgh_local_port = 0;
-    done_hdr.msgh_voucher_port = 0;
-    done_hdr.msgh_id = 42;
-    kern_return_t kr = mach_msg_send(&done_hdr);
-    if (kr)
-        psh_log("posixspawn-hook: mach_msg_send failed: kr=%x", kr);
-    /* MOVE deallocated the port */
-}
-
-__attribute__((constructor))
-static void init() {
-    if (getenv("TEST_POSIXSPAWN_HOOK")) {
-        mach_port_t port;
-        assert(!mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_DEAD_NAME,
-                                   &port));
-        struct shuttle shuttle = {
-            .type = SUBSTITUTE_SHUTTLE_MACH_PORT,
-            .u.mach.port = port
-        };
-        substitute_init(&shuttle, 1);
-    }
 }
