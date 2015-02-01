@@ -16,3 +16,18 @@ static NOINLINE UNUSED void transform_dis_pcrel(struct transform_dis_ctx *ctx,
     }
 }
 
+static NOINLINE UNUSED void transform_dis_branch(struct transform_dis_ctx *ctx,
+        uintptr_t dpc, int cc) {
+#ifdef TRANSFORM_DIS_VERBOSE
+    printf("transform_dis (%p): branch => %p\n", (void *) ctx->pc, (void *) dpc);
+#endif
+    if (dpc >= ctx->pc_patch_start && dpc < ctx->pc_patch_end) {
+        ctx->err = SUBSTITUTE_ERR_FUNC_BAD_INSN_AT_START;
+        return;
+    }
+    /* TODO */
+    (void) cc;
+}
+
+static void transform_dis_pre_dis(UNUSED struct transform_dis_ctx *ctx) {}
+static void transform_dis_post_dis(UNUSED struct transform_dis_ctx *ctx) {}

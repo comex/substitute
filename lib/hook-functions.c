@@ -151,7 +151,7 @@ int substitute_hook_functions(const struct substitute_function_hook *hooks,
         struct hook_internal *hi = &his[i];
         void *code = hook->function;
         struct arch_dis_ctx arch;
-        memset(&arch, 0, sizeof(arch));
+        arch_dis_ctx_init(&arch);
 #ifdef __arm__
         if ((uintptr_t) code & 1) {
             arch.pc_low_bit = true;
@@ -183,9 +183,9 @@ int substitute_hook_functions(const struct substitute_function_hook *hooks,
         uintptr_t pc_patch_end = pc_patch_start + patch_size;
         /* Generate the rewritten start of the function for the outro
          * trampoline (complaining if any bad instructions are found). */
-        uint8_t rewritten_temp[MAX_REWRITTEN_SIZE];
+        uint8_t rewritten_temp[TD_MAX_REWRITTEN_SIZE];
         void *rp = rewritten_temp;
-        if ((ret = transform_dis_main(code, &rp, pc_patch_start, pc_patch_end,
+        if ((ret = transform_dis_main(code, &rp, pc_patch_start, &pc_patch_end,
                                       arch, hi->offset_by_pcdiff)))
             goto end;
         /* Check some of the rest of the function for jumps back into the

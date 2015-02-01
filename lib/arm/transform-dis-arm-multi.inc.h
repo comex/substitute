@@ -1,5 +1,28 @@
 #include "arm/assemble.h"
 
+static struct assemble_ctx tdctx_to_actx(const struct transform_dis_ctx *ctx) {
+    int cond;
+    if (ctx->arch.pc_low_bit) {
+        cond = ctx->op >> 28;
+        if (cond == 0xf)
+            cond = 0xe;
+    } else {
+        cond = 0;
+    }
+    return (struct assemble_ctx) {
+        ctx->rewritten_ptr_ptr,
+        ctx->arch.pc_low_bit,
+        cond
+    };
+
+}
+
+static int invert_arm_cond(int cc) {
+    if (cc >= 0xe)
+        __builtin_abort();
+    return cc ^ 1;
+}
+
 static NOINLINE UNUSED void transform_dis_data(struct transform_dis_ctx *ctx,
         unsigned o0, unsigned o1, unsigned o2, unsigned o3, unsigned out_mask) {
 #ifdef TRANSFORM_DIS_VERBOSE
@@ -16,7 +39,7 @@ static NOINLINE UNUSED void transform_dis_data(struct transform_dis_ctx *ctx,
     newval[3] = o3;
 
     void **codep = ctx->rewritten_ptr_ptr;
-    struct assemble_ctx actx = {ctx->rewritten_ptr_ptr, ctx->arch.pc_low_bit};
+    struct assemble_ctx actx = tdctx_to_actx(ctx);
 
     /* A few cases:
      * 1. Move to PC that does not read PC.  Probably fine.
@@ -41,7 +64,7 @@ static NOINLINE UNUSED void transform_dis_data(struct transform_dis_ctx *ctx,
         else if (newval[i] != null_op)
             in_regs |= 1 << newval[i];
     }
-    if (out_mask & IS_LDRD_STRD)
+    if (out_mask & DFLAG_IS_LDRD_STRD)
         in_regs |= 1 << (newval[0] + 1);
     uint32_t pc = ctx->pc + (ctx->arch.pc_low_bit ? 4 : 8);
     int scratch = __builtin_ctz(~(in_regs | (1 << out_reg)));
@@ -64,7 +87,8 @@ static NOINLINE UNUSED void transform_dis_data(struct transform_dis_ctx *ctx,
         ctx->write_newop_here = *codep; *codep += ctx->op_size;
         STRri(actx, scratch, 13, 4);
         POPmulti(actx, 1 << scratch | 1 << 15);
-        transform_dis_ret(ctx);
+        if (actx.cond != 0xe)
+            transform_dis_ret(ctx);
     } else {
         if (out_reg != -1 && !(in_regs & 1 << out_reg)) {
             /* case 3 - ignore scratch */
@@ -98,7 +122,7 @@ static NOINLINE UNUSED void transform_dis_pcrel(struct transform_dis_ctx *ctx,
            (void *) dpc, reg, load_mode);
 #endif
     ctx->write_newop_here = NULL;
-    struct assemble_ctx actx = {ctx->rewritten_ptr_ptr, ctx->arch.pc_low_bit};
+    struct assemble_ctx actx = tdctx_to_actx(ctx);
     if (reg == 15) {
         int scratch = 0;
         PUSHone(actx, scratch);
@@ -114,4 +138,57 @@ static NOINLINE UNUSED void transform_dis_pcrel(struct transform_dis_ctx *ctx,
         if (load_mode != PLM_ADR)
             LDRxi(actx, reg, reg, 0, load_mode);
     }
+}
+
+static NOINLINE UNUSED void transform_dis_branch(struct transform_dis_ctx *ctx,
+        uintptr_t dpc, int cc) {
+#ifdef TRANSFORM_DIS_VERBOSE
+    printf("transform_dis (%p): branch => %p\n", (void *) ctx->pc, (void *) dpc);
+#endif
+    if (dpc >= ctx->pc_patch_start && dpc < ctx->pc_patch_end) {
+        /* don't support this for now */
+        /* making the simplifying assumption here that functions will not try
+         * to branch into the middle of an IT block, which is the case where
+         * pc_patch_end changes to include additional instructions (as opposed
+         * to include the end of a partially included instruction, which is
+         * common) */
+        ctx->err = SUBSTITUTE_ERR_FUNC_BAD_INSN_AT_START;
+        return;
+    }
+    struct assemble_ctx actx = tdctx_to_actx(ctx);
+    ctx->write_newop_here = NULL;
+    if ((cc & CC_ARMCC) == CC_ARMCC) {
+        actx.cond = invert_arm_cond(cc & 0xf);
+        Bccrel(actx, 8);
+    } else if ((cc & CC_CBXZ) == CC_CBXZ) {
+        ctx->modify = true;
+        ctx->newval[0] = 2+8;
+        ctx->newval[1] = 1; /* do invert */
+        void **codep = ctx->rewritten_ptr_ptr;
+        ctx->write_newop_here = *codep; *codep += 2;
+    }
+    actx.cond = 0xe;
+    LDR_PC(actx, dpc | 1);
+}
+
+static void transform_dis_pre_dis(struct transform_dis_ctx *ctx) {
+    /* for simplicity we turn IT into a series of branches for each
+     * instruction, so... */
+    if (ctx->arch.it_conds[0] != 0xe) {
+        ctx->arch.bccrel_bits = invert_arm_cond(ctx->arch.it_conds[0]);
+        ctx->arch.bccrel_p = *ctx->rewritten_ptr_ptr;
+        *ctx->rewritten_ptr_ptr += 2;
+    } else {
+        ctx->arch.bccrel_p = NULL;
+    }
+}
+
+static void transform_dis_post_dis(struct transform_dis_ctx *ctx) {
+    if (ctx->arch.bccrel_p) {
+        struct assemble_ctx actx = {&ctx->arch.bccrel_p,
+                                    /*thumb*/ true,
+                                    ctx->arch.bccrel_bits};
+        Bccrel(actx, *ctx->rewritten_ptr_ptr - ctx->arch.bccrel_p);
+    }
+    ctx->force_keep_transforming = ctx->arch.it_conds[0] != 0xe;
 }

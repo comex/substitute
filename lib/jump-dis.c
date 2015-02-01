@@ -116,6 +116,9 @@ static INLINE UNUSED void jump_dis_bad(struct jump_dis_ctx *ctx) {
     ctx->continue_after_this_insn = false;
 }
 
+static INLINE UNUSED void jump_dis_thumb_it(UNUSED struct jump_dis_ctx *ctx) {
+}
+
 static void jump_dis_dis(struct jump_dis_ctx *ctx);
 
 bool jump_dis_main(void *code_ptr, uintptr_t pc_patch_start, uintptr_t pc_patch_end,

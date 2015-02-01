@@ -49,31 +49,45 @@ static INLINE void P(t_addrmode_pc_addr_unk_Rt_1_tLDRpci)(tdis_ctx ctx, struct b
 static INLINE void P(t_adrlabel_addr_unk_Rd_1_tADR)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rd) {
     return P(pcrel)(ctx, ((ctx->pc + 4) & ~2) + bs_get(addr, ctx->op), bs_get(Rd, ctx->op), PLM_ADR);
 }
-static INLINE void P(t_bcctarget_target_B_1_tBcc)(tdis_ctx ctx, struct bitslice target) {
-    return P(branch)(ctx, ctx->pc + 4 + 2 * sext(bs_get(target, ctx->op), 8), /*cond*/ true);
+static INLINE void P(t_bcctarget_target_pred_p_B_1_tBcc)(tdis_ctx ctx, struct bitslice target, struct bitslice p) {
+    return P(branch)(ctx, ctx->pc + 4 + 2 * sext(bs_get(target, ctx->op), 8),
+                     CC_ARMCC | bs_get(p, ctx->op));
 }
 static INLINE void P(t_brtarget_target_B_1_tB)(tdis_ctx ctx, struct bitslice target) {
-    bool cond = ctx->arch.thumb_it_length > 0;
-    return P(branch)(ctx, ctx->pc + 4 + 2 * sext(bs_get(target, ctx->op), 11), cond);
+    int cc = ctx->arch.it_conds[0] != 0xe ? CC_ALREADY_IN_IT : 0;
+    return P(branch)(ctx, ctx->pc + 4 + 2 * sext(bs_get(target, ctx->op), 11), cc);
 }
 static INLINE void P(t_cbtarget_target_B_2_tCBNZ)(tdis_ctx ctx, struct bitslice target) {
-    return P(branch)(ctx, ctx->pc + 4 + 2 * bs_get(target, ctx->op), /*cond*/ true);
+    P(branch)(ctx, ctx->pc + 4 + 2 * bs_get(target, ctx->op), CC_CBXZ);
+    if (TDIS_CTX_MODIFY(ctx)) {
+        /* change target, and flip z/nz if necessary (i.e. always) */
+        unsigned new = bs_set(target, TDIS_CTX_NEWVAL(ctx, 0), ctx->op);
+        if (TDIS_CTX_NEWVAL(ctx, 1))
+            new ^= 1 << 11;
+        TDIS_CTX_SET_NEWOP(ctx, new);
+    }
 }
-static INLINE void P(it_pred_cc_it_mask_mask_1_t2IT)(tdis_ctx ctx, struct bitslice mask, UNUSED struct bitslice cc) {
+static INLINE void P(it_pred_cc_it_mask_mask_1_t2IT)(tdis_ctx ctx, struct bitslice mask, struct bitslice cc) {
     /* why */
     unsigned mask_val = bs_get(mask, ctx->op);
-    unsigned length = __builtin_ctz(mask_val);
-    if (length >= 3)
+    unsigned cc_val = bs_get(cc, ctx->op);
+    if (mask_val == 0)
         return P(unidentified)(ctx); /* nop */
-    ctx->arch.thumb_it_length = length;
-    return P(unidentified)(ctx);
+    int length = 4 - __builtin_ctz(mask_val);
+    ctx->arch.it_conds[1] = cc_val;
+    for (int i = 0; i < length; i++)
+        ctx->arch.it_conds[i+2] = (cc_val & ~1) | (mask_val >> (3 - i) & 1);
+    return P(thumb_it)(ctx);
+}
+
+static INLINE void P(thumb_do_it)(tdis_ctx ctx) {
+    uint16_t op = ctx->op = *(uint16_t *) ctx->ptr;
+    #include "../generated/generic-dis-thumb.inc.h"
+    __builtin_abort();
 }
 
 static INLINE void P(dis_thumb)(tdis_ctx ctx) {
-    uint16_t op = ctx->op = *(uint16_t *) ctx->ptr;
     ctx->op_size = 2;
-    if (ctx->arch.thumb_it_length)
-        ctx->arch.thumb_it_length--;
-    #include "../generated/generic-dis-thumb.inc.h"
-    __builtin_abort();
+    P(thumb_do_it)(ctx);
+    advance_it_cond(&ctx->arch);
 }

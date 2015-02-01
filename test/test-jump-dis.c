@@ -8,7 +8,7 @@ int main(UNUSED int argc, char **argv) {
     printf("size=%zd\n", size);
     int patch_size = atoi(argv[1]);
     struct arch_dis_ctx arch;
-    memset(&arch, 0, sizeof(arch));
+    arch_dis_ctx_init(&arch);
 #ifdef TARGET_arm
     int thumb = atoi(argv[2]);
     arch.pc_low_bit = thumb;

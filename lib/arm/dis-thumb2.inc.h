@@ -87,8 +87,9 @@ static INLINE void P(addrmode5_pre_addr_4_t2LDC2L_PRE)(tdis_ctx ctx, struct bits
 static INLINE void P(addrmode5_pre_addr_S_4_t2STC2L_PRE)(tdis_ctx ctx, struct bitslice addr) {
     data(rs(addr, 9, 4));
 }
-static INLINE void P(brtarget_target_B_1_t2Bcc)(tdis_ctx ctx, struct bitslice target) {
-    return P(branch)(ctx, ctx->pc + 4 + 2 * sext(bs_get(target, ctx->op), 20), /*cond*/ true);
+static INLINE void P(brtarget_target_pred_p_B_1_t2Bcc)(tdis_ctx ctx, struct bitslice target, struct bitslice p) {
+    return P(branch)(ctx, ctx->pc + 4 + 2 * sext(bs_get(target, ctx->op), 20), 
+                     CC_ARMCC | bs_get(p, ctx->op));
 }
 static INLINE void P(rGPR_Rt_t2addrmode_imm0_1020s4_addr_unk_Rd_S_1_t2STREX)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt, struct bitslice Rd) {
     data(rout(Rd), r(Rt), rs(addr, 8, 4));
@@ -100,10 +101,10 @@ static INLINE void P(rGPR_Rt_t2addrmode_imm8_pre_addr_S_2_t2STRB_PRE)(tdis_ctx c
     data(r(Rt), rs(addr, 9, 4));
 }
 static INLINE void P(rGPR_Rt_t2addrmode_imm8s4_addr_S_1_t2STRDi8)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
-    data_flags(IS_LDRD_STRD, r(Rt), rs(addr, 9, 4));
+    data_flags(DFLAG_IS_LDRD_STRD, r(Rt), rs(addr, 9, 4));
 }
 static INLINE void P(rGPR_Rt_t2addrmode_imm8s4_pre_addr_S_1_t2STRD_PRE)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
-    data_flags(IS_LDRD_STRD, r(Rt), rs(addr, 9, 4));
+    data_flags(DFLAG_IS_LDRD_STRD, r(Rt), rs(addr, 9, 4));
 }
 static INLINE void P(rGPR_Rt_t2addrmode_negimm8_addr_S_2_t2STRBi8)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
     data(r(Rt), rs(addr, 9, 4));
@@ -130,10 +131,10 @@ static INLINE void P(addr_offset_none_Rn_t2am_imm8_offset_offset_unk_Rt_5_t2LDRB
     data(rout(Rt), r(Rn));
 }
 static INLINE void P(t2addrmode_imm8s4_addr_unk_Rt_1_t2LDRDi8)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
-    data_flags(IS_LDRD_STRD, rout(Rt), rs(addr, 9, 4));
+    data_flags(DFLAG_IS_LDRD_STRD, rout(Rt), rs(addr, 9, 4));
 }
 static INLINE void P(t2addrmode_imm8s4_pre_addr_unk_Rt_1_t2LDRD_PRE)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
-    data_flags(IS_LDRD_STRD, rout(Rt), rs(addr, 9, 4));
+    data_flags(DFLAG_IS_LDRD_STRD, rout(Rt), rs(addr, 9, 4));
 }
 static INLINE void P(t2addrmode_negimm8_addr_unk_Rt_5_t2LDRBi8)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
     data(rout(Rt), rs(addr, 9, 4));
@@ -151,8 +152,8 @@ static INLINE void P(t2ldrlabel_addr_unk_Rt_5_t2LDRBpci)(tdis_ctx ctx, struct bi
     return P(pcrel)(ctx, ((ctx->pc + 4) & ~2) + (bs_get(addr, ctx->op) & ((1 << 12) - 1)), bs_get(Rt, ctx->op), get_thumb2_load_mode(ctx->op));
 }
 static INLINE void P(uncondbrtarget_target_B_1_t2B)(tdis_ctx ctx, struct bitslice target) {
-    bool cond = ctx->arch.thumb_it_length > 0;
-    return P(branch)(ctx, ctx->pc + 4 + 2 * sext(bs_get(target, ctx->op), 24), cond);
+    int cc = ctx->arch.it_conds[0] != 0xe ? CC_ALREADY_IN_IT : 0;
+    return P(branch)(ctx, ctx->pc + 4 + 2 * sext(bs_get(target, ctx->op), 24), cc);
 }
 static INLINE void P(unk_Rd_3_t2MOVTi16)(tdis_ctx ctx, struct bitslice Rd) {
     data(rout(Rd));
@@ -165,7 +166,7 @@ static INLINE void P(unk_Rt_13_VMOVRRD)(tdis_ctx ctx, UNUSED struct bitslice Rt)
     return P(unidentified)(ctx);
 }
 
-static INLINE void do_it(tdis_ctx ctx) {
+static INLINE void P(thumb2_do_it)(tdis_ctx ctx) {
     uint32_t op = ctx->op;
     #include "../generated/generic-dis-thumb2.inc.h"
     __builtin_abort();
@@ -174,12 +175,11 @@ static INLINE void do_it(tdis_ctx ctx) {
 static INLINE void P(dis_thumb2)(tdis_ctx ctx) {
     ctx->op = *(uint32_t *) ctx->ptr;
     ctx->op_size = 4;
-    if (ctx->arch.thumb_it_length)
-        ctx->arch.thumb_it_length--;
     /* LLVM likes to think about Thumb2 instructions the way the ARM manual
      * does - 15..0 15..0 rather than 31..0 as actually laid out in memory... */
     ctx->op = flip16(ctx->op);
-    do_it(ctx);
+    P(thumb2_do_it)(ctx);
+    advance_it_cond(&ctx->arch);
     TDIS_CTX_SET_NEWOP(ctx, flip16(TDIS_CTX_NEWOP(ctx)));
     ctx->op = flip16(ctx->op);
 }

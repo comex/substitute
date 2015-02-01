@@ -7,20 +7,26 @@ int main(UNUSED int argc, char **argv) {
     UNUSED size_t size = fread(in, 1, sizeof(in), stdin);
     int patch_size = atoi(argv[1]);
     struct arch_dis_ctx arch;
-    memset(&arch, 0, sizeof(arch));
+    arch_dis_ctx_init(&arch);
 #ifdef TARGET_arm
     int thumb = atoi(argv[2]);
     arch.pc_low_bit = thumb;
 #endif
     uint8_t out[patch_size * 10];
-    int offsets[patch_size + 1];
+    /* patch_size bytes of patch
+     * max 2 bytes of tail
+     * max 12 more bytes of ITted insns
+     * 1 off-by-one written to simplify the code */
+    int offsets[patch_size + 15];
     void *rewritten_ptr = out;
     printf("\n#if 0\n");
+    uintptr_t pc_patch_start = 0x10000;
+    uintptr_t pc_patch_end = pc_patch_start + patch_size;
     int ret = transform_dis_main(
         in,
         &rewritten_ptr,
-        0x10000,
-        0x10000 + patch_size,
+        pc_patch_start,
+        &pc_patch_end,
         arch,
         offsets);
     printf("=> %d\n", ret);
@@ -29,7 +35,7 @@ int main(UNUSED int argc, char **argv) {
     int print_in_idx = 0;
     if (!ret) {
         printf("// total length: %zd\n", (uint8_t *) rewritten_ptr - out);
-        for(int ii = 0; ii <= patch_size; ii++) {
+        for(int ii = 0; ii <= (int) (pc_patch_end - pc_patch_start); ii++) {
             int oi = offsets[ii];
             if(oi != -1) {
                 int in_size = ii - print_in_idx;

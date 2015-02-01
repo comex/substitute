@@ -1,7 +1,6 @@
 #pragma once
 #include "arm64/assemble.h"
 #define MAX_JUMP_PATCH_SIZE 12
-#define MAX_REWRITTEN_SIZE (7 * 2 * 4) /* also conservative */
 static inline int jump_patch_size(uintptr_t pc, uintptr_t dpc,
                                   UNUSED struct arch_dis_ctx arch,
                                   bool force) {

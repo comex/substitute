@@ -1,7 +1,7 @@
 #pragma once
 #include "dis.h"
+#include "arm/assemble.h"
 #define MAX_JUMP_PATCH_SIZE 8
-#define MAX_REWRITTEN_SIZE (12 * 4) /* actually should be less */
 
 static inline int jump_patch_size(UNUSED uintptr_t pc,
                                   UNUSED uintptr_t dpc,
@@ -13,9 +13,6 @@ static inline int jump_patch_size(UNUSED uintptr_t pc,
 static inline void make_jump_patch(void **codep, UNUSED uintptr_t pc,
                                    uintptr_t dpc,
                                    struct arch_dis_ctx arch) {
-    if (arch.pc_low_bit)
-        op32(codep, 0xf000f8df);
-    else
-        op32(codep, 0xe51ff004);
-    op32(codep, (uint32_t) dpc);
+    struct assemble_ctx actx = {codep, arch.pc_low_bit, 0xe};
+    LDR_PC(actx, dpc);
 }

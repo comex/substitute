@@ -47,8 +47,10 @@ static void P_ret(struct tc *ctx) {
 }
 
 NOINLINE UNUSED
-static void P_branch(struct tc *ctx, uint32_t dpc, bool cond) {
-    printf("branch(%s): %08x => %08x\n", cond ? "cond" : "uncond", ctx->op, dpc);
+static void P_branch(struct tc *ctx, uint32_t dpc, int cc) {
+    printf("branch(%s): %08x => %08x\n",
+           (cc & CC_CONDITIONAL) ? "cond" : "uncond",
+           ctx->op, dpc);
     ctx->modify = false;
 }
 
@@ -61,6 +63,12 @@ static void P_unidentified(struct tc *ctx) {
 NOINLINE UNUSED
 static void P_bad(struct tc *ctx) {
     printf("bad: %08x\n", ctx->op);
+    ctx->modify = false;
+}
+
+NOINLINE UNUSED
+static void P_thumb_it(struct tc *ctx) {
+    printf("thumb_it: %08x\n", ctx->op);
     ctx->modify = false;
 }
 

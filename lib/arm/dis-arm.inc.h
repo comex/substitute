@@ -65,7 +65,7 @@ static INLINE void P(GPR_Rt_addr_offset_none_addr_am2offset_reg_offset_S_4_STRBT
     data(r(addr), rs(offset, 0, 4), r(Rt));
 }
 static INLINE void P(GPR_Rt_addr_offset_none_addr_am3offset_offset_S_2_STRD_POST)(tdis_ctx ctx, struct bitslice offset, struct bitslice Rt, struct bitslice addr) {
-    data_flags(IS_LDRD_STRD, r(Rt), r(addr), rs(offset, 0, 4));
+    data_flags(DFLAG_IS_LDRD_STRD, r(Rt), r(addr), rs(offset, 0, 4));
 }
 static INLINE void P(GPR_Rt_addr_offset_none_addr_postidx_imm8_offset_S_1_STRHTi)(tdis_ctx ctx, UNUSED struct bitslice offset, struct bitslice Rt, struct bitslice addr) {
     data(r(addr), r(Rt));
@@ -73,9 +73,9 @@ static INLINE void P(GPR_Rt_addr_offset_none_addr_postidx_imm8_offset_S_1_STRHTi
 static INLINE void P(GPR_Rt_addrmode3_addr_S_2_STRD)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
     unsigned addr_val = bs_get(addr, ctx->op);
     if (addr_val & 1 << 13)
-        data_flags(IS_LDRD_STRD, r(Rt), rs(addr, 9, 4));
+        data_flags(DFLAG_IS_LDRD_STRD, r(Rt), rs(addr, 9, 4));
     else
-        data_flags(IS_LDRD_STRD, r(Rt), rs(addr, 9, 4), rs(addr, 0, 4));
+        data_flags(DFLAG_IS_LDRD_STRD, r(Rt), rs(addr, 9, 4), rs(addr, 0, 4));
 }
 static INLINE void P(GPR_Rt_addrmode3_pre_addr_S_2_STRD_PRE)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
     return P(GPR_Rt_addrmode3_addr_S_2_STRD)(ctx, addr, Rt);
@@ -133,9 +133,9 @@ static INLINE void P(addrmode3_addr_unk_Rt_4_LDRD)(tdis_ctx ctx, struct bitslice
     /* ignoring Rt2 = Rt + 1, but LDRD itself isn't supposed to load PC anyway */
     unsigned addr_val = bs_get(addr, ctx->op);
     if (addr_val & 1 << 13)
-        data_flags(IS_LDRD_STRD, rout(Rt), rs(addr, 9, 4));
+        data_flags(DFLAG_IS_LDRD_STRD, rout(Rt), rs(addr, 9, 4));
     else
-        data_flags(IS_LDRD_STRD, rout(Rt), rs(addr, 9, 4), rs(addr, 0, 4));
+        data_flags(DFLAG_IS_LDRD_STRD, rout(Rt), rs(addr, 9, 4), rs(addr, 0, 4));
 }
 static INLINE void P(addrmode3_pre_addr_unk_Rt_4_LDRD_PRE)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
     return P(addrmode3_addr_unk_Rt_4_LDRD)(ctx, addr, Rt);
@@ -161,9 +161,10 @@ static INLINE void P(addrmode_imm12_pre_addr_unk_Rt_2_LDRB_PRE_IMM)(tdis_ctx ctx
 static INLINE void P(adrlabel_label_unk_Rd_1_ADR)(tdis_ctx ctx, struct bitslice label, struct bitslice Rd) {
     return P(pcrel)(ctx, ctx->pc + 8 + bs_get(label, ctx->op), bs_get(Rd, ctx->op), PLM_ADR);
 }
-static INLINE void P(br_target_target_B_1_Bcc)(tdis_ctx ctx, struct bitslice target) {
-    bool cond = (ctx->op >> 28) != 0xe;
-    return P(branch)(ctx, ctx->pc + 8 + sext(bs_get(target, ctx->op), 24), /*cond*/ cond);
+static INLINE void P(br_target_target_pred_p_B_1_Bcc)(tdis_ctx ctx, struct bitslice target, struct bitslice p) {
+    unsigned p_val = bs_get(p, ctx->op);
+    return P(branch)(ctx, ctx->pc + 8 + sext(bs_get(target, ctx->op), 24),
+                     p_val == 0xe ? 0 : (CC_ARMCC | p_val));
 }
 static INLINE void P(ldst_so_reg_addr_unk_Rt_2_LDRB_PRE_REG)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
     data(rout(Rt), rs(addr, 0, 4), rs(addr, 13, 4));

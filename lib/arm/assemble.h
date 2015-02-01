@@ -4,27 +4,28 @@
 struct assemble_ctx {
     void **codep;
     bool thumb;
+    int cond;
 };
 
 static inline void PUSHone(struct assemble_ctx ctx, int Rt) {
     if (ctx.thumb)
         op32(ctx.codep, 0x0d04f84d | Rt << 28);
     else
-        op32(ctx.codep, 0xe52d0004 | Rt << 12);
+        op32(ctx.codep, 0x052d0004 | Rt << 12 | ctx.cond << 28);
 }
 
 static inline void POPone(struct assemble_ctx ctx, int Rt) {
     if (ctx.thumb)
         op32(ctx.codep, 0x0b04f85d | Rt << 28);
     else
-        op32(ctx.codep, 0xe49d0004 | Rt << 12);
+        op32(ctx.codep, 0x049d0004 | Rt << 12 | ctx.cond << 28);
 }
 
 static inline void POPmulti(struct assemble_ctx ctx, uint16_t mask) {
     if (ctx.thumb)
         op32(ctx.codep, 0x0000e8bd | mask << 16);
     else
-        op32(ctx.codep, 0xe8bd0000 | mask);
+        op32(ctx.codep, 0x08bd0000 | mask | ctx.cond << 28);
 }
 
 static inline void MOVW_MOVT(struct assemble_ctx ctx, int Rd, uint32_t val) {
@@ -36,8 +37,10 @@ static inline void MOVW_MOVT(struct assemble_ctx ctx, int Rd, uint32_t val) {
                         (hi >> 8 & 7) << 28 | (hi & 0xff) << 16);
 
     } else {
-        op32(ctx.codep, 0xe3000000 | Rd << 12 | (lo >> 12) << 16 | (lo & 0xfff));
-        op32(ctx.codep, 0xe3400000 | Rd << 12 | (hi >> 12) << 16 | (hi & 0xfff));
+        op32(ctx.codep, 0x03000000 | Rd << 12 | (lo >> 12) << 16 | (lo & 0xfff) |
+                        ctx.cond << 28);
+        op32(ctx.codep, 0x03400000 | Rd << 12 | (hi >> 12) << 16 | (hi & 0xfff) |
+                        ctx.cond << 28);
     }
 
 }
@@ -46,7 +49,7 @@ static inline void STRri(struct assemble_ctx ctx, int Rt, int Rn, uint32_t off) 
     if (ctx.thumb)
         op32(ctx.codep, 0x0000f8c0 | Rn | Rt << 28 | off << 16);
     else
-        op32(ctx.codep, 0xe4800000 | Rn << 16 | Rt << 12 | off);
+        op32(ctx.codep, 0x04800000 | Rn << 16 | Rt << 12 | off | ctx.cond << 28);
 }
 
 static inline void LDRxi(struct assemble_ctx ctx, int Rt, int Rn, uint32_t off,
@@ -76,11 +79,30 @@ static inline void LDRxi(struct assemble_ctx ctx, int Rt, int Rn, uint32_t off,
                 op32(ctx.codep, 0xe5900000 | Rn << 16 | Rt << 12 | off);
                 break;
             type2:
-                op32(ctx.codep, 0xe1c00000 | Rn << 16 | Rt << 12 | subop << 4 |
-                                (off & 0xf) | (off & 0xf0) << 4 | not_ldrd << 20);
+                op32(ctx.codep, 0x01c00000 | Rn << 16 | Rt << 12 | subop << 4 |
+                                (off & 0xf) | (off & 0xf0) << 4 | not_ldrd << 20 |
+                                ctx.cond << 28);
                 break;
             default:
                 __builtin_abort();
         }
     }
+}
+
+static inline void Bccrel(struct assemble_ctx ctx, int offset) {
+    if (ctx.thumb) {
+        offset = (offset - 4) / 2;
+        op16(ctx.codep, 0xd000 | ctx.cond << 8 | offset);
+    } else {
+        offset = (offset - 8) / 4;
+        op32(ctx.codep, 0x0a000000 | offset | ctx.cond << 28);
+    }
+}
+
+static inline void LDR_PC(struct assemble_ctx ctx, uint32_t dpc) {
+    if (ctx.thumb)
+        op32(ctx.codep, 0xf000f8df);
+    else
+        op32(ctx.codep, 0x051ff004 | ctx.cond << 28);
+    op32(ctx.codep, (uint32_t) dpc);
 }

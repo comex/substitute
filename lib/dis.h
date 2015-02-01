@@ -116,3 +116,9 @@ static inline void op32(void **codep, uint32_t op) {
     *codep += 4;
 }
 
+static inline void op16(void **codep, uint16_t op) {
+    *(uint16_t *) *codep = op;
+    *codep += 2;
+}
+
+#define CC_CONDITIONAL 0x100
