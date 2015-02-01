@@ -168,7 +168,7 @@ static NOINLINE UNUSED void transform_dis_branch(struct transform_dis_ctx *ctx,
         ctx->write_newop_here = *codep; *codep += 2;
     }
     actx.cond = 0xe;
-    LDR_PC(actx, dpc | 1);
+    LDR_PC(actx, dpc | ctx->arch.pc_low_bit);
 }
 
 static void transform_dis_pre_dis(struct transform_dis_ctx *ctx) {
