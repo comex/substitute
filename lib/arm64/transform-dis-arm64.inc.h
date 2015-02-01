@@ -1,7 +1,8 @@
 #include "arm64/assemble.h"
 
-static NOINLINE UNUSED void transform_dis_pcrel(struct transform_dis_ctx *ctx,
-        uintptr_t dpc, unsigned reg, enum pcrel_load_mode load_mode) {
+static NOINLINE UNUSED
+void transform_dis_pcrel(struct transform_dis_ctx *ctx, uintptr_t dpc, unsigned reg,
+                         enum pcrel_load_mode load_mode) {
     ctx->write_newop_here = NULL;
     void **codep = ctx->rewritten_ptr_ptr;
     if (load_mode >= PLM_U32_SIMD) {
@@ -16,8 +17,8 @@ static NOINLINE UNUSED void transform_dis_pcrel(struct transform_dis_ctx *ctx,
     }
 }
 
-static NOINLINE UNUSED void transform_dis_branch(struct transform_dis_ctx *ctx,
-        uintptr_t dpc, int cc) {
+static NOINLINE UNUSED
+void transform_dis_branch(struct transform_dis_ctx *ctx, uintptr_t dpc, int cc) {
 #ifdef TRANSFORM_DIS_VERBOSE
     printf("transform_dis (%p): branch => %p\n", (void *) ctx->pc, (void *) dpc);
 #endif
