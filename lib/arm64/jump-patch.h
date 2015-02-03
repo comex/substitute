@@ -14,8 +14,8 @@ static inline int jump_patch_size(uintptr_t pc, uintptr_t dpc,
 }
 
 static inline void make_jump_patch(void **codep, uintptr_t pc, uintptr_t dpc,
-                                   UNUSED struct arch_dis_ctx arch) {
-    int reg = 15;
+                                   struct arch_dis_ctx arch) {
+    int reg = arm64_get_unwritten_temp_reg(&arch);
     intptr_t diff = (dpc & ~0xfff) - (pc & ~0xfff);
     if (!(diff >= -0x100000000 && diff < 0x100000000))
         MOVi64(codep, reg, dpc);

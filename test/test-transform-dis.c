@@ -27,7 +27,7 @@ int main(UNUSED int argc, char **argv) {
         &rewritten_ptr,
         pc_patch_start,
         &pc_patch_end,
-        arch,
+        &arch,
         offsets);
     printf("=> %d\n", ret);
     printf("#endif\n");

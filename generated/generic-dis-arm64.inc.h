@@ -12,7 +12,8 @@
 /* adrplabel_label_unk_Xd_1_ADRP: ADRP */
 /* am_b_target_addr_B_1_B: B */
 /* am_bl_target_addr_1_BL: BL */
-/* am_brcond_target_B_5_Bcc: Bcc, CBNZW, CBNZX, CBZW, CBZX */
+/* ccode_cond_am_brcond_target_B_1_Bcc: Bcc */
+/* am_brcond_target_B_4_CBNZW: CBNZW, CBNZX, CBZW, CBZX */
 /* am_ldrlit_label_unk_Rt_6_LDRDl: LDRDl, LDRQl, LDRSWl, LDRSl, LDRWl, LDRXl */
 /* GPR64_Rn_1_RET: RET */
 /* am_tbrcond_target_B_4_TBNZW: TBNZW, TBNZX, TBZW, TBZX */
@@ -101,9 +102,8 @@
     case 13: {
         switch ((op >> 25) & 0x1) {
         case 0: {
-            insn_am_brcond_target_B_5_Bcc:;
             struct bitslice target = {.nruns = 1, .runs = (struct bitslice_run[]) {{5,0,19}}};
-            return P(am_brcond_target_B_5_Bcc)(ctx, target); /* 0x34000000 | 0x81ffffff */
+            return P(am_brcond_target_B_4_CBNZW)(ctx, target); /* 0x34000000 | 0x81ffffff */
         }
         case 1: {
             struct bitslice target = {.nruns = 1, .runs = (struct bitslice_run[]) {{5,0,14}}};
@@ -115,7 +115,9 @@
         switch ((op >> 25) & 0x1) {
         case 0: {
             if ((op & 0xff000010) == 0x54000000) {
-                goto insn_am_brcond_target_B_5_Bcc; /* 0x54000000 | 0x00ffffef */
+                struct bitslice cond = {.nruns = 1, .runs = (struct bitslice_run[]) {{0,0,4}}};
+                struct bitslice target = {.nruns = 1, .runs = (struct bitslice_run[]) {{5,0,19}}};
+                return P(ccode_cond_am_brcond_target_B_1_Bcc)(ctx, cond, target); /* 0x54000000 | 0x00ffffef */
             } else {
                 return P(unidentified)(ctx);
             }
@@ -145,8 +147,9 @@ static INLINE tdis_ret P(adrlabel_label_unk_Xd_1_ADR)(struct bitslice ctx, struc
 static INLINE tdis_ret P(adrplabel_label_unk_Xd_1_ADRP)(struct bitslice ctx, struct bitslice Xd, struct bitslice label) {}
 static INLINE tdis_ret P(am_b_target_addr_B_1_B)(struct bitslice ctx, struct bitslice addr) {}
 static INLINE tdis_ret P(am_bl_target_addr_1_BL)(struct bitslice ctx, struct bitslice addr) {}
-static INLINE tdis_ret P(am_brcond_target_B_5_Bcc)(struct bitslice ctx, struct bitslice target) {}
+static INLINE tdis_ret P(am_brcond_target_B_4_CBNZW)(struct bitslice ctx, struct bitslice target) {}
 static INLINE tdis_ret P(am_ldrlit_label_unk_Rt_6_LDRDl)(struct bitslice ctx, struct bitslice Rt, struct bitslice label) {}
 static INLINE tdis_ret P(am_tbrcond_target_B_4_TBNZW)(struct bitslice ctx, struct bitslice target) {}
+static INLINE tdis_ret P(ccode_cond_am_brcond_target_B_1_Bcc)(struct bitslice ctx, struct bitslice cond, struct bitslice target) {}
 */
 

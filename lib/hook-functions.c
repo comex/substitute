@@ -168,6 +168,21 @@ int substitute_hook_functions(const struct substitute_function_hook *hooks,
                                           &hi->trampoline_page, arch)))
             goto end;
 
+        uintptr_t pc_patch_end = pc_patch_start + patch_size;
+        /* Generate the rewritten start of the function for the outro
+         * trampoline (complaining if any bad instructions are found)
+         * (on arm64, this modifies regs_possibly_written, which is used by the
+         * two make_jump_patch calls) */
+        uint8_t rewritten_temp[TD_MAX_REWRITTEN_SIZE];
+        void *rp = rewritten_temp;
+        if ((ret = transform_dis_main(code, &rp, pc_patch_start, &pc_patch_end,
+                                      &arch, hi->offset_by_pcdiff)))
+            goto end;
+        /* Check some of the rest of the function for jumps back into the
+         * patched region. */
+        if ((ret = jump_dis_main(code, pc_patch_start, pc_patch_end, arch)))
+            goto end;
+
         uintptr_t initial_target;
         if (need_intro_trampoline) {
             initial_target = (uintptr_t) trampoline_ptr;
@@ -180,18 +195,6 @@ int substitute_hook_functions(const struct substitute_function_hook *hooks,
         make_jump_patch(&jp, pc_patch_start, initial_target, arch);
         hi->jump_patch_size = (uint8_t *) jp - hi->jump_patch;
 
-        uintptr_t pc_patch_end = pc_patch_start + patch_size;
-        /* Generate the rewritten start of the function for the outro
-         * trampoline (complaining if any bad instructions are found). */
-        uint8_t rewritten_temp[TD_MAX_REWRITTEN_SIZE];
-        void *rp = rewritten_temp;
-        if ((ret = transform_dis_main(code, &rp, pc_patch_start, &pc_patch_end,
-                                      arch, hi->offset_by_pcdiff)))
-            goto end;
-        /* Check some of the rest of the function for jumps back into the
-         * patched region. */
-        if ((ret = jump_dis_main(code, pc_patch_start, pc_patch_end, arch)))
-            goto end;
 
         size_t rewritten_size = (uint8_t *) rp - rewritten_temp;
         size_t jumpback_size =

@@ -1,9 +1,15 @@
 #pragma once
 #include "dis.h"
+
+static inline int size_of_MOVi64(uint64_t val) {
+    int num_nybbles = val == 0 ? 1 : ((64 - __builtin_clzll(val) + 15) / 16);
+    return 4 * num_nybbles;
+}
+
 static inline void MOVi64(void **codep, int Rd, uint64_t val) {
     int shift_nybbles = 0;
     do {
-        int k = shift_nybbles != 0 ? 1 : 0;
+        int k = shift_nybbles != 0;
         op32(codep, 0xd2800000 | k << 29 | Rd | (val & 0xffff) << 5 |
                     shift_nybbles << 21);
         shift_nybbles++;
@@ -52,5 +58,9 @@ static inline void ADRP_ADD(void **codep, int reg, uint64_t pc, uint64_t dpc) {
 
 static inline void BR(void **codep, int reg) {
     op32(codep, 0xd61f0000 | reg << 5);
+}
+
+static inline void Bccrel(void **codep, int cc, int offset) {
+    op32(codep, 0x54000000 | (offset / 4) << 5 | cc);
 }
 

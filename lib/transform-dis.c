@@ -76,14 +76,14 @@ int transform_dis_main(const void *restrict code_ptr,
                        void **restrict rewritten_ptr_ptr,
                        uintptr_t pc_patch_start,
                        uintptr_t *pc_patch_end_p,
-                       struct arch_dis_ctx initial_arch_ctx,
+                       struct arch_dis_ctx *arch_ctx_p,
                        int *offset_by_pcdiff) {
     struct transform_dis_ctx ctx;
     memset(&ctx, 0, sizeof(ctx));
     ctx.pc_patch_start = pc_patch_start;
     ctx.pc_patch_end = *pc_patch_end_p;
     ctx.pc = pc_patch_start;
-    ctx.arch = initial_arch_ctx;
+    ctx.arch = *arch_ctx_p;
     /* data is written to rewritten both by this function directly and, in case
      * additional scaffolding is needed, by arch-specific transform_dis_* */
     ctx.rewritten_ptr_ptr = rewritten_ptr_ptr;
@@ -127,6 +127,7 @@ int transform_dis_main(const void *restrict code_ptr,
                 (int) (*rewritten_ptr_ptr - rewritten_start);
     }
     *pc_patch_end_p = ctx.pc;
+    *arch_ctx_p = ctx.arch;
     return SUBSTITUTE_OK;
 }
 

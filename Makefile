@@ -8,6 +8,7 @@ ARCH := -arch x86_64
 XCFLAGS := -g -O3 -Wall -Wextra -Werror -Ilib $(ARCH)
 LIB_LDFLAGS := -lobjc -dynamiclib -fvisibility=hidden -install_name /usr/lib/libsubstitute.0.dylib -dead_strip
 IOS_APP_LDFLAGS := -framework UIKit -framework Foundation -dead_strip
+IS_IOS := $(findstring -arch arm,$(CC) $(CFLAGS) $(XCFLAGS))
 ifneq (,$(IS_IOS))
 # I don't know anything in particular that would break this on older versions,
 # but I don't have any good way to test it and don't really care.  So ensure it
@@ -16,7 +17,6 @@ XCFLAGS := $(XCFLAGS) -miphoneos-version-min=7.0
 endif
 override CC := $(CC) $(XCFLAGS) $(CFLAGS)
 override CXX := $(CXX) $(XCFLAGS) $(CFLAGS) -fno-exceptions -fno-asynchronous-unwind-tables
-IS_IOS := $(findstring -arch arm,$(CC))
 
 # These are only required to rebuild the generated disassemblers.
 IMAON2 := /Users/comex/c/imaon2
