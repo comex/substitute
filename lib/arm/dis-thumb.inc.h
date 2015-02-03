@@ -61,7 +61,8 @@ static INLINE void P(t_cbtarget_target_B_2_tCBNZ)(tdis_ctx ctx, struct bitslice 
     P(branch)(ctx, ctx->pc + 4 + 2 * bs_get(target, ctx->op), CC_CBXZ);
     if (TDIS_CTX_MODIFY(ctx)) {
         /* change target, and flip z/nz if necessary (i.e. always) */
-        unsigned new = bs_set(target, TDIS_CTX_NEWVAL(ctx, 0), ctx->op);
+        int new_target = (TDIS_CTX_NEWVAL(ctx, 0) - (ctx->pc + 4)) / 2;
+        unsigned new = bs_set(target, new_target, ctx->op);
         if (TDIS_CTX_NEWVAL(ctx, 1))
             new ^= 1 << 11;
         TDIS_CTX_SET_NEWOP(ctx, new);

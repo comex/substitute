@@ -159,10 +159,10 @@ static NOINLINE UNUSED void transform_dis_branch(struct transform_dis_ctx *ctx,
     ctx->write_newop_here = NULL;
     if ((cc & CC_ARMCC) == CC_ARMCC) {
         actx.cond = invert_arm_cond(cc & 0xf);
-        Bccrel(actx, 8);
+        Bccrel(actx, 2+8);
     } else if ((cc & CC_CBXZ) == CC_CBXZ) {
         ctx->modify = true;
-        ctx->newval[0] = 2+8;
+        ctx->newval[0] = ctx->pc + 2+8;
         ctx->newval[1] = 1; /* do invert */
         void **codep = ctx->rewritten_ptr_ptr;
         ctx->write_newop_here = *codep; *codep += 2;
