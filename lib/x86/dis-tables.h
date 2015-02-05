@@ -34,18 +34,18 @@ z Word for 16-bit operand-size or doubleword for 32 or 64-bit operand-size.
 #define REP4(x) x, x, x, x
 #define REP8(x) REP4(x), REP4(x)
 #define REP16(x) REP8(x), REP8(x)
-#define I_8   0x01
-#define I_16  0x02
-#define I_24  0x04
-#define I_v   0x04
-#define I_z   0x05
-#define I_p   0x06
-#define I_MOD 0x08
-#define I_ADD 0x10
-#define I_MODA (I_MOD|I_ADD)
-#define I_PFX 0x20
-#define I_BAD 0x80
-#define I_SPECIAL 0 /* tested manually - just sticking it there for documentation */
+#define I_8    0x01
+#define I_16   0x02
+#define I_24   0x04
+#define I_v    0x04
+#define I_z    0x05
+#define I_p    0x06
+#define I_MOD  0x08
+#define I_ADDR 0x10
+#define I_MODA (I_MOD|I_ADDR)
+#define I_PFX  0x20
+#define I_BAD  0x80
+#define I_SPEC 0x00
 #ifdef TARGET_x86_64
 #define if64(_64, _32) _64
 #else
@@ -55,8 +55,7 @@ z Word for 16-bit operand-size or doubleword for 32 or 64-bit operand-size.
 #define o64(x) if64(x, I_BAD)
 
 static const uint8_t onebyte_bits[] = {
-/* todo add right side */
-/*0x*/ REP4(I_MODA), I_8, I_v, i64(0), i64(0), REP4(I_MODA), I_8, I_z, i64(0), I_SPECIAL,
+/*0x*/ REP4(I_MODA), I_8, I_v, i64(0), i64(0), REP4(I_MODA), I_8, I_z, i64(0), I_SPEC,
 /*1x*/ REP4(I_MODA), I_8, I_v, i64(0), i64(0), REP4(I_MODA), I_8, I_z, i64(0), i64(0),
 /*2x*/ REP4(I_MODA), I_8, I_v, I_PFX,  i64(0), REP4(I_MODA), I_8, I_z, I_PFX,  i64(0),
 /*3x*/ REP4(I_MODA), I_8, I_v, I_PFX,  i64(0), REP4(I_MODA), I_8, I_z, I_PFX,  i64(0),
@@ -66,14 +65,35 @@ static const uint8_t onebyte_bits[] = {
             I_z, I_MODA|I_z, I_8, I_MODA|I_8, REP4(0),
 /*7x*/ REP16(I_8),
 /*8x*/ I_MODA|I_8, I_MODA|I_v, i64(I_MODA|I_8), I_MODA|I_8, I_MODA|I_8, I_MODA|I_v, I_MODA|I_8, I_MODA|I_v,
-            REP4(I_MODA), I_MOD, I_MODA, I_MOD, I_8|I_SPECIAL,
+            REP4(I_MODA), I_MOD, I_MODA, I_MOD, I_MODA,
 /*9x*/ REP8(0), 0, 0, i64(0), 0, 0, 0, 0, 0,
-/*Ax*/ I_8, I_v, I_8, I_v, REP4(0), I_8, I_z,0, 0, 0, 0, 0, 0,
+/*Ax*/ I_8, I_v, I_8, I_v, REP4(0), I_8, I_z, 0, 0, 0, 0, 0, 0,
 /*Bx*/ REP8(I_8), REP8(I_v),
 /*Cx*/ I_MODA|I_8, I_MODA|I_8, I_16, 0, i64(I_MODA), i64(I_MODA), I_MODA|I_8, I_MODA|I_8,
             I_24, 0, I_16, 0, 0, I_8, i64(0), 0,
-/*Dx*/ REP4(I_MODA), i64(I_8), i64(I_8), I_BAD, 0, REP8(I_SPECIAL),
+/*Dx*/ REP4(I_MODA), i64(I_8), i64(I_8), I_BAD, 0, REP8(I_SPEC),
 /*Ex*/ REP8(I_8), I_z, I_z, I_p, I_8, 0, 0, 0, 0,
-/*Fx*/ I_PFX, I_BAD, I_PFX, I_PFX, 0, 0, I_MODA, I_MODA, 0, 0, 0, 0, 0, 0, I_8|I_SPECIAL, I_8|I_SPECIAL,
+/*Fx*/ I_PFX, I_BAD, I_PFX, I_PFX, 0, 0, I_MODA, I_MODA, 0, 0, 0, 0, 0, 0, I_MODA, I_MODA,
 };
 _Static_assert(sizeof(onebyte_bits) == 256, "onebyte_bits");
+
+static const uint8_t _0f_bits[] = {
+/*0x*/ I_MODA, I_MODA, 0, 0, I_BAD, o64(0), 0, o64(0), 0, 0, I_BAD, 0, 0, I_MODA, 0, 0,
+/*1x*/ REP8(I_MODA), I_MODA, I_BAD, I_BAD, I_BAD, I_BAD, I_BAD, I_BAD, I_MODA,
+/*2x*/ REP4(I_MOD), REP4(I_BAD), REP8(I_MODA),
+/*3x*/ 0, 0, 0, 0, 0, 0, I_BAD, 0, I_SPEC, I_BAD, I_SPEC, I_BAD, REP4(I_BAD),
+/*4x*/ REP16(I_MODA),
+/*5x*/ I_MOD, I_MODA, I_MODA, I_MODA, REP4(I_MODA), REP8(I_MODA),
+/*6x*/ REP16(I_MODA),
+/*7x*/ I_MODA, I_MOD|I_8, I_MOD|I_8, I_MOD|I_8, I_MODA, I_MODA, I_MODA, 0,
+            I_MODA, I_MODA, I_BAD, I_BAD, REP4(I_MODA),
+/*8x*/ REP16(I_z),
+/*9x*/ REP16(I_MODA),
+/*Ax*/ 0, 0, 0, 0, 0, 0, I_BAD, I_BAD, 0, 0, 0, I_MODA, I_MODA|I_8, I_MODA, I_MODA, I_MODA,
+/*Bx*/ REP8(I_MODA), I_MODA, 0, I_MODA|I_8, I_MODA, REP4(I_MODA),
+/*Cx*/ I_MODA, I_MODA, I_MODA|I_8, I_MODA, I_MODA|I_8, I_MOD|I_8, I_MODA|I_8, I_MODA|I_z, REP8(0),
+/*Dx*/ REP4(I_MODA), I_MODA, I_MODA, I_MODA, I_MOD, REP8(I_MODA),
+/*Ex*/ REP16(I_MODA),
+/*Fx*/ REP4(I_MODA), I_MODA, I_MODA, I_MODA, I_MOD, REP4(I_MODA), I_MODA, I_MODA, I_MODA, I_BAD,
+};
+_Static_assert(sizeof(_0f_bits) == 256, "_0f_bits");
