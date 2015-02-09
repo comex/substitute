@@ -81,23 +81,26 @@ static void jump_dis_add_to_queue(struct jump_dis_ctx *ctx, uintptr_t pc) {
     ctx->queue_count++;
 }
 
-static INLINE UNUSED void jump_dis_data(UNUSED struct jump_dis_ctx *ctx,
-        UNUSED unsigned o0, UNUSED unsigned o1, UNUSED unsigned o2,
-        UNUSED unsigned o3, UNUSED unsigned out_mask) {
+static INLINE UNUSED
+void jump_dis_data(UNUSED struct jump_dis_ctx *ctx,
+                   UNUSED unsigned o0, UNUSED unsigned o1, UNUSED unsigned o2,
+                   UNUSED unsigned o3, UNUSED unsigned out_mask) {
     /* on ARM, ignore mov PC jumps, as they're unlikely to be in the same function */
 }
 
-static INLINE UNUSED void jump_dis_pcrel(struct jump_dis_ctx *ctx, uintptr_t dpc,
-        UNUSED unsigned reg, UNUSED bool is_load) {
+static INLINE UNUSED
+void jump_dis_pcrel(struct jump_dis_ctx *ctx, uintptr_t dpc,
+                    UNUSED unsigned reg, UNUSED bool is_load) {
     ctx->bad_insn = dpc >= ctx->pc_patch_start && dpc < ctx->pc_patch_end;
 }
 
-static INLINE UNUSED void jump_dis_ret(struct jump_dis_ctx *ctx) {
+static INLINE UNUSED
+void jump_dis_ret(struct jump_dis_ctx *ctx) {
     ctx->continue_after_this_insn = false;
 }
 
-static NOINLINE UNUSED void jump_dis_branch(struct jump_dis_ctx *ctx, uintptr_t dpc,
-        bool conditional) {
+static NOINLINE UNUSED
+void jump_dis_branch(struct jump_dis_ctx *ctx, uintptr_t dpc, bool conditional) {
     if (dpc >= ctx->pc_patch_start && dpc < ctx->pc_patch_end) {
         ctx->bad_insn = true;
         return;
@@ -109,14 +112,17 @@ static NOINLINE UNUSED void jump_dis_branch(struct jump_dis_ctx *ctx, uintptr_t 
     ctx->continue_after_this_insn = conditional;
 }
 
-static INLINE UNUSED void jump_dis_unidentified(UNUSED struct jump_dis_ctx *ctx) {
+static INLINE UNUSED
+void jump_dis_unidentified(UNUSED struct jump_dis_ctx *ctx) {
 }
 
-static INLINE UNUSED void jump_dis_bad(struct jump_dis_ctx *ctx) {
+static INLINE UNUSED
+void jump_dis_bad(struct jump_dis_ctx *ctx) {
     ctx->continue_after_this_insn = false;
 }
 
-static INLINE UNUSED void jump_dis_thumb_it(UNUSED struct jump_dis_ctx *ctx) {
+static INLINE UNUSED
+void jump_dis_thumb_it(UNUSED struct jump_dis_ctx *ctx) {
 }
 
 static void jump_dis_dis(struct jump_dis_ctx *ctx);
