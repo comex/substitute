@@ -14,9 +14,7 @@ static INLINE void P(GPR_Rm_B_1_tBX)(tdis_ctx ctx, struct bitslice Rm) {
     unsigned val = bs_get(Rm, ctx->base.op);
     if (val == 15) /* bx pc */
         return P(bad)(ctx);
-    else if (val == 14) /* bx lr */
-        return P(ret)(ctx);
-    return P(unidentified)(ctx);
+    return P(ret)(ctx);
 }
 static INLINE void P(GPR_Rm_unk_Rd_1_tMOVr)(tdis_ctx ctx, struct bitslice Rd, struct bitslice Rm) {
     unsigned Rd_val = bs_get(Rd, ctx->base.op);

@@ -12,7 +12,7 @@ static INLINE void P(am_b_target_addr_B_1_B)(tdis_ctx ctx, struct bitslice addr)
 }
 static INLINE void P(am_bl_target_addr_1_BL)(tdis_ctx ctx, struct bitslice addr) {
     return P(branch)(ctx, ctx->base.pc + sext(bs_get(addr, ctx->base.op), 26) * 4,
-                     /*cc*/ 0);
+                     /*cc*/ CC_CALL);
 }
 static INLINE void P(ccode_cond_am_brcond_target_B_1_Bcc)(tdis_ctx ctx, struct bitslice cond, struct bitslice target) {
     int bits = bs_get(cond, ctx->base.op);
