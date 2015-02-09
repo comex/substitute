@@ -157,6 +157,9 @@ out/insns-libz-arm.o: test/insns-libz-arm.S Makefile
 out/insns-libz-thumb2.o: test/insns-libz-arm.S Makefile
 	clang -arch armv7 -c -o $@ $< -DTHUMB2
 
+out/transform-dis-cases-i386.o: test/transform-dis-cases-i386.S Makefile
+	clang -arch i386 -c -o $@ $<
+
 # iOS bootstrap...
 ifneq (,$(IS_IOS))
 SD_OBJS := out/safety-dance/main.o out/safety-dance/AutoGrid.o

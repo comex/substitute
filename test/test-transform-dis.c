@@ -2,22 +2,29 @@
 #define TRANSFORM_DIS_VERBOSE 1
 #include "transform-dis.c"
 #include <stdlib.h>
-int main(UNUSED int argc, char **argv) {
-    static uint8_t in[1048576];
-    UNUSED size_t size = fread(in, 1, sizeof(in), stdin);
-    int patch_size = atoi(argv[1]);
-    struct arch_dis_ctx arch;
-    arch_dis_ctx_init(&arch);
-#ifdef TARGET_arm
-    int thumb = atoi(argv[2]);
-    arch.pc_low_bit = thumb;
-#endif
-    uint8_t out[patch_size * 10];
-    /* patch_size bytes of patch
-     * max 2 bytes of tail
-     * max 12 more bytes of ITted insns
-     * 1 off-by-one written to simplify the code */
+#include <string.h>
+#include <assert.h>
+
+_Noreturn
+static void usage() {
+    printf("usage: test-transform-dis (manual patch_size | auto) <thumb if arm>\n");
+    exit(1);
+}
+
+static void do_manual(uint8_t *in, size_t in_size, int patch_size,
+                      struct arch_dis_ctx arch) {
+    (void) in_size;
+    /* on ARM:
+     *    patch_size bytes of patch
+     *    max 2 bytes of tail
+     *    max 12 more bytes of ITted insns
+     * on x86:
+     *    max 14 bytes of tail
+     * everywhere:
+     *    1 off-by-one written to simplify the code
+     */
     int offsets[patch_size + 15];
+    uint8_t out[patch_size * 10];
     void *rewritten_ptr = out;
     printf("\n#if 0\n");
     uint_tptr pc_patch_start = 0x10000;
@@ -56,4 +63,117 @@ int main(UNUSED int argc, char **argv) {
             }
         }
     }
+}
+
+static void hex_dump(const uint8_t *buf, size_t size) {
+    printf("  .byte ");
+    for (size_t i = 0; i < size; i++) {
+        if (i)
+            printf(", ");
+        printf("0x%02x", buf[i]);
+    }
+    printf("\n");
+}
+
+static void print_given(const uint8_t *given, size_t given_size) {
+    printf("given:\n");
+    hex_dump(given, given_size);
+}
+
+static void do_auto(uint8_t *in, size_t in_size, struct arch_dis_ctx arch) {
+    uint8_t *end = in + in_size;
+    assert(!memcmp(in, "GIVEN", 5)); in += 5;
+    while (in < end) {
+        uint8_t *given = in;
+        uint8_t *expect = memmem(in, end - in, "EXPECT", 6);
+        assert(expect);
+        size_t given_size = expect - given;
+        expect += 6;
+        in = expect;
+        bool expect_err = false;
+        size_t expect_size;
+        if (!memcmp(expect, "_ERR", 4)) {
+            expect_err = true;
+            in += 4;
+        } else {
+            uint8_t *next = memmem(in, end - in, "GIVEN", 5);
+            if (!next)
+                next = end;
+            expect_size = next - expect;
+            in = next;
+        }
+        size_t patch_size = given_size;
+        int offsets[patch_size + 15];
+        uint8_t out[patch_size * 10];
+        void *rewritten_ptr = out;
+        uint_tptr pc_patch_start = 0xdead0000;
+        uint_tptr pc_patch_end = pc_patch_start + patch_size;
+        int ret = transform_dis_main(
+            given,
+            &rewritten_ptr,
+            pc_patch_start,
+            &pc_patch_end,
+            &arch,
+            offsets);
+        if (ret) {
+            if (!expect_err) {
+                print_given(given, given_size);
+                printf("got ret %d, expected success\n\n", ret);
+            }
+        } else {
+            if (expect_err) {
+                print_given(given, given_size);
+                printf("got OK, expected error\n\n");
+            } else if (rewritten_ptr != out + expect_size ||
+                       memcmp(out, expect, expect_size)) {
+                print_given(given, given_size);
+                printf("got:\n");
+                hex_dump(out, (uint8_t *) rewritten_ptr - out);
+                printf("but expected:\n");
+                hex_dump(expect, expect_size);
+                printf("\n");
+            }
+        }
+
+    }
+
+}
+
+int main(UNUSED int argc, char **argv) {
+    argv++;
+    if (!*argv)
+        usage();
+    enum { MANUAL, AUTO } mode;
+    if (!strcmp(*argv, "manual"))
+        mode = MANUAL;
+    else if (!strcmp(*argv, "auto"))
+        mode = AUTO;
+    else
+        usage();
+    argv++;
+
+    int patch_size;
+    if (mode == MANUAL) {
+        if (!*argv)
+            usage();
+        patch_size = atoi(*argv++);
+    }
+
+    struct arch_dis_ctx arch;
+    arch_dis_ctx_init(&arch);
+#ifdef TARGET_arm
+    if (!*argv)
+        usage();
+    int thumb = atoi(*argv++);
+    arch.pc_low_bit = thumb;
+#endif
+
+
+    static uint8_t in[1048576];
+    size_t in_size = fread(in, 1, sizeof(in), stdin);
+
+    if (mode == MANUAL)
+        do_manual(in, in_size, patch_size, arch);
+    else
+        do_auto(in, in_size, arch);
 }
