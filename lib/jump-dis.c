@@ -1,5 +1,6 @@
 #include "substitute-internal.h"
 #ifdef TARGET_DIS_SUPPORTED
+#define DIS_MAY_MODIFY 0
 #include "dis.h"
 #include <stdint.h>
 #include <stdbool.h>
@@ -22,15 +23,14 @@ struct jump_dis_ctx {
     bool bad_insn;
     bool continue_after_this_insn;
 
-    uintptr_t pc;
-    uintptr_t pc_patch_start;
-    uintptr_t pc_patch_end;
-    unsigned op;
-    const void *ptr;
-    int op_size;
+    struct dis_ctx_base base;
+
+    uint_tptr pc_patch_start;
+    uint_tptr pc_patch_end;
+
     uint8_t seen_mask[JUMP_ANALYSIS_MAX_INSNS / 8];
     /* queue of instructions to visit */
-    uintptr_t *queue;
+    uint_tptr *queue;
     size_t queue_write_off;
     size_t queue_read_off;
     size_t queue_size;
@@ -43,12 +43,8 @@ struct jump_dis_ctx {
 #define P(x) jump_dis_##x
 
 #define tdis_ctx struct jump_dis_ctx *
-#define TDIS_CTX_MODIFY(ctx) 0
-#define TDIS_CTX_NEWVAL(ctx, n) 0
-#define TDIS_CTX_NEWOP(ctx) 0
-#define TDIS_CTX_SET_NEWOP(ctx, new) ((void) 0)
 
-static void jump_dis_add_to_queue(struct jump_dis_ctx *ctx, uintptr_t pc) {
+static void jump_dis_add_to_queue(struct jump_dis_ctx *ctx, uint_tptr pc) {
     size_t diff = (pc - ctx->pc_patch_start) / MIN_INSN_SIZE;
     if (diff >= JUMP_ANALYSIS_MAX_INSNS) {
 #ifdef JUMP_DIS_VERBOSE
@@ -89,8 +85,8 @@ void jump_dis_data(UNUSED struct jump_dis_ctx *ctx,
 }
 
 static INLINE UNUSED
-void jump_dis_pcrel(struct jump_dis_ctx *ctx, uintptr_t dpc,
-                    UNUSED unsigned reg, UNUSED bool is_load) {
+void jump_dis_pcrel(struct jump_dis_ctx *ctx, uint_tptr dpc,
+                    UNUSED struct arch_pcrel_info info) {
     ctx->bad_insn = dpc >= ctx->pc_patch_start && dpc < ctx->pc_patch_end;
 }
 
@@ -100,7 +96,7 @@ void jump_dis_ret(struct jump_dis_ctx *ctx) {
 }
 
 static NOINLINE UNUSED
-void jump_dis_branch(struct jump_dis_ctx *ctx, uintptr_t dpc, bool conditional) {
+void jump_dis_branch(struct jump_dis_ctx *ctx, uint_tptr dpc, int cc) {
     if (dpc >= ctx->pc_patch_start && dpc < ctx->pc_patch_end) {
         ctx->bad_insn = true;
         return;
@@ -109,7 +105,7 @@ void jump_dis_branch(struct jump_dis_ctx *ctx, uintptr_t dpc, bool conditional) 
     printf("jump-dis: enqueueing %llx\n", (unsigned long long) dpc);
 #endif
     jump_dis_add_to_queue(ctx, dpc);
-    ctx->continue_after_this_insn = conditional;
+    ctx->continue_after_this_insn = cc & (CC_CONDITIONAL | CC_CALL);
 }
 
 static INLINE UNUSED
@@ -127,25 +123,25 @@ void jump_dis_thumb_it(UNUSED struct jump_dis_ctx *ctx) {
 
 static void jump_dis_dis(struct jump_dis_ctx *ctx);
 
-bool jump_dis_main(void *code_ptr, uintptr_t pc_patch_start, uintptr_t pc_patch_end,
+bool jump_dis_main(void *code_ptr, uint_tptr pc_patch_start, uint_tptr pc_patch_end,
                    struct arch_dis_ctx initial_dis_ctx) {
     bool ret;
     struct jump_dis_ctx ctx;
     memset(&ctx, 0, sizeof(ctx));
     ctx.pc_patch_start = pc_patch_start;
     ctx.pc_patch_end = pc_patch_end;
-    ctx.pc = pc_patch_end;
+    ctx.base.pc = pc_patch_end;
     ctx.arch = initial_dis_ctx;
     while (1) {
         ctx.bad_insn = false;
         ctx.continue_after_this_insn = true;
-        ctx.ptr = code_ptr + (ctx.pc - pc_patch_start);
+        ctx.base.ptr = code_ptr + (ctx.base.pc - pc_patch_start);
         jump_dis_dis(&ctx);
 #ifdef JUMP_DIS_VERBOSE
         printf("jump-dis: pc=%llx op=%08x size=%x bad=%d continue_after=%d\n",
-            (unsigned long long) ctx.pc,
-            ctx.op,
-            ctx.op_size,
+            (unsigned long long) ctx.base.pc,
+            ctx.base.op,
+            ctx.base.op_size,
             ctx.bad_insn,
             ctx.continue_after_this_insn);
 #endif
@@ -154,12 +150,12 @@ bool jump_dis_main(void *code_ptr, uintptr_t pc_patch_start, uintptr_t pc_patch_
             goto fail;
         }
         if (ctx.continue_after_this_insn)
-            jump_dis_add_to_queue(&ctx, ctx.pc + ctx.op_size);
+            jump_dis_add_to_queue(&ctx, ctx.base.pc + ctx.base.op_size);
 
         /* get next address */
         if (ctx.queue_read_off == ctx.queue_write_off)
             break;
-        ctx.pc = ctx.queue[ctx.queue_read_off];
+        ctx.base.pc = ctx.queue[ctx.queue_read_off];
         ctx.queue_read_off = (ctx.queue_read_off + 1) % ctx.queue_size;
         ctx.queue_count--;
     }
@@ -170,5 +166,5 @@ fail:
     return ret;
 }
 
-#include TARGET_DIS_HEADER
+#include stringify(TARGET_DIR/dis-main.inc.h)
 #endif /* TARGET_DIS_SUPPORTED */

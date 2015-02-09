@@ -5,7 +5,7 @@
 #include "transform-dis.h"
 #include "execmem.h"
 #include "stop-other-threads.h"
-#include TARGET_JUMP_PATCH_HDR
+#include stringify(TARGET_DIR/jump-patch.h)
 
 struct hook_internal {
     int offset_by_pcdiff[MAX_JUMP_PATCH_SIZE + 1];
@@ -168,7 +168,7 @@ int substitute_hook_functions(const struct substitute_function_hook *hooks,
                                           &hi->trampoline_page, arch)))
             goto end;
 
-        uintptr_t pc_patch_end = pc_patch_start + patch_size;
+        uint_tptr pc_patch_end = pc_patch_start + patch_size;
         /* Generate the rewritten start of the function for the outro
          * trampoline (complaining if any bad instructions are found)
          * (on arm64, this modifies regs_possibly_written, which is used by the

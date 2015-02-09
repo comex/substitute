@@ -41,7 +41,8 @@ VEX last byte 1:0: {none, 66, f3, f2}
 #define I_JMP  0x40 /* execution does not continue after this */
 #define I_SPEC 0x60 /* special case */
 #define I_TYPE_MASK 0x60
-#define I_JIMM (0x80|I_JMP) /* imm is jump offset */
+#define I_JIMM_ONLY 0x80 /* imm is jump offset */
+#define I_JIMM (0x80|I_JMP)
 #define I_BAD  0x80
 #ifdef TARGET_x86_64
 #define if64(_64, _32) _64
@@ -72,7 +73,7 @@ static const uint8_t onebyte_bits[] = {
 /*D0*/ REP4(I_MODA), i64(I_8), i64(I_8), I_BAD, 0, REP8(I_SPEC),
             /* don't treat ljmp as a jump for now */
 /*E0*/ REP4(I_8|I_JIMM), REP4(I_8),
-     /*E8*/ (I_z|I_JIMM)&~I_JMP, I_z|I_JIMM, i64(I_p), I_8|I_JIMM, 0, 0, 0, 0,
+     /*E8*/ I_z|I_JIMM_ONLY, I_z|I_JIMM, i64(I_p), I_8|I_JIMM, 0, 0, 0, 0,
 /*F0*/ I_PFX, I_BAD, I_PFX, I_PFX, 0, 0, I_MODA, I_MODA,
      /*F8*/ 0, 0, 0, 0, 0, 0, I_MODA, I_SPEC,
 };
@@ -111,8 +112,8 @@ static const uint8_t _0f_bits[] = {
 _Static_assert(sizeof(_0f_bits) == 256, "_0f_bits");
 
 static void P(dis)(tdis_ctx ctx) {
-    const uint8_t *orig = ctx->ptr;
-    const uint8_t *ptr = ctx->ptr;
+    const uint8_t *orig = ctx->base.ptr;
+    const uint8_t *ptr = ctx->base.ptr;
 
     int opnd_size = 4;
     int mod, rm = 0;
@@ -212,9 +213,10 @@ got_bits: UNUSED
         }
     }
     UNUSED int modrm_off = ptr - orig;
+    UNUSED uint8_t modrm;
     if (bits & I_MOD) {
     modrm: UNUSED;
-        uint8_t modrm = *ptr++;
+        modrm = *ptr++;
         mod = modrm >> 6;
         rm |= modrm & 7;
         if (rm == 4) {
@@ -249,11 +251,11 @@ got_bits: UNUSED
         __builtin_abort();
     ptr += imm_size;
 
-    ctx->ptr = ptr;
-    ctx->op_size = ptr - orig;
+    ctx->base.ptr = ptr;
+    ctx->base.newop_size = ctx->base.op_size = ptr - orig;
     /* printf("bits=%x\n", bits); */
 
-    if ((bits & I_JIMM) == I_JIMM) {
+    if (bits & I_JIMM_ONLY) {
         int32_t imm;
         const void *imm_ptr = orig + imm_off;
         switch (imm_size) {
@@ -265,13 +267,13 @@ got_bits: UNUSED
 
         bool cond = (byte1 & 0xf0) != 0xe0;
         bool call = !(bits & I_JMP);
-        P(branch)(ctx, ctx->pc + ctx->op_size + imm,
+        P(branch)(ctx, ctx->base.pc + ctx->base.op_size + imm,
                   cond * CC_CONDITIONAL | call * CC_CALL);
-        if (TDIS_CTX_MODIFY(ctx)) {
+        if (DIS_MAY_MODIFY && ctx->base.modify) {
             /* newval[0] should be the new immediate */
-            int32_t new_imm = TDIS_CTX_NEWVAL(ctx, 0);
-            uint8_t *new_op = TDIS_CTX_NEWOP(ctx);
-            memcpy(new_op, orig, ctx->op_size);
+            int32_t new_imm = ctx->base.newval[0];
+            uint8_t *new_op = ctx->base.newop;
+            memcpy(new_op, orig, ctx->base.op_size);
             uint8_t *new_imm_ptr = new_op + imm_off;
             switch (imm_size) {
                 case 1: *(int8_t *)  new_imm_ptr = new_imm; break;
@@ -284,17 +286,22 @@ got_bits: UNUSED
         int32_t disp = *(int32_t *) (orig + modrm_off + 1);
         /* unlike ARM, we can always switch to non-pcrel without making the
          * instruction from scratch, so we don't have 'reg' and 'lm' */
-        P(pcrel)(ctx, ctx->pc + ctx->op_size + disp);
-        if (TDIS_CTX_MODIFY(ctx)) {
-            uint8_t *new_op = TDIS_CTX_NEWOP(ctx);
-            memcpy(new_op, orig, ctx->op_size);
+        struct arch_pcrel_info info = {modrm >> 3 & 7};
+        P(pcrel)(ctx, ctx->base.pc + ctx->base.op_size + disp, info);
+        if (DIS_MAY_MODIFY && ctx->base.modify) {
+            uint8_t *new_op = ctx->base.newop;
+            memcpy(new_op, orig, ctx->base.op_size);
             /* newval[0] should be the new register, which should be one that
              * fits in r/m directly since that's all I need;
-             * newval[1] should be the new displacement */
+             * displacement is removed */
             uint8_t *new_modrm_ptr = new_op + modrm_off;
 
-            *new_modrm_ptr = (*new_modrm_ptr & ~0xc7) | 4 << 6 | TDIS_CTX_NEWVAL(ctx, 0);
-            *(uint32_t *) (new_modrm_ptr + 1) = TDIS_CTX_NEWVAL(ctx, 1);
+            *new_modrm_ptr = (*new_modrm_ptr & ~0xc7) |
+                             0 << 6 |
+                             ctx->base.newval[0];
+            memmove(new_modrm_ptr + 1, new_modrm_ptr + 5,
+                    ctx->base.op_size - modrm_off - 1);
+            ctx->base.newop_size -= 4;
         }
 #endif
     } else if ((bits & I_TYPE_MASK) == I_JMP) {

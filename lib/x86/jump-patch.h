@@ -1,5 +1,6 @@
 #pragma once
 #define MAX_JUMP_PATCH_SIZE 5
+#include "dis.h"
 
 static inline int jump_patch_size(uintptr_t pc, uintptr_t dpc,
                                   UNUSED struct arch_dis_ctx arch,
@@ -12,21 +13,19 @@ static inline int jump_patch_size(uintptr_t pc, uintptr_t dpc,
         return force ? (2+4+8) : -1;
 }
 
-static inline void make_jump_patch(void **codep, UNUSED uintptr_t pc,
-                                   uintptr_t dpc,
+static inline void make_jump_patch(void **codep, uintptr_t pc, uintptr_t dpc,
                                    UNUSED struct arch_dis_ctx arch) {
     uintptr_t diff = pc - (dpc + 5);
-    uint8_t *code = *codep;
+    void *code = *codep;
     if (diff == (uintptr_t) (int32_t) diff) {
-        *(uint8_t *) code = 0xe9;
-        *(uint32_t *) (code + 1) = diff;
-        *codep = code + 5;
+        op8(&code, 0xe9);
+        op32(&code, diff);
     } else {
         /* jmpq *(%rip) */
-        *code++ = 0xff;
-        *code++ = 0x25;
-        *(uint32_t *) code = 0; code += 4;
-        *(uint64_t *) code = dpc; code += 8;
-        *codep = code;
+        op8(&code, 0xff);
+        op8(&code, 0x25);
+        op32(&code, 0);
+        op64(&code, dpc);
     }
+    *codep = code;
 }

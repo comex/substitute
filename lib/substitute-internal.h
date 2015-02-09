@@ -49,12 +49,22 @@ typedef struct section section_x;
 #endif
 
 #if defined(TARGET_arm)
-    #include "arm/misc.h"
+    #define TARGET_DIR arm
 #elif defined(TARGET_arm64)
-    #include "arm64/misc.h"
+    #define TARGET_DIR arm64
 #elif defined(TARGET_x86_64) || defined(TARGET_i386)
-    #include "x86/misc.h"
+    #define TARGET_DIR x86
 #endif
+#define stringify_(x) #x
+#define stringify(x) stringify_(x)
+#include stringify(TARGET_DIR/misc.h)
+
+#if TARGET_POINTER_SIZE == 8
+    typedef uint64_t uint_tptr;
+#elif TARGET_POINTER_SIZE == 4
+    typedef uint32_t uint_tptr;
+#endif
+
 
 #ifdef __APPLE__
 /* This could graduate to a public API but is not yet.  Needs more

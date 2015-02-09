@@ -111,6 +111,11 @@ static const unsigned null_op = -0x100;
     #error "no disassembler for the target architecture yet"
 #endif
 
+static inline void op64(void **codep, uint64_t op) {
+    *(uint64_t *) *codep = op;
+    *codep += 8;
+}
+
 static inline void op32(void **codep, uint32_t op) {
     *(uint32_t *) *codep = op;
     *codep += 4;
@@ -121,5 +126,26 @@ static inline void op16(void **codep, uint16_t op) {
     *codep += 2;
 }
 
+static inline void op8(void **codep, uint8_t op) {
+    *(uint8_t *) *codep = op;
+    (*codep)++;
+}
+
 #define CC_CONDITIONAL 0x100
 #define CC_CALL        0x200
+
+struct dis_ctx_base {
+    uint_tptr pc;
+    const void *ptr;
+#if defined(TARGET_x86_64) || defined(TARGET_i386)
+    uint8_t newop[32];
+#else
+    uint8_t newop[4];
+    uint32_t op;
+#endif
+    uint32_t newval[4];
+    bool modify;
+    int op_size, newop_size;
+};
+
+#include stringify(TARGET_DIR/arch-dis.h)

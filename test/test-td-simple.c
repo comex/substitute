@@ -5,29 +5,16 @@
 #include "dis.h"
 
 typedef struct tc {
-    uint32_t pc;
-    const void *ptr;
-#if defined(TARGET_x86_64) || defined(TARGET_i386)
-    uint8_t newop[16];
-#else
-    uint32_t op;
-    uint32_t newop;
-#endif
-    uint32_t newval[4];
-    bool modify;
-    int op_size;
+    struct dis_ctx_base base;
     struct arch_dis_ctx arch;
 } *tdis_ctx;
 #define P(x) P_##x
-#define TDIS_CTX_MODIFY(ctx) ((ctx)->modify)
-#define TDIS_CTX_NEWVAL(ctx, n) ((ctx)->newval[n])
-#define TDIS_CTX_NEWOP(ctx) ((ctx)->newop)
-#define TDIS_CTX_SET_NEWOP(ctx, new) ((ctx)->newop = (new))
-
+#define DIS_MAY_MODIFY 0
 
 #if defined(TARGET_x86_64) || defined(TARGET_i386)
 NOINLINE UNUSED
-static void P_pcrel(UNUSED struct tc *ctx, uint32_t dpc) {
+static void P_pcrel(UNUSED struct tc *ctx, uint32_t dpc,
+                    UNUSED struct arch_pcrel_info info) {
     printf("adr => %08x\n", dpc);
 }
 #else
@@ -47,8 +34,8 @@ static void P_data(UNUSED struct tc *ctx, unsigned o0, unsigned o1, unsigned o2,
 }
 NOINLINE UNUSED
 static void P_pcrel(UNUSED struct tc *ctx, uint32_t dpc,
-                    unsigned reg, enum pcrel_load_mode lm) {
-    printf("adr => %08x r%u lm:%d\n", dpc, reg, lm);
+                    struct arch_pcrel_info info) {
+    printf("adr => %08x r%u lm:%d\n", dpc, info.reg, info.lm);
 }
 NOINLINE UNUSED
 static void P_thumb_it(UNUSED struct tc *ctx) {
@@ -85,7 +72,7 @@ static void P_bad(UNUSED struct tc *ctx) {
 
 int main(UNUSED int argc, char **argv) {
     struct tc ctx;
-    ctx.pc = 0xdead0000;
+    ctx.base.pc = 0xdead0000;
     const char *op_str = argv[1];
 #if defined(TARGET_x86_64) || defined(TARGET_i386)
     uint8_t op[20] = {0};
@@ -106,18 +93,18 @@ int main(UNUSED int argc, char **argv) {
         }
         op[i/2] = byte;
     }
-    ctx.ptr = op;
-    ctx.modify = false;
+    ctx.base.ptr = op;
+    ctx.base.modify = false;
     P_(xdis)(&ctx);
-    printf("(size=%d/%zd)\n", ctx.op_size, len / 2);
+    printf("(size=%d/%zd)\n", ctx.base.op_size, len / 2);
 #else
     uint32_t op = strtoll(op_str ? op_str : "deadbeef", NULL, 16);
-    ctx.ptr = &op;
-    ctx.newop = 0;
-    ctx.modify = false;
+    ctx.base.ptr = &op;
+    ctx.base.newop = 0;
+    ctx.base.modify = false;
     printf("%08x: ", op);
     P_(xdis)(&ctx);
-    printf("==> %x (size=%d)\n", ctx.newop, ctx.op_size);
+    printf("==> %x (size=%d)\n", ctx.base.newop, ctx.base.op_size);
 #endif
 
 }

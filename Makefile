@@ -105,8 +105,8 @@ out/%.bin: out/%.o Makefile
 	segedit -extract __TEXT __text $@ $<
 
 define define_test
-out/test-$(1): test/test-$(2).[cm]* $(HEADERS) $(GENERATED) Makefile # out/libsubstitute.dylib
-	$(3) -o $$@ $$< -Ilib -Isubstrate -Lout -dead_strip #-lsubstitute
+out/test-$(1): test/test-$(2).[cm]* $(HEADERS) $(GENERATED) Makefile out/libsubstitute.dylib
+	$(3) -o $$@ $$< -Ilib -Isubstrate -Lout -dead_strip -lsubstitute
 	install_name_tool -change /usr/lib/libsubstitute.0.dylib '@executable_path/libsubstitute.dylib' $$@
 ifneq (,$(IS_IOS))
 	ldid -Sent.plist $$@
@@ -116,9 +116,9 @@ endef
 $(eval $(call define_test,td-simple-arm,td-simple,$(CC) -std=c11 -DHDR='"arm/dis-arm.inc.h"' -Dxdis=dis_arm -DFORCE_TARGET_arm))
 $(eval $(call define_test,td-simple-thumb,td-simple,$(CC) -std=c11 -DHDR='"arm/dis-thumb.inc.h"' -Dxdis=dis_thumb -DFORCE_TARGET_arm))
 $(eval $(call define_test,td-simple-thumb2,td-simple,$(CC) -std=c11 -DHDR='"arm/dis-thumb2.inc.h"' -Dxdis=dis_thumb2 -DFORCE_TARGET_arm))
-$(eval $(call define_test,td-simple-arm64,td-simple,$(CC) -std=c11 -DHDR='"arm64/dis-arm64.inc.h"' -Dxdis=dis -DFORCE_TARGET_arm64))
-$(eval $(call define_test,td-simple-i386,td-simple,$(CC) -std=c11 -DHDR='"x86/dis-x86.inc.h"' -Dxdis=dis -DFORCE_TARGET_i386))
-$(eval $(call define_test,td-simple-x86-64,td-simple,$(CC) -std=c11 -DHDR='"x86/dis-x86.inc.h"' -Dxdis=dis -DFORCE_TARGET_x86_64))
+$(eval $(call define_test,td-simple-arm64,td-simple,$(CC) -std=c11 -DHDR='"arm64/dis-main.inc.h"' -Dxdis=dis -DFORCE_TARGET_arm64))
+$(eval $(call define_test,td-simple-i386,td-simple,$(CC) -std=c11 -DHDR='"x86/dis-main.inc.h"' -Dxdis=dis -DFORCE_TARGET_i386))
+$(eval $(call define_test,td-simple-x86-64,td-simple,$(CC) -std=c11 -DHDR='"x86/dis-main.inc.h"' -Dxdis=dis -DFORCE_TARGET_x86_64))
 $(eval $(call define_test,dis-arm,dis,$(CC) -std=c11 -DFORCE_TARGET_arm))
 $(eval $(call define_test,dis-arm64,dis,$(CC) -std=c11 -DFORCE_TARGET_arm64))
 $(eval $(call define_test,jump-dis-arm,jump-dis,$(CC) -std=c11 -DFORCE_TARGET_arm -O0))
