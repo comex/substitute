@@ -86,23 +86,24 @@ static const unsigned null_op = -0x100;
 #define data_flags(...) data_(__VA_ARGS__, rnull, rnull, rnull, rnull)
 #define data_(...) data__(__VA_ARGS__)
 #define data__(fl, b1, o1, v1, b2, o2, v2, b3, o3, v3, b4, o4, v4, ...) do { \
+    unsigned op = ctx->base.op; \
     P(data)(ctx, \
-        v1 ? bs_get(b1, ctx->op) : null_op, \
-        v2 ? bs_get(b2, ctx->op) : null_op, \
-        v3 ? bs_get(b3, ctx->op) : null_op, \
-        v4 ? bs_get(b4, ctx->op) : null_op, \
+        v1 ? bs_get(b1, op) : null_op, \
+        v2 ? bs_get(b2, op) : null_op, \
+        v3 ? bs_get(b3, op) : null_op, \
+        v4 ? bs_get(b4, op) : null_op, \
         (o1 << 0) | \
         (o2 << 1) | \
         (o3 << 2) | \
         (o4 << 3) | \
         fl); \
-    if (TDIS_CTX_MODIFY(ctx)) { \
-        unsigned new = ctx->op; \
-        new = bs_set(b1, TDIS_CTX_NEWVAL(ctx, 0), new); \
-        new = bs_set(b2, TDIS_CTX_NEWVAL(ctx, 1), new); \
-        new = bs_set(b3, TDIS_CTX_NEWVAL(ctx, 2), new); \
-        new = bs_set(b4, TDIS_CTX_NEWVAL(ctx, 3), new); \
-        TDIS_CTX_SET_NEWOP(ctx, new); \
+    if (DIS_MAY_MODIFY && ctx->base.modify) { \
+        uint32_t new = ctx->base.op; \
+        new = bs_set(b1, ctx->base.newval[0], new); \
+        new = bs_set(b2, ctx->base.newval[1], new); \
+        new = bs_set(b3, ctx->base.newval[2], new); \
+        new = bs_set(b4, ctx->base.newval[3], new); \
+        *(uint32_t *) ctx->base.newop = new; \
     } \
     return; \
 } while (0)

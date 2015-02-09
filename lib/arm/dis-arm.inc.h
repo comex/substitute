@@ -71,7 +71,7 @@ static INLINE void P(GPR_Rt_addr_offset_none_addr_postidx_imm8_offset_S_1_STRHTi
     data(r(addr), r(Rt));
 }
 static INLINE void P(GPR_Rt_addrmode3_addr_S_2_STRD)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
-    unsigned addr_val = bs_get(addr, ctx->op);
+    unsigned addr_val = bs_get(addr, ctx->base.op);
     if (addr_val & 1 << 13)
         data_flags(DFLAG_IS_LDRD_STRD, r(Rt), rs(addr, 9, 4));
     else
@@ -131,7 +131,7 @@ static INLINE void P(addr_offset_none_addr_unk_Rt_13_LDA)(tdis_ctx ctx, struct b
 }
 static INLINE void P(addrmode3_addr_unk_Rt_4_LDRD)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
     /* ignoring Rt2 = Rt + 1, but LDRD itself isn't supposed to load PC anyway */
-    unsigned addr_val = bs_get(addr, ctx->op);
+    unsigned addr_val = bs_get(addr, ctx->base.op);
     if (addr_val & 1 << 13)
         data_flags(DFLAG_IS_LDRD_STRD, rout(Rt), rs(addr, 9, 4));
     else
@@ -159,11 +159,12 @@ static INLINE void P(addrmode_imm12_pre_addr_unk_Rt_2_LDRB_PRE_IMM)(tdis_ctx ctx
     data(rout(Rt), rs(addr, 13, 4));
 }
 static INLINE void P(adrlabel_label_unk_Rd_1_ADR)(tdis_ctx ctx, struct bitslice label, struct bitslice Rd) {
-    return P(pcrel)(ctx, ctx->pc + 8 + bs_get(label, ctx->op), bs_get(Rd, ctx->op), PLM_ADR);
+    return P(pcrel)(ctx, ctx->base.pc + 8 + bs_get(label, ctx->base.op),
+                    (struct arch_pcrel_info) {bs_get(Rd, ctx->base.op), PLM_ADR});
 }
 static INLINE void P(br_target_target_pred_p_B_1_Bcc)(tdis_ctx ctx, struct bitslice target, struct bitslice p) {
-    unsigned p_val = bs_get(p, ctx->op);
-    return P(branch)(ctx, ctx->pc + 8 + sext(bs_get(target, ctx->op), 24),
+    unsigned p_val = bs_get(p, ctx->base.op);
+    return P(branch)(ctx, ctx->base.pc + 8 + sext(bs_get(target, ctx->base.op), 24),
                      p_val == 0xe ? 0 : (CC_ARMCC | p_val));
 }
 static INLINE void P(ldst_so_reg_addr_unk_Rt_2_LDRB_PRE_REG)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
@@ -182,13 +183,13 @@ static INLINE void P(unk_Rt_13_MRC)(tdis_ctx ctx, struct bitslice Rt) {
     data(rout(Rt));
 }
 static INLINE void P(GPR_Rn_reglist_regs_16_LDMDA)(tdis_ctx ctx, struct bitslice regs, UNUSED struct bitslice Rn) {
-    unsigned regs_val = bs_get(regs, ctx->op);
+    unsigned regs_val = bs_get(regs, ctx->base.op);
     if (regs_val & (1 << 15))
         return P(ret)(ctx);
     return P(unidentified)(ctx);
 }
 static INLINE void P(GPR_Rn_reglist_regs_S_16_STMDA)(tdis_ctx ctx, UNUSED struct bitslice regs, UNUSED struct bitslice Rn) {
-    unsigned regs_val = bs_get(regs, ctx->op);
+    unsigned regs_val = bs_get(regs, ctx->base.op);
     if (regs_val & (1 << 15))
         return P(bad)(ctx);
     return P(unidentified)(ctx);
@@ -207,8 +208,8 @@ static INLINE void P(GPR_dst_B_2_BX)(tdis_ctx ctx, UNUSED struct bitslice dst) {
 }
 
 static INLINE void P(dis_arm)(tdis_ctx ctx) {
-    uint32_t op = ctx->op = *(uint32_t *) ctx->ptr;
-    ctx->op_size = 4;
+    uint32_t op = ctx->base.op = *(uint32_t *) ctx->base.ptr;
+    ctx->base.op_size = ctx->base.newop_size = 4;
     #include "../generated/generic-dis-arm.inc.h"
     __builtin_abort();
 }

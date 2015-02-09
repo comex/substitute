@@ -19,7 +19,7 @@ static INLINE void P(GPR_Rm_unk_Rd_1_t2MOVr)(tdis_ctx ctx, struct bitslice Rm, s
     data(rout(Rd), r(Rm));
 }
 static INLINE void P(GPR_Rn_reglist_regs_4_t2LDMDB)(tdis_ctx ctx, struct bitslice regs, UNUSED struct bitslice Rn) {
-    unsigned regs_val = bs_get(regs, ctx->op);
+    unsigned regs_val = bs_get(regs, ctx->base.op);
     if(regs_val & (1 << 15))
         return P(ret)(ctx);
     return P(unidentified)(ctx);
@@ -88,8 +88,8 @@ static INLINE void P(addrmode5_pre_addr_S_4_t2STC2L_PRE)(tdis_ctx ctx, struct bi
     data(rs(addr, 9, 4));
 }
 static INLINE void P(brtarget_target_pred_p_B_1_t2Bcc)(tdis_ctx ctx, struct bitslice target, struct bitslice p) {
-    return P(branch)(ctx, ctx->pc + 4 + 2 * sext(bs_get(target, ctx->op), 20), 
-                     CC_ARMCC | bs_get(p, ctx->op));
+    return P(branch)(ctx, ctx->base.pc + 4 + 2 * sext(bs_get(target, ctx->base.op), 20), 
+                     CC_ARMCC | bs_get(p, ctx->base.op));
 }
 static INLINE void P(rGPR_Rt_t2addrmode_imm0_1020s4_addr_unk_Rd_S_1_t2STREX)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt, struct bitslice Rd) {
     data(rout(Rd), r(Rt), rs(addr, 8, 4));
@@ -146,14 +146,19 @@ static INLINE void P(t2addrmode_so_reg_addr_unk_Rt_5_t2LDRBs)(tdis_ctx ctx, stru
     data(rout(Rt), rs(addr, 6, 4), rs(addr, 2, 4));
 }
 static INLINE void P(t2adrlabel_addr_unk_Rd_1_t2ADR)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rd) {
-    return P(pcrel)(ctx, ((ctx->pc + 4) & ~2) + (bs_get(addr, ctx->op) & ((1 << 12) - 1)), bs_get(Rd, ctx->op), PLM_ADR);
+    return P(pcrel)(ctx, ((ctx->base.pc + 4) & ~2) +
+                         (bs_get(addr, ctx->base.op) & ((1 << 12) - 1)),
+                    (struct arch_pcrel_info) {bs_get(Rd, ctx->base.op), PLM_ADR});
 }
 static INLINE void P(t2ldrlabel_addr_unk_Rt_5_t2LDRBpci)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
-    return P(pcrel)(ctx, ((ctx->pc + 4) & ~2) + (bs_get(addr, ctx->op) & ((1 << 12) - 1)), bs_get(Rt, ctx->op), get_thumb2_load_mode(ctx->op));
+    return P(pcrel)(ctx, ((ctx->base.pc + 4) & ~2) +
+                         (bs_get(addr, ctx->base.op) & ((1 << 12) - 1)),
+                    (struct arch_pcrel_info) {bs_get(Rt, ctx->base.op),
+                                              get_thumb2_load_mode(ctx->base.op)});
 }
 static INLINE void P(uncondbrtarget_target_B_1_t2B)(tdis_ctx ctx, struct bitslice target) {
     int cc = ctx->arch.it_conds[0] != 0xe ? CC_ALREADY_IN_IT : 0;
-    return P(branch)(ctx, ctx->pc + 4 + 2 * sext(bs_get(target, ctx->op), 24), cc);
+    return P(branch)(ctx, ctx->base.pc + 4 + 2 * sext(bs_get(target, ctx->base.op), 24), cc);
 }
 static INLINE void P(unk_Rd_3_t2MOVTi16)(tdis_ctx ctx, struct bitslice Rd) {
     data(rout(Rd));
@@ -167,19 +172,20 @@ static INLINE void P(unk_Rt_13_VMOVRRD)(tdis_ctx ctx, UNUSED struct bitslice Rt)
 }
 
 static INLINE void P(thumb2_do_it)(tdis_ctx ctx) {
-    uint32_t op = ctx->op;
+    uint32_t op = ctx->base.op;
     #include "../generated/generic-dis-thumb2.inc.h"
     __builtin_abort();
 }
 
 static INLINE void P(dis_thumb2)(tdis_ctx ctx) {
-    ctx->op = *(uint32_t *) ctx->ptr;
-    ctx->op_size = 4;
+    ctx->base.op = *(uint32_t *) ctx->base.ptr;
+    ctx->base.op_size = ctx->base.newop_size = 2;
     /* LLVM likes to think about Thumb2 instructions the way the ARM manual
      * does - 15..0 15..0 rather than 31..0 as actually laid out in memory... */
-    ctx->op = flip16(ctx->op);
+    ctx->base.op = flip16(ctx->base.op);
     P(thumb2_do_it)(ctx);
     advance_it_cond(&ctx->arch);
-    TDIS_CTX_SET_NEWOP(ctx, flip16(TDIS_CTX_NEWOP(ctx)));
-    ctx->op = flip16(ctx->op);
+    uint32_t *newop_p = (uint32_t *) ctx->base.newop;
+    *newop_p = flip16(*newop_p);
+    ctx->base.op = flip16(ctx->base.op);
 }

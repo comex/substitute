@@ -21,16 +21,16 @@ static void P_pcrel(UNUSED struct tc *ctx, uint32_t dpc,
 NOINLINE UNUSED
 static void P_data(UNUSED struct tc *ctx, unsigned o0, unsigned o1, unsigned o2,
                    unsigned o3, unsigned out_mask) {
-    printf("data\n", ctx->op);
+    printf("data\n");
     unsigned os[] = {o0, o1, o2, o3};
     for(size_t i = 0; i < 4; i++) {
         unsigned val = os[i];
         if(val == -1u)
             break;
         printf("    reg %x: %s\n", val, out_mask & (1 << i) ? "out" : "in");
-        ctx->newval[i] = i;
+        ctx->base.newval[i] = i;
     }
-    ctx->modify = true;
+    ctx->base.modify = true;
 }
 NOINLINE UNUSED
 static void P_pcrel(UNUSED struct tc *ctx, uint32_t dpc,
@@ -100,11 +100,11 @@ int main(UNUSED int argc, char **argv) {
 #else
     uint32_t op = strtoll(op_str ? op_str : "deadbeef", NULL, 16);
     ctx.base.ptr = &op;
-    ctx.base.newop = 0;
+    memset(ctx.base.newop, 0, sizeof(ctx.base.newop));
     ctx.base.modify = false;
     printf("%08x: ", op);
     P_(xdis)(&ctx);
-    printf("==> %x (size=%d)\n", ctx.base.newop, ctx.base.op_size);
+    printf("==> %x (size=%d)\n", *(uint32_t *) ctx.base.newop, ctx.base.op_size);
 #endif
 
 }
