@@ -32,7 +32,7 @@ void transform_dis_data(struct transform_dis_ctx *ctx, unsigned o0, unsigned o1,
            (unsigned long long) ctx->base.pc,
            o0, o1, o2, o3, out_mask);
 #endif
-    /* We only care if at least one op is PC, so quickly test that. XXX */
+    /* We only care if at least one op is PC, so quickly approximate that. */
     if (((o0 | o1 | o2 | o3) & 15) != 15)
         return;
     unsigned *newval = ctx->base.newval;
@@ -93,6 +93,8 @@ void transform_dis_data(struct transform_dis_ctx *ctx, unsigned o0, unsigned o1,
         if (actx.cond != 0xe)
             transform_dis_ret(ctx);
     } else {
+        if (!(in_regs & 1 << 15))
+            return;
         if (out_reg != -1 && !(in_regs & 1 << out_reg)) {
             /* case 3 - ignore scratch */
             MOVW_MOVT(actx, out_reg, pc);
