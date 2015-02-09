@@ -19,7 +19,7 @@
 
 struct arch_pcrel_info {
     unsigned reg;
-    enum pcrel_load_mode lm;
+    enum pcrel_load_mode load_mode;
 };
 
 struct arch_dis_ctx {

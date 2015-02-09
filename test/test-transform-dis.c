@@ -20,8 +20,8 @@ int main(UNUSED int argc, char **argv) {
     int offsets[patch_size + 15];
     void *rewritten_ptr = out;
     printf("\n#if 0\n");
-    uintptr_t pc_patch_start = 0x10000;
-    uintptr_t pc_patch_end = pc_patch_start + patch_size;
+    uint_tptr pc_patch_start = 0x10000;
+    uint_tptr pc_patch_end = pc_patch_start + patch_size;
     int ret = transform_dis_main(
         in,
         &rewritten_ptr,

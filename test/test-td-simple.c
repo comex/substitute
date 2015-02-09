@@ -35,7 +35,7 @@ static void P_data(UNUSED struct tc *ctx, unsigned o0, unsigned o1, unsigned o2,
 NOINLINE UNUSED
 static void P_pcrel(UNUSED struct tc *ctx, uint32_t dpc,
                     struct arch_pcrel_info info) {
-    printf("adr => %08x r%u lm:%d\n", dpc, info.reg, info.lm);
+    printf("adr => %08x r%u lm:%d\n", dpc, info.reg, info.load_mode);
 }
 NOINLINE UNUSED
 static void P_thumb_it(UNUSED struct tc *ctx) {

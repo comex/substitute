@@ -44,7 +44,8 @@ void transform_dis_ret(struct transform_dis_ctx *ctx) {
 static INLINE UNUSED
 void transform_dis_unidentified(UNUSED struct transform_dis_ctx *ctx) {
 #ifdef TRANSFORM_DIS_VERBOSE
-    printf("transform_dis (%p): unidentified\n", (void *) ctx->base.pc);
+    printf("transform_dis (0x%llx): unidentified\n", 
+           (unsigned long long) ctx->base.pc);
 #endif
     /* this isn't exhaustive, so unidentified is fine */
 }

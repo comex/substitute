@@ -4,7 +4,7 @@
 static struct assemble_ctx tdctx_to_actx(const struct transform_dis_ctx *ctx) {
     int cond;
     if (ctx->arch.pc_low_bit) {
-        cond = ctx->op >> 28;
+        cond = ctx->base.op >> 28;
         if (cond == 0xf)
             cond = 0xe;
     } else {
@@ -24,16 +24,18 @@ static int invert_arm_cond(int cc) {
     return cc ^ 1;
 }
 
-static NOINLINE UNUSED void transform_dis_data(struct transform_dis_ctx *ctx,
-        unsigned o0, unsigned o1, unsigned o2, unsigned o3, unsigned out_mask) {
+static NOINLINE UNUSED
+void transform_dis_data(struct transform_dis_ctx *ctx, unsigned o0, unsigned o1,
+                        unsigned o2, unsigned o3, unsigned out_mask) {
 #ifdef TRANSFORM_DIS_VERBOSE
-    printf("transform_dis_data: (%p) %x %x %x %x out_mask=%x\n", (void *) ctx->pc,
+    printf("transform_dis_data: (0x%llx) %x %x %x %x out_mask=%x\n",
+           (unsigned long long) ctx->base.pc,
            o0, o1, o2, o3, out_mask);
 #endif
-    /* We only care if at least one op is PC, so quickly test that. */
+    /* We only care if at least one op is PC, so quickly test that. XXX */
     if (((o0 | o1 | o2 | o3) & 15) != 15)
         return;
-    unsigned *newval = ctx->newval;
+    unsigned *newval = ctx->base.newval;
     newval[0] = o0;
     newval[1] = o1;
     newval[2] = o2;
@@ -67,7 +69,7 @@ static NOINLINE UNUSED void transform_dis_data(struct transform_dis_ctx *ctx,
     }
     if (out_mask & DFLAG_IS_LDRD_STRD)
         in_regs |= 1 << (newval[0] + 1);
-    uint32_t pc = ctx->pc + (ctx->arch.pc_low_bit ? 4 : 8);
+    uint32_t pc = ctx->base.pc + (ctx->arch.pc_low_bit ? 4 : 8);
     int scratch = __builtin_ctz(~(in_regs | (1 << out_reg)));
 
 #ifdef TRANSFORM_DIS_VERBOSE
@@ -85,7 +87,7 @@ static NOINLINE UNUSED void transform_dis_data(struct transform_dis_ctx *ctx,
         for (int i = 0; i < 4; i++)
             if (newval[i] == 15)
                 newval[i] = scratch;
-        ctx->write_newop_here = *codep; *codep += ctx->op_size;
+        ctx->write_newop_here = *codep; *codep += ctx->base.op_size;
         STRri(actx, scratch, 13, 4);
         POPmulti(actx, 1 << scratch | 1 << 15);
         if (actx.cond != 0xe)
@@ -97,7 +99,7 @@ static NOINLINE UNUSED void transform_dis_data(struct transform_dis_ctx *ctx,
             for (int i = 0; i < 4; i++)
                 if (newval[i] == 15)
                     newval[i] = out_reg;
-            ctx->write_newop_here = *codep; *codep += ctx->op_size;
+            ctx->write_newop_here = *codep; *codep += ctx->base.op_size;
         } else {
             /* case 4 */
             PUSHone(actx, scratch);
@@ -105,7 +107,7 @@ static NOINLINE UNUSED void transform_dis_data(struct transform_dis_ctx *ctx,
             for (int i = 0; i < 4; i++)
                 if (newval[i] == 15)
                     newval[i] = scratch;
-            ctx->write_newop_here = *codep; *codep += ctx->op_size;
+            ctx->write_newop_here = *codep; *codep += ctx->base.op_size;
             POPone(actx, scratch);
         }
     }
@@ -116,35 +118,41 @@ static NOINLINE UNUSED void transform_dis_data(struct transform_dis_ctx *ctx,
 #endif
 }
 
-static NOINLINE UNUSED void transform_dis_pcrel(struct transform_dis_ctx *ctx,
-        uintptr_t dpc, unsigned reg, enum pcrel_load_mode load_mode) {
+static NOINLINE UNUSED
+void transform_dis_pcrel(struct transform_dis_ctx *ctx, uintptr_t dpc,
+                         struct arch_pcrel_info info) {
 #ifdef TRANSFORM_DIS_VERBOSE
-    printf("transform_dis_pcrel: (%p) dpc=%p reg=%x mode=%d\n", (void *) ctx->pc,
-           (void *) dpc, reg, load_mode);
+    printf("transform_dis_pcrel: (0x%llx) dpc=0x%llx reg=%x mode=%d\n",
+           (unsigned long long) ctx->base.pc,
+           (unsigned long long) dpc,
+           info.reg, info.load_mode);
 #endif
     ctx->write_newop_here = NULL;
     struct assemble_ctx actx = tdctx_to_actx(ctx);
-    if (reg == 15) {
+    if (info.reg == 15) {
         int scratch = 0;
         PUSHone(actx, scratch);
         PUSHone(actx, scratch);
         MOVW_MOVT(actx, scratch, dpc);
-        if (load_mode != PLM_ADR)
-            LDRxi(actx, scratch, scratch, 0, load_mode);
+        if (info.load_mode != PLM_ADR)
+            LDRxi(actx, scratch, scratch, 0, info.load_mode);
         STRri(actx, scratch, 13, 4);
         POPmulti(actx, 1 << scratch | 1 << 15);
         transform_dis_ret(ctx);
     } else {
-        MOVW_MOVT(actx, reg, dpc);
-        if (load_mode != PLM_ADR)
-            LDRxi(actx, reg, reg, 0, load_mode);
+        MOVW_MOVT(actx, info.reg, dpc);
+        if (info.load_mode != PLM_ADR)
+            LDRxi(actx, info.reg, info.reg, 0, info.load_mode);
     }
 }
 
-static NOINLINE UNUSED void transform_dis_branch(struct transform_dis_ctx *ctx,
+static NOINLINE UNUSED
+void transform_dis_branch(struct transform_dis_ctx *ctx,
         uintptr_t dpc, int cc) {
 #ifdef TRANSFORM_DIS_VERBOSE
-    printf("transform_dis (%p): branch => %p\n", (void *) ctx->pc, (void *) dpc);
+    printf("transform_dis (0x%llx): branch => 0x%llx\n",
+           (unsigned long long) ctx->base.pc,
+           (unsigned long long) dpc);
 #endif
     if (dpc >= ctx->pc_patch_start && dpc < ctx->pc_patch_end) {
         /* don't support this for now */
@@ -162,9 +170,9 @@ static NOINLINE UNUSED void transform_dis_branch(struct transform_dis_ctx *ctx,
         actx.cond = invert_arm_cond(cc & 0xf);
         Bccrel(actx, 2+8);
     } else if ((cc & CC_CBXZ) == CC_CBXZ) {
-        ctx->modify = true;
-        ctx->newval[0] = ctx->pc + 2+8;
-        ctx->newval[1] = 1; /* do invert */
+        ctx->base.modify = true;
+        ctx->base.newval[0] = ctx->base.pc + 2+8;
+        ctx->base.newval[1] = 1; /* do invert */
         void **codep = ctx->rewritten_ptr_ptr;
         ctx->write_newop_here = *codep; *codep += 2;
     }
