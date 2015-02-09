@@ -1,6 +1,7 @@
 /* Pretty trivial, but in its own file to match the other architectures. */
 #include "x86/jump-patch.h"
 
+UNUSED
 static void transform_dis_pcrel(struct transform_dis_ctx *ctx, uint64_t dpc,
                                 struct arch_pcrel_info info) {
     /* push %reg; mov $dpc, %reg; <orig but with reg instead>; pop %reg */
