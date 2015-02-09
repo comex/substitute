@@ -32,5 +32,5 @@ static inline int arm64_get_unwritten_temp_reg(struct arch_dis_ctx *ctx) {
     return 31 - __builtin_clz(avail);
 }
 
-#define CC_ARMCC         (CC_CONDITIONAL | 0x200)
-#define CC_XBXZ          (CC_CONDITIONAL | 0x400)
+#define CC_ARMCC         (CC_CONDITIONAL | 0x400)
+#define CC_XBXZ          (CC_CONDITIONAL | 0x800)

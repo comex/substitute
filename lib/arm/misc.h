@@ -50,10 +50,10 @@ static inline void advance_it_cond(struct arch_dis_ctx *ctx) {
 
 /* Types of conditionals for 'branch' */
 /* a regular old branch-with-condition */
-#define CC_ARMCC         (CC_CONDITIONAL | 0x200)
+#define CC_ARMCC         (CC_CONDITIONAL | 0x400)
 /* already in an IT block - in transform_dis this will be rewritten to a branch
  * anyway, so it can be treated as unconditional; in jump_dis we have to know
  * to keep going */
-#define CC_ALREADY_IN_IT (CC_CONDITIONAL | 0x400)
+#define CC_ALREADY_IN_IT (CC_CONDITIONAL | 0x800)
 /* CBZ/CBNZ is rewritten */
-#define CC_CBXZ          (CC_CONDITIONAL | 0x800)
+#define CC_CBXZ          (CC_CONDITIONAL | 0xc00)

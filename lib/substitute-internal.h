@@ -52,6 +52,8 @@ typedef struct section section_x;
     #include "arm/misc.h"
 #elif defined(TARGET_arm64)
     #include "arm64/misc.h"
+#elif defined(TARGET_x86_64) || defined(TARGET_i386)
+    #include "x86/misc.h"
 #endif
 
 #ifdef __APPLE__

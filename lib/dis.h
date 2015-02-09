@@ -122,3 +122,4 @@ static inline void op16(void **codep, uint16_t op) {
 }
 
 #define CC_CONDITIONAL 0x100
+#define CC_CALL        0x200

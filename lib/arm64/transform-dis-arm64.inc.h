@@ -17,6 +17,7 @@ void transform_dis_pcrel(struct transform_dis_ctx *ctx, uintptr_t dpc, unsigned 
 
 static NOINLINE UNUSED
 void transform_dis_branch(struct transform_dis_ctx *ctx, uintptr_t dpc, int cc) {
+    /* TODO fix BL */
 #ifdef TRANSFORM_DIS_VERBOSE
     printf("transform_dis (%p): branch => %p\n", (void *) ctx->pc, (void *) dpc);
 #endif

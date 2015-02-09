@@ -6,9 +6,13 @@
 
 typedef struct tc {
     uint32_t pc;
-    void *ptr;
+    const void *ptr;
+#if defined(TARGET_x86_64) || defined(TARGET_i386)
+    uint8_t newop[16];
+#else
     uint32_t op;
     uint32_t newop;
+#endif
     uint32_t newval[4];
     bool modify;
     int op_size;
@@ -20,9 +24,17 @@ typedef struct tc {
 #define TDIS_CTX_NEWOP(ctx) ((ctx)->newop)
 #define TDIS_CTX_SET_NEWOP(ctx, new) ((ctx)->newop = (new))
 
+
+#if defined(TARGET_x86_64) || defined(TARGET_i386)
 NOINLINE UNUSED
-static void P_data(struct tc *ctx, unsigned o0, unsigned o1, unsigned o2, unsigned o3, unsigned out_mask) {
-    printf("data: %08x\n", ctx->op);
+static void P_pcrel(UNUSED struct tc *ctx, uint32_t dpc) {
+    printf("adr => %08x\n", dpc);
+}
+#else
+NOINLINE UNUSED
+static void P_data(UNUSED struct tc *ctx, unsigned o0, unsigned o1, unsigned o2,
+                   unsigned o3, unsigned out_mask) {
+    printf("data\n", ctx->op);
     unsigned os[] = {o0, o1, o2, o3};
     for(size_t i = 0; i < 4; i++) {
         unsigned val = os[i];
@@ -33,43 +45,38 @@ static void P_data(struct tc *ctx, unsigned o0, unsigned o1, unsigned o2, unsign
     }
     ctx->modify = true;
 }
+NOINLINE UNUSED
+static void P_pcrel(UNUSED struct tc *ctx, uint32_t dpc,
+                    unsigned reg, enum pcrel_load_mode lm) {
+    printf("adr => %08x r%u lm:%d\n", dpc, reg, lm);
+}
+NOINLINE UNUSED
+static void P_thumb_it(UNUSED struct tc *ctx) {
+    printf("thumb_it\n");
+}
+#endif
 
 NOINLINE UNUSED
-static void P_pcrel(struct tc *ctx, uint32_t dpc, unsigned reg, enum pcrel_load_mode lm) {
-    printf("adr: %08x => %08x r%u lm:%d\n", ctx->op, dpc, reg, lm);
-    ctx->modify = false;
+static void P_ret(UNUSED struct tc *ctx) {
+    printf("ret\n");
 }
 
 NOINLINE UNUSED
-static void P_ret(struct tc *ctx) {
-    printf("ret: %08x\n", ctx->op);
-    ctx->modify = false;
-}
-
-NOINLINE UNUSED
-static void P_branch(struct tc *ctx, uint32_t dpc, int cc) {
-    printf("branch(%s): %08x => %08x\n",
+static void P_branch(UNUSED struct tc *ctx, uint64_t dpc, int cc) {
+    printf("branch(%s,%s) => %08llx\n",
            (cc & CC_CONDITIONAL) ? "cond" : "uncond",
-           ctx->op, dpc);
-    ctx->modify = false;
+           (cc & CC_CALL) ? "call" : "!call",
+           (unsigned long long) dpc);
 }
 
 NOINLINE UNUSED
-static void P_unidentified(struct tc *ctx) {
-    printf("unidentified: %08x\n", ctx->op);
-    ctx->modify = false;
+static void P_unidentified(UNUSED struct tc *ctx) {
+    printf("unidentified\n");
 }
 
 NOINLINE UNUSED
-static void P_bad(struct tc *ctx) {
-    printf("bad: %08x\n", ctx->op);
-    ctx->modify = false;
-}
-
-NOINLINE UNUSED
-static void P_thumb_it(struct tc *ctx) {
-    printf("thumb_it: %08x\n", ctx->op);
-    ctx->modify = false;
+static void P_bad(UNUSED struct tc *ctx) {
+    printf("bad\n");
 }
 
 #include HDR
@@ -79,10 +86,38 @@ static void P_thumb_it(struct tc *ctx) {
 int main(UNUSED int argc, char **argv) {
     struct tc ctx;
     ctx.pc = 0xdead0000;
-    uint32_t op = strtoll(argv[1] ? argv[1] : "deadbeef", NULL, 16);
+    const char *op_str = argv[1];
+#if defined(TARGET_x86_64) || defined(TARGET_i386)
+    uint8_t op[20] = {0};
+    if (!op_str)
+        op_str = "deadbeef";
+    size_t len = strlen(op_str);
+    if (len % 1 || len > 32) {
+        printf("bad op_str len\n");
+        return 1;
+    }
+    for (size_t i = 0; i < len; i += 2) {
+        char str[3] = {op_str[i], op_str[i+1], 0};
+        char *end;
+        uint8_t byte = strtol(str, &end, 16);
+        if (*end) {
+            printf("bad op_str byte\n");
+            return 1;
+        }
+        op[i/2] = byte;
+    }
+    ctx.ptr = op;
+    ctx.modify = false;
+    P_(xdis)(&ctx);
+    printf("(size=%d/%zd)\n", ctx.op_size, len / 2);
+#else
+    uint32_t op = strtoll(op_str ? op_str : "deadbeef", NULL, 16);
     ctx.ptr = &op;
     ctx.newop = 0;
+    ctx.modify = false;
+    printf("%08x: ", op);
     P_(xdis)(&ctx);
     printf("==> %x (size=%d)\n", ctx.newop, ctx.op_size);
+#endif
 
 }
