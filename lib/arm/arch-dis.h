@@ -39,6 +39,10 @@ static inline void arch_dis_ctx_init(struct arch_dis_ctx *ctx) {
     memset(ctx->it_conds, 0xe, 5);
 }
 
+static inline int arch_code_alignment(struct arch_dis_ctx ctx) {
+   return ctx.pc_low_bit ? 2 : 4;
+}
+
 static inline void advance_it_cond(struct arch_dis_ctx *ctx) {
     ctx->it_conds[0] = ctx->it_conds[1];
     ctx->it_conds[1] = ctx->it_conds[2];

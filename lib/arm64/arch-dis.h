@@ -26,6 +26,10 @@ static inline void arch_dis_ctx_init(struct arch_dis_ctx *ctx) {
     ctx->regs_possibly_written = 0;
 }
 
+static inline int arch_code_alignment(UNUSED struct arch_dis_ctx ctx) {
+   return 4;
+}
+
 static inline int arm64_get_unwritten_temp_reg(struct arch_dis_ctx *ctx) {
     uint32_t avail = ~ctx->regs_possibly_written & ((1 << 19) - (1 << 9));
     if (!avail)

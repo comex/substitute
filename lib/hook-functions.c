@@ -77,6 +77,8 @@ static int check_intro_trampoline(void **trampoline_ptr_p,
     if (*patch_size_p != -1)
         return SUBSTITUTE_OK;
 
+    *need_intro_trampoline_p = true;
+
     /* Try existing trampoline */
     *patch_size_p = jump_patch_size(pc, (uintptr_t) trampoline_ptr, arch, false);
 
@@ -122,8 +124,7 @@ skip_after:;
 
 EXPORT
 int substitute_hook_functions(const struct substitute_function_hook *hooks,
-                              size_t nhooks,
-                              int options) {
+                              size_t nhooks, int options) {
     struct hook_internal *his = malloc(nhooks * sizeof(*his));
     if (!his)
         return SUBSTITUTE_ERR_OOM;
@@ -169,20 +170,6 @@ int substitute_hook_functions(const struct substitute_function_hook *hooks,
             goto end;
 
         uint_tptr pc_patch_end = pc_patch_start + patch_size;
-        /* Generate the rewritten start of the function for the outro
-         * trampoline (complaining if any bad instructions are found)
-         * (on arm64, this modifies regs_possibly_written, which is used by the
-         * two make_jump_patch calls) */
-        uint8_t rewritten_temp[TD_MAX_REWRITTEN_SIZE];
-        void *rp = rewritten_temp;
-        if ((ret = transform_dis_main(code, &rp, pc_patch_start, &pc_patch_end,
-                                      &arch, hi->offset_by_pcdiff)))
-            goto end;
-        /* Check some of the rest of the function for jumps back into the
-         * patched region. */
-        if ((ret = jump_dis_main(code, pc_patch_start, pc_patch_end, arch)))
-            goto end;
-
         uintptr_t initial_target;
         if (need_intro_trampoline) {
             initial_target = (uintptr_t) trampoline_ptr;
@@ -191,26 +178,26 @@ int substitute_hook_functions(const struct substitute_function_hook *hooks,
         } else {
             initial_target = (uintptr_t) hook->replacement;
         }
+
+        /* Make the real jump patch for the target function. */
         void *jp = hi->jump_patch;
         make_jump_patch(&jp, pc_patch_start, initial_target, arch);
         hi->jump_patch_size = (uint8_t *) jp - hi->jump_patch;
 
+        size_t align_bytes = (-(uintptr_t) trampoline_ptr)
+                             & (arch_code_alignment(arch) - 1);
+        size_t outro_est = align_bytes +
+                           TD_MAX_REWRITTEN_SIZE + MAX_JUMP_PATCH_SIZE;
 
-        size_t rewritten_size = (uint8_t *) rp - rewritten_temp;
-        size_t jumpback_size =
-            jump_patch_size((uintptr_t) trampoline_ptr + rewritten_size,
-                            pc_patch_end, arch, /* force */ true);
-        size_t outro_size = rewritten_size + jumpback_size;
-        if (outro_size > trampoline_size_left) {
+        if (outro_est > trampoline_size_left) {
             /* Not enough space left in our existing block... */
             if ((ret = execmem_alloc_unsealed(0, &trampoline_ptr,
                                               &trampoline_size_left)))
                 goto end;
             hi->trampoline_page = trampoline_ptr;
-            jumpback_size =
-                jump_patch_size((uintptr_t) trampoline_ptr + rewritten_size,
-                                pc_patch_end, arch, /* force */ true);
-            outro_size = rewritten_size + jumpback_size;
+        } else {
+            trampoline_ptr += align_bytes;
+            trampoline_size_left -= align_bytes;
         }
 
         hi->outro_trampoline = trampoline_ptr;
@@ -221,10 +208,23 @@ int substitute_hook_functions(const struct substitute_function_hook *hooks,
             dpc++;
         }
 #endif
-        memcpy(trampoline_ptr, rewritten_temp, rewritten_size);
-        trampoline_ptr += rewritten_size;
+        /* Generate the rewritten start of the function for the outro
+         * trampoline (complaining if any bad instructions are found)
+         * (on arm64, this modifies regs_possibly_written, which is used by the
+         * ending make_jump_patch call) */
+        if ((ret = transform_dis_main(code, &trampoline_ptr, pc_patch_start,
+                                      &pc_patch_end, (uintptr_t) trampoline_ptr,
+                                      &arch, hi->offset_by_pcdiff)))
+            goto end;
+        /* Now that transform_dis_main has given us the final pc_patch_end,
+         * check some of the rest of the function for jumps back into the
+         * patched region. */
+        if ((ret = jump_dis_main(code, pc_patch_start, pc_patch_end, arch)))
+            goto end;
+        /* Okay, continue with the outro. */
         make_jump_patch(&trampoline_ptr, (uintptr_t) trampoline_ptr, dpc, arch);
-        trampoline_size_left -= outro_size;
+        trampoline_size_left -= (uint8_t *) trampoline_ptr
+                              - (uint8_t *) hi->outro_trampoline;
     }
 
     /* Now commit. */

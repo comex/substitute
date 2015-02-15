@@ -23,8 +23,10 @@ static inline void push_mov_tail(void **code, bool rax) {
 UNUSED
 static void transform_dis_pcrel(struct transform_dis_ctx *ctx, uint64_t dpc,
                                 struct arch_pcrel_info info) {
-    /* push %reg; mov $dpc, %reg; <orig but with reg instead>; pop %reg */
-    /* reg is rcx, or rax if the instruction might be using rcx. */
+    /* push %reg; mov $dpc, %reg; <orig but with reg instead>; pop %reg
+     * reg is rcx, or rax if the instruction might be using rcx.
+     * Max size: 11 + orig + 1
+     * Minimum size is 6 bytes, so there could be at most 1 in a patch area. */
     bool rax = info.reg == 1;
     void *code = *ctx->rewritten_ptr_ptr;
     push_mov_head(&code, dpc, rax);
@@ -32,7 +34,7 @@ static void transform_dis_pcrel(struct transform_dis_ctx *ctx, uint64_t dpc,
     code += ctx->base.op_size;
     push_mov_tail(&code, rax);
     *ctx->rewritten_ptr_ptr = code;
-    ctx->base.newop[0] = rax ? 0 : 1;
+    ctx->base.newval[0] = rax ? 0 : 1;
     ctx->base.modify = true;
 }
 
@@ -41,7 +43,9 @@ static void transform_dis_branch(struct transform_dis_ctx *ctx, uint_tptr dpc,
     if (dpc >= ctx->pc_patch_start && dpc < ctx->pc_patch_end) {
         if (dpc == ctx->base.pc + ctx->base.op_size && (cc & CC_CALL)) {
             /* Probably a poor man's PC-rel - 'call .; pop %some'.
-             * Push the original address. */
+             * Push the original address.
+             * Max size: orig + 1 + 11 + 5 + 1
+             * Minimum call size is 4 bytes; at most 2. */
             void *code = *ctx->rewritten_ptr_ptr;
             ctx->write_newop_here = NULL;
 
@@ -72,15 +76,18 @@ static void transform_dis_branch(struct transform_dis_ctx *ctx, uint_tptr dpc,
     code += ctx->base.op_size;
 
     struct arch_dis_ctx arch;
-    uintptr_t source = (uintptr_t) code + 2;
+    uintptr_t source = ctx->pc_trampoline + 2;
     int size = jump_patch_size(source, dpc, arch, true);
-    /* if not taken, jmp past the big jump - this is a bit suboptimal but not that bad */
+    /* If not taken, jmp past the big jump - this is a bit suboptimal but not
+     * that bad.
+     * Max size: orig + 2 + 14
+     * Minimum jump size is 2 bytes; at most 3. */
     op8(&code, 0xeb);
     op8(&code, size);
     make_jump_patch(&code, source, dpc, arch);
 
     *ctx->rewritten_ptr_ptr = code;
-    ctx->base.newop[0] = 2;
+    ctx->base.newval[0] = 2;
     ctx->base.modify = true;
 
     if (!cc)

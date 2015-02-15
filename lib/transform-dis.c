@@ -16,6 +16,7 @@ struct transform_dis_ctx {
     int err;
     struct dis_ctx_base base;
 
+    uint_tptr pc_trampoline;
     uint_tptr pc_patch_start;
     /* this is only tentative - it will be updated to include parts of
      * instructions poking out, and instructions forced to be transformed by IT */
@@ -68,6 +69,7 @@ int transform_dis_main(const void *restrict code_ptr,
                        void **restrict rewritten_ptr_ptr,
                        uint_tptr pc_patch_start,
                        uint_tptr *pc_patch_end_p,
+                       uint_tptr pc_trampoline,
                        struct arch_dis_ctx *arch_ctx_p,
                        int *offset_by_pcdiff) {
     struct transform_dis_ctx ctx;
@@ -86,6 +88,9 @@ int transform_dis_main(const void *restrict code_ptr,
         ctx.base.modify = false;
         ctx.err = 0;
         ctx.base.ptr = code_ptr + (ctx.base.pc - pc_patch_start);
+        ctx.pc_trampoline = pc_trampoline +
+                            (*rewritten_ptr_ptr - rewritten_start);
+        const void *start = ctx.base.ptr;
 
         transform_dis_pre_dis(&ctx);
 
@@ -94,13 +99,20 @@ int transform_dis_main(const void *restrict code_ptr,
 
         transform_dis_dis(&ctx);
 
+#ifdef TRANSFORM_DIS_VERBOSE
+        printf("transform_dis (0x%llx): >> op_size=%d newop_size=%d\n", 
+               (unsigned long long) ctx.base.pc,
+               ctx.base.op_size,
+               ctx.base.newop_size);
+#endif
+
         if (ctx.err)
             return ctx.err;
         if (ctx.write_newop_here != NULL) {
             if (ctx.base.modify)
                 memcpy(ctx.write_newop_here, ctx.base.newop, ctx.base.newop_size);
             else
-                memcpy(ctx.write_newop_here, ctx.base.ptr, ctx.base.op_size);
+                memcpy(ctx.write_newop_here, start, ctx.base.op_size);
             if (*rewritten_ptr_ptr == rewritten_ptr)
                 *rewritten_ptr_ptr += ctx.base.op_size;
         }

@@ -97,7 +97,7 @@ static const uint8_t _0f_bits[] = {
 /*60*/ REP16(I_MODA),
 /*70*/ I_MODA, I_MOD|I_8, I_MOD|I_8, I_MOD|I_8, I_MODA, I_MODA, I_MODA, 0,
      /*78*/ I_MODA, I_MODA, I_BAD, I_BAD, REP4(I_MODA),
-/*80*/ REP16(I_z),
+/*80*/ REP16(I_z|I_JIMM),
 /*90*/ REP16(I_MODA),
 /*Ax*/ 0, 0, 0, 0, 0, 0, I_BAD, I_BAD,
      /*A8*/ 0, 0, 0, I_MODA, I_MODA|I_8, I_MODA, I_MODA, I_MODA,
@@ -279,6 +279,7 @@ got_bits: UNUSED
                 case 1: *(int8_t *)  new_imm_ptr = new_imm; break;
                 case 2: *(int16_t *) new_imm_ptr = new_imm; break;
                 case 4: *(int32_t *) new_imm_ptr = new_imm; break;
+                default: __builtin_abort();
             }
         }
 #ifdef TARGET_x86_64

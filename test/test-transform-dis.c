@@ -29,11 +29,13 @@ static void do_manual(uint8_t *in, size_t in_size, int patch_size,
     printf("\n#if 0\n");
     uint_tptr pc_patch_start = 0x10000;
     uint_tptr pc_patch_end = pc_patch_start + patch_size;
+    uint_tptr pc_trampoline = 0xf000;
     int ret = transform_dis_main(
         in,
         &rewritten_ptr,
         pc_patch_start,
         &pc_patch_end,
+        pc_trampoline,
         &arch,
         offsets);
     printf("=> %d\n", ret);
@@ -95,12 +97,17 @@ static void do_auto(uint8_t *in, size_t in_size, struct arch_dis_ctx arch) {
         if (!memcmp(expect, "_ERR", 4)) {
             expect_err = true;
             in += 4;
+            assert(!memcmp(in, "GIVEN", 5));
+            in += 5;
         } else {
-            uint8_t *next = memmem(in, end - in, "GIVEN", 5);
-            if (!next)
-                next = end;
-            expect_size = next - expect;
-            in = next;
+            in = memmem(in, end - in, "GIVEN", 5);
+            if (in) {
+                expect_size = in - expect;
+                in += 5;
+            } else {
+                in = end;
+                expect_size = in - expect;
+            }
         }
         size_t patch_size = given_size;
         int offsets[patch_size + 15];
@@ -108,15 +115,19 @@ static void do_auto(uint8_t *in, size_t in_size, struct arch_dis_ctx arch) {
         void *rewritten_ptr = out;
         uint_tptr pc_patch_start = 0xdead0000;
         uint_tptr pc_patch_end = pc_patch_start + patch_size;
+        uint_tptr pc_trampoline = 0xdeac0000;
         int ret = transform_dis_main(
             given,
             &rewritten_ptr,
             pc_patch_start,
             &pc_patch_end,
+            pc_trampoline,
             &arch,
             offsets);
         if (ret) {
-            if (!expect_err) {
+            if (expect_err) {
+                printf("OK\n");
+            } else {
                 print_given(given, given_size);
                 printf("got ret %d, expected success\n\n", ret);
             }
@@ -132,6 +143,8 @@ static void do_auto(uint8_t *in, size_t in_size, struct arch_dis_ctx arch) {
                 printf("but expected:\n");
                 hex_dump(expect, expect_size);
                 printf("\n");
+            } else {
+                printf("OK\n");
             }
         }
 
