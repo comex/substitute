@@ -15,7 +15,7 @@ static inline int jump_patch_size(uint_tptr pc, uint_tptr dpc,
 
 static inline void make_jump_patch(void **codep, uint_tptr pc, uint_tptr dpc,
                                    UNUSED struct arch_dis_ctx arch) {
-    uint_tptr diff = pc - (dpc + 5);
+    uint_tptr diff = dpc - (pc + 5);
     void *code = *codep;
     if (diff == (uint_tptr) (int32_t) diff) {
         op8(&code, 0xe9);
