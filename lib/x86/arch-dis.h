@@ -9,6 +9,7 @@
 
 struct arch_pcrel_info {
     int reg;
+    bool is_jump;
 };
 
 struct arch_dis_ctx {};

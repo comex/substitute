@@ -157,8 +157,11 @@ out/insns-libz-arm.o: test/insns-libz-arm.S Makefile
 out/insns-libz-thumb2.o: test/insns-libz-arm.S Makefile
 	clang -arch armv7 -c -o $@ $< -DTHUMB2
 
-out/transform-dis-cases-i386.o: test/transform-dis-cases-i386.S Makefile
-	clang -arch i386 -c -o $@ $<
+define transform-dis-cases
+out/transform-dis-cases-$(arch).o: test/transform-dis-cases-$(arch).S Makefile
+	clang -arch $(arch) -c -o $$@ $$<
+endef
+$(foreach arch,i386 x86_64 armv7 arm64,$(eval $(transform-dis-cases)))
 
 # iOS bootstrap...
 ifneq (,$(IS_IOS))

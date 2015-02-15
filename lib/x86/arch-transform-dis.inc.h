@@ -24,17 +24,32 @@ UNUSED
 static void transform_dis_pcrel(struct transform_dis_ctx *ctx, uint64_t dpc,
                                 struct arch_pcrel_info info) {
     /* push %reg; mov $dpc, %reg; <orig but with reg instead>; pop %reg
+     * -or, if jump-
+     * push %reg; mov $dpc, %reg; mov %reg, -8(%rsp); pop %reg;
+     *      <orig but with -0x10(%rsp)>
      * reg is rcx, or rax if the instruction might be using rcx.
      * Max size: 11 + orig + 1
      * Minimum size is 6 bytes, so there could be at most 1 in a patch area. */
-    bool rax = info.reg == 1;
     void *code = *ctx->rewritten_ptr_ptr;
-    push_mov_head(&code, dpc, rax);
-    ctx->write_newop_here = code;
-    code += ctx->base.op_size;
-    push_mov_tail(&code, rax);
+    if (info.is_jump) {
+        push_mov_head(&code, dpc, true);
+        memcpy(code, ((uint8_t[]) {0x48, 0x89, 0x44, 0x24, 0xf8}), 5);
+        code += 5;
+        push_mov_tail(&code, true);
+        ctx->write_newop_here = code;
+        code += ctx->base.op_size - 2;
+        ctx->base.newval[0] = 4; /* esp */
+        ctx->base.newval[1] = -0x10;
+    } else {
+        bool rax = info.reg == 1;
+        push_mov_head(&code, dpc, rax);
+        ctx->write_newop_here = code;
+        code += ctx->base.op_size - 4 /* see dis-main.inc.h */;
+        push_mov_tail(&code, rax);
+        ctx->base.newval[0] = rax ? 0 /* rcx */ : 1 /* rax */;
+        ctx->base.newval[1] = 0;
+    }
     *ctx->rewritten_ptr_ptr = code;
-    ctx->base.newval[0] = rax ? 0 : 1;
     ctx->base.modify = true;
 }
 

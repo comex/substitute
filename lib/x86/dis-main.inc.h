@@ -131,13 +131,11 @@ restart:;
             bits = I_MODA;
         } else if (byte1 == 0xff) {
             uint8_t modrm = *ptr;
-            if (modrm >> 6 == 3) {
-                int subop = modrm >> 3 & 7;
-                if (subop == 4 || subop == 5) /* JMP */
-                    bits = I_JMP | I_MODA;
-                else
-                    bits = I_MODA;
-            }
+            int subop = modrm >> 3 & 7;
+            if (subop == 4 || subop == 5) /* JMP */
+                bits = I_JMP | I_MODA;
+            else
+                bits = I_MODA;
         } else {
             __builtin_abort();
         }
@@ -287,22 +285,36 @@ got_bits: UNUSED
         int32_t disp = *(int32_t *) (orig + modrm_off + 1);
         /* unlike ARM, we can always switch to non-pcrel without making the
          * instruction from scratch, so we don't have 'reg' and 'lm' */
-        struct arch_pcrel_info info = {modrm >> 3 & 7};
+        struct arch_pcrel_info info = {
+            .reg = modrm >> 3 & 7,
+            .is_jump = !!(bits & I_JMP),
+        };
         P(pcrel)(ctx, ctx->base.pc + ctx->base.op_size + disp, info);
         if (DIS_MAY_MODIFY && ctx->base.modify) {
             uint8_t *new_op = ctx->base.newop;
             memcpy(new_op, orig, ctx->base.op_size);
-            /* newval[0] should be the new register, which should be one that
-             * fits in r/m directly since that's all I need;
-             * displacement is removed */
+            /* newval[0] should be the new register;
+             * newval[1] should be the new displacement */
+            int new_reg = ctx->base.newval[0];
+            uint32_t new_disp = ctx->base.newval[1];
             uint8_t *new_modrm_ptr = new_op + modrm_off;
 
+            int new_disp_size = new_disp ? 1 : 0;
+
             *new_modrm_ptr = (*new_modrm_ptr & ~0xc7) |
-                             0 << 6 |
+                             (new_disp_size ? 1 : 0) << 6 |
                              ctx->base.newval[0];
-            memmove(new_modrm_ptr + 1, new_modrm_ptr + 5,
+            uint8_t *memspec_end = new_modrm_ptr + 1;
+            if (new_reg == 4) {
+                /* rsp - need SIB */
+                *memspec_end++ = 0x24;
+            }
+            if (new_disp_size)
+                *memspec_end++ = new_disp;
+
+            memmove(memspec_end, new_modrm_ptr + 5,
                     ctx->base.op_size - modrm_off - 1);
-            ctx->base.newop_size -= 4;
+            ctx->base.newop_size -= 5 - (memspec_end - new_modrm_ptr);
         }
 #endif
     } else if ((bits & I_TYPE_MASK) == I_JMP) {
