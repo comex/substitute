@@ -37,9 +37,8 @@ enum {
     /* out of memory */
     SUBSTITUTE_ERR_OOM,
 
-    /* substitute_hook_functions:    mmap or mprotect failure other than ENOMEM
-     *                               (preserved in errno on return)
-     * substitute_hook_functions:    vm_region failure (errno = 0)
+    /* substitute_hook_functions:    mmap, mprotect, vm_copy, or
+     *                               vm_remap failure
      * substitute_hook_objc_message: vm_remap failure
      * Most likely to come up with substitute_hook_functions if the kernel is
      * preventing pages from being marked executable. */
@@ -48,7 +47,7 @@ enum {
     /* substitute_hook_functions: not on the main thread (so stopping all other
      * threads would be unsafe, as concurrent attempts to do the same from
      * other threads would result in deadlock), and you did not pass
-     * SUBSTITUTE_DONT_STOP_THREADS */
+     * SUBSTITUTE_NO_THREAD_SAFETY */
     SUBSTITUTE_ERR_NOT_ON_MAIN_THREAD,
 
     /* substitute_hook_functions: when trying to patch the PC of other threads
@@ -86,7 +85,7 @@ const char *substitute_strerror(int err);
 
 /* substitute_hook_functions options */
 enum {
-    SUBSTITUTE_DONT_STOP_THREADS = 1,
+    SUBSTITUTE_NO_THREAD_SAFETY = 1,
 };
 
 /* TODO doc */

@@ -43,7 +43,7 @@ EXPORT
 void SubHookFunction(void *symbol, void *replace, void **result) __asm__("SubHookFunction");
 void SubHookFunction(void *symbol, void *replace, void **result) {
     struct substitute_function_hook hook = {symbol, replace, result};
-    int ret = substitute_hook_functions(&hook, 1, SUBSTITUTE_DONT_STOP_THREADS);
+    int ret = substitute_hook_functions(&hook, 1, SUBSTITUTE_NO_THREAD_SAFETY);
     if (ret) {
         panic("SubHookFunction: substitute_hook_functions returned %s\n",
               substitute_strerror(ret));

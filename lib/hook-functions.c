@@ -4,8 +4,8 @@
 #include "jump-dis.h"
 #include "transform-dis.h"
 #include "execmem.h"
-#include "stop-other-threads.h"
 #include stringify(TARGET_DIR/jump-patch.h)
+#include <pthread.h>
 
 struct hook_internal {
     int offset_by_pcdiff[MAX_JUMP_PATCH_SIZE + 1];
@@ -16,6 +16,7 @@ struct hook_internal {
     /* page allocated with execmem_alloc_unsealed - only if we had to allocate
      * one when processing this hook */
     void *trampoline_page;
+    struct arch_dis_ctx arch_dis_ctx;
 };
 
 struct pc_callback_info {
@@ -125,22 +126,21 @@ skip_after:;
 EXPORT
 int substitute_hook_functions(const struct substitute_function_hook *hooks,
                               size_t nhooks, int options) {
-    struct hook_internal *his = malloc(nhooks * sizeof(*his));
+    bool thread_safe = !(options & SUBSTITUTE_NO_THREAD_SAFETY);
+    if (thread_safe && !pthread_main_np())
+        return SUBSTITUTE_ERR_NOT_ON_MAIN_THREAD;
+
+    struct execmem_foreign_write *fws;
+    struct hook_internal *his = malloc(nhooks * sizeof(*his) +
+                                       nhooks + sizeof(*fws));
     if (!his)
         return SUBSTITUTE_ERR_OOM;
+    fws = (void *) (his + nhooks);
 
     for (size_t i = 0; i < nhooks; i++)
         his[i].trampoline_page = NULL;
 
     int ret = SUBSTITUTE_OK;
-    ssize_t emw_finished_i = -1;
-    bool stopped = false;
-    void *stop_token;
-    if (!(options & SUBSTITUTE_DONT_STOP_THREADS)) {
-        if ((ret = stop_other_threads(&stop_token)))
-            goto end;
-        stopped = true;
-    }
 
     void *trampoline_ptr = NULL;
     size_t trampoline_size_left = 0;
@@ -160,6 +160,7 @@ int substitute_hook_functions(const struct substitute_function_hook *hooks,
         }
 #endif
         hi->code = code;
+        hi->arch_dis_ctx = arch;
         uintptr_t pc_patch_start = (uintptr_t) code;
         int patch_size;
         bool need_intro_trampoline;
@@ -201,6 +202,7 @@ int substitute_hook_functions(const struct substitute_function_hook *hooks,
         }
 
         hi->outro_trampoline = trampoline_ptr;
+        *(void **) hook->old_ptr = hi->outro_trampoline;
         uintptr_t dpc = pc_patch_end;
 #ifdef __arm__
         if (arch.pc_low_bit) {
@@ -229,49 +231,34 @@ int substitute_hook_functions(const struct substitute_function_hook *hooks,
 
     /* Now commit. */
     for (size_t i = 0; i < nhooks; i++) {
-        const struct substitute_function_hook *hook = &hooks[i];
         struct hook_internal *hi = &his[i];
-        emw_finished_i = (ssize_t) i;
-        if ((ret = execmem_write(hi->code, hi->jump_patch, hi->jump_patch_size))) {
-            /* User is probably screwed, since this probably means a failure to
-             * re-protect exec, thanks to code signing, so now the function is
-             * permanently inaccessible. */
-            goto end;
-        }
-        if (hook->old_ptr)
-            *(void **) hook->old_ptr = hi->outro_trampoline;
+        void *page = hi->trampoline_page;
+        if (page)
+            execmem_seal(page);
+        fws[i].dst = hi->code;
+        fws[i].src = hi->jump_patch;
+        fws[i].len = hi->jump_patch_size;
     }
 
-    /* *sigh of relief* now we can rewrite the PCs. */
-    if (stopped) {
-        struct pc_callback_info info = {his, nhooks, false};
-        if ((ret = apply_pc_patch_callback(stop_token, pc_callback, &info)))
-            goto end;
-        if (info.encountered_bad_pc) {
-            ret = SUBSTITUTE_ERR_UNEXPECTED_PC_ON_OTHER_THREAD;
-            goto end;
-        }
+    struct pc_callback_info info = {his, nhooks, false};
+    if ((ret = execmem_foreign_write_with_pc_patch(
+            fws, nhooks, thread_safe ? pc_callback : NULL, &info))) {
+        /* Too late to free the trampolines.  Chances are this is fatal anyway. */
+        goto end_dont_free;
+    }
+    if (info.encountered_bad_pc) {
+        ret = SUBSTITUTE_ERR_UNEXPECTED_PC_ON_OTHER_THREAD;
+        goto end_dont_free;
     }
 
 end:
+    /* if we failed, get rid of the trampolines. */
     for (size_t i = 0; i < nhooks; i++) {
         void *page = his[i].trampoline_page;
-        if (page) {
-            /* if we failed, get rid of the trampolines.  if we succeeded, make
-             * them executable */
-            if (ret && (ssize_t) i >= emw_finished_i) {
-                execmem_free(page);
-            } else {
-                /* we already patched them all, too late to go back.. */
-                ret = execmem_seal(page);
-            }
-        }
+        if (page)
+            execmem_free(page);
     }
-    if (stopped) {
-        int r2 = resume_other_threads(stop_token);
-        if (!ret)
-            ret = r2;
-    }
+end_dont_free:
     free(his);
     return ret;
 }

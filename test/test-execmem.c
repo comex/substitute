@@ -25,13 +25,18 @@ int test(size_t a) {
       return 1000;
 }
 
+static int ewrite(void *dst, const void *src, size_t len) {
+   struct execmem_foreign_write w = {dst, src, len};
+   return execmem_foreign_write_with_pc_patch(&w, 1, NULL, NULL);
+}
+
 int main() {
    printf("this should be 5: %d\n", test(0));
-   printf("=> %d\n", execmem_write(test, other, OTHER_SIZE));
+   printf("=> %d\n", ewrite(test, other, OTHER_SIZE));
    printf("   %s\n", strerror(errno));
    printf("this should be 6: %d\n", test(0));
-   printf("=> %d\n", execmem_write(hcreate, other, OTHER_SIZE));
+   printf("=> %d\n", ewrite(hcreate, other, OTHER_SIZE));
    printf("   %s\n", strerror(errno));
-   printf("modified shared cache func: %d\n", hcreate(0));
+   printf("modified shared cache func should be 6: %d\n", hcreate(0));
 
 }

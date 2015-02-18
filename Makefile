@@ -69,7 +69,6 @@ LIB_OBJS := \
 	out/darwin/objc.o \
 	out/darwin/read.o \
 	out/darwin/substrate-compat.o \
-	out/darwin/stop-other-threads.o \
 	out/darwin/execmem.o \
 	out/darwin/unrestrict.o \
 	out/jump-dis.o \
@@ -134,7 +133,7 @@ $(eval $(call define_test,imp-forwarding,imp-forwarding,$(CC) -std=c11 -framewor
 $(eval $(call define_test,objc-hook,objc-hook,$(CC) -std=c11 -framework Foundation -lsubstitute))
 $(eval $(call define_test,interpose,interpose,$(CC) -std=c11 -lsubstitute))
 $(eval $(call define_test,inject,inject,$(CC) -std=c11 -lsubstitute out/darwin/inject.o out/darwin/read.o))
-$(eval $(call define_test,stop-threads,stop-threads,$(CC) -std=c11 out/darwin/stop-other-threads.o))
+$(eval $(call define_test,pc-patch,pc-patch,$(CC) -std=c11 out/darwin/execmem.o))
 $(eval $(call define_test,execmem,execmem,$(CC) -std=c11 out/darwin/execmem.o -segprot __TEST rwx rx))
 $(eval $(call define_test,hook-functions,hook-functions,$(CC) -std=c11 -lsubstitute))
 $(eval $(call define_test,posixspawn-hook,posixspawn-hook,$(CC) -std=c11))

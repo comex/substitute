@@ -646,10 +646,14 @@ int substitute_dlopen_in_pid(int pid, const char *filename, int options,
         goto fail;
 
     union {
-        struct _x86_thread_state_32 x32;
-        struct _x86_thread_state_64 x64;
-        struct _arm_thread_state_32 a32;
-        struct _arm_thread_state_64 a64;
+#if defined(__x86_64__) || defined(__i386__)
+        struct __darwin_i386_thread_state x32;
+        struct __darwin_x86_thread_state64 x64;
+#endif
+#if defined(__arm__) || defined(__arm64__)
+        struct __darwin_arm_thread_state a32;
+        struct __darwin_arm_thread_state64 a64;
+#endif
     } u;
     size_t state_size;
     thread_state_flavor_t flavor;
@@ -658,34 +662,34 @@ int substitute_dlopen_in_pid(int pid, const char *filename, int options,
     switch (cputype) {
 #if defined(__x86_64__) || defined(__i386__)
     case CPU_TYPE_X86_64:
-        u.x64.rsp = target_stack_top;
-        u.x64.rdi = target_stack_top;
-        u.x64.rip = target_code_page + (inject_start_x86_64 - inject_page_start);
+        u.x64.__rsp = target_stack_top;
+        u.x64.__rdi = target_stack_top;
+        u.x64.__rip = target_code_page + (inject_start_x86_64 - inject_page_start);
         state_size = sizeof(u.x64);
-        flavor = _x86_thread_state_64_flavor;
+        flavor = x86_THREAD_STATE64;
         break;
     case CPU_TYPE_I386:
-        u.x32.esp = target_stack_top;
-        u.x32.ecx = target_stack_top;
-        u.x32.eip = target_code_page + (inject_start_i386 - inject_page_start);
+        u.x32.__esp = target_stack_top;
+        u.x32.__ecx = target_stack_top;
+        u.x32.__eip = target_code_page + (inject_start_i386 - inject_page_start);
         state_size = sizeof(u.x32);
-        flavor = _x86_thread_state_32_flavor;
+        flavor = x86_THREAD_STATE32;
         break;
 #endif
 #if defined(__arm__) || defined(__arm64__)
     case CPU_TYPE_ARM:
-        u.a32.sp = target_stack_top;
-        u.a32.r[0] = target_stack_top;
-        u.a32.pc = target_code_page + (inject_start_arm - inject_page_start);
+        u.a32.__sp = target_stack_top;
+        u.a32.__r[0] = target_stack_top;
+        u.a32.__pc = target_code_page + (inject_start_arm - inject_page_start);
         state_size = sizeof(u.a32);
-        flavor = _arm_thread_state_32_flavor;
+        flavor = ARM_THREAD_STATE;
         break;
     case CPU_TYPE_ARM64:
-        u.a64.sp = target_stack_top;
-        u.a64.x[0] = target_stack_top;
-        u.a64.pc = target_code_page + (inject_start_arm64 - inject_page_start);
+        u.a64.__sp = target_stack_top;
+        u.a64.__x[0] = target_stack_top;
+        u.a64.__pc = target_code_page + (inject_start_arm64 - inject_page_start);
         state_size = sizeof(u.a64);
-        flavor = _arm_thread_state_64_flavor;
+        flavor = ARM_THREAD_STATE64;
         break;
 #endif
     default:
