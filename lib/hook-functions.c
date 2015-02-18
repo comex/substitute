@@ -80,46 +80,48 @@ static int check_intro_trampoline(void **trampoline_ptr_p,
 
     *need_intro_trampoline_p = true;
 
-    /* Try existing trampoline */
-    *patch_size_p = jump_patch_size(pc, (uintptr_t) trampoline_ptr, arch, false);
+    if (trampoline_ptr) {
+        /* Try existing trampoline */
+        *patch_size_p = jump_patch_size(pc, (uintptr_t) trampoline_ptr, arch, false);
 
-    if (*patch_size_p != -1 && (size_t) *patch_size_p <= *trampoline_size_left_p)
-        return SUBSTITUTE_OK;
+        if (*patch_size_p != -1 && (size_t) *patch_size_p <= *trampoline_size_left_p)
+            return SUBSTITUTE_OK;
+    }
 
     /* Allocate new trampoline - try after pc.  If this fails, we can try
      * before pc before giving up. */
     int ret = execmem_alloc_unsealed(pc, &trampoline_ptr, &trampoline_size_left);
-    if (ret)
-        goto skip_after;
+    if (!ret) {
+        *patch_size_p = jump_patch_size(pc, (uintptr_t) trampoline_ptr, arch, false);
+        if (*patch_size_p != -1) {
+            ret = SUBSTITUTE_OK;
+            goto end;
+        }
 
-    *patch_size_p = jump_patch_size(pc, (uintptr_t) trampoline_ptr, arch, false);
-    if (*patch_size_p != -1) {
-        *trampoline_ptr_p = trampoline_ptr;
-        *trampoline_size_left_p = trampoline_size_left;
-        *trampoline_page_p = trampoline_ptr;
-        return SUBSTITUTE_OK;
+        execmem_free(trampoline_ptr);
     }
 
-    execmem_free(trampoline_ptr);
-
-skip_after:;
     /* Allocate new trampoline - try before pc (xxx only meaningful on arm64) */
-    uintptr_t start_address = pc - 0xffff0000;
+    uintptr_t start_address = pc - 0x80000000;
     ret = execmem_alloc_unsealed(start_address, &trampoline_ptr, &trampoline_size_left);
-    if (ret)
-        return ret;
+    if (!ret) {
+        *patch_size_p = jump_patch_size(pc, (uintptr_t) trampoline_ptr, arch, false);
+        if (*patch_size_p != -1) {
+            *trampoline_ptr_p = trampoline_ptr;
+            *trampoline_size_left_p = trampoline_size_left;
+            *trampoline_page_p = trampoline_ptr;
+            return SUBSTITUTE_OK;
+        }
 
-    *patch_size_p = jump_patch_size(pc, (uintptr_t) trampoline_ptr, arch, false);
-    if (*patch_size_p != -1) {
-        *trampoline_ptr_p = trampoline_ptr;
-        *trampoline_size_left_p = trampoline_size_left;
-        *trampoline_page_p = trampoline_ptr;
-        return SUBSTITUTE_OK;
+        execmem_free(trampoline_ptr);
+        ret = SUBSTITUTE_ERR_OUT_OF_RANGE;
     }
 
-    /* I give up... */
-    execmem_free(trampoline_ptr);
-    return SUBSTITUTE_ERR_OUT_OF_RANGE;
+end:
+    *trampoline_ptr_p = trampoline_ptr;
+    *trampoline_size_left_p = trampoline_size_left;
+    *trampoline_page_p = trampoline_ptr;
+    return ret;
 }
 
 
@@ -185,10 +187,7 @@ int substitute_hook_functions(const struct substitute_function_hook *hooks,
         make_jump_patch(&jp, pc_patch_start, initial_target, arch);
         hi->jump_patch_size = (uint8_t *) jp - hi->jump_patch;
 
-        size_t align_bytes = (-(uintptr_t) trampoline_ptr)
-                             & (arch_code_alignment(arch) - 1);
-        size_t outro_est = align_bytes +
-                           TD_MAX_REWRITTEN_SIZE + MAX_JUMP_PATCH_SIZE;
+        size_t outro_est = TD_MAX_REWRITTEN_SIZE + MAX_JUMP_PATCH_SIZE;
 
         if (outro_est > trampoline_size_left) {
             /* Not enough space left in our existing block... */
@@ -196,20 +195,12 @@ int substitute_hook_functions(const struct substitute_function_hook *hooks,
                                               &trampoline_size_left)))
                 goto end;
             hi->trampoline_page = trampoline_ptr;
-        } else {
-            trampoline_ptr += align_bytes;
-            trampoline_size_left -= align_bytes;
         }
 
         hi->outro_trampoline = trampoline_ptr;
-        *(void **) hook->old_ptr = hi->outro_trampoline;
-        uintptr_t dpc = pc_patch_end;
-#ifdef __arm__
-        if (arch.pc_low_bit) {
-            hi->outro_trampoline++;
-            dpc++;
-        }
-#endif
+        if (hook->old_ptr)
+            *(void **) hook->old_ptr = hi->outro_trampoline;
+
         /* Generate the rewritten start of the function for the outro
          * trampoline (complaining if any bad instructions are found)
          * (on arm64, this modifies regs_possibly_written, which is used by the
@@ -218,6 +209,15 @@ int substitute_hook_functions(const struct substitute_function_hook *hooks,
                                       &pc_patch_end, (uintptr_t) trampoline_ptr,
                                       &arch, hi->offset_by_pcdiff)))
             goto end;
+
+        uintptr_t dpc = pc_patch_end;
+#ifdef __arm__
+        if (arch.pc_low_bit) {
+            hi->outro_trampoline++;
+            dpc++;
+        }
+#endif
+
         /* Now that transform_dis_main has given us the final pc_patch_end,
          * check some of the rest of the function for jumps back into the
          * patched region. */
@@ -225,6 +225,7 @@ int substitute_hook_functions(const struct substitute_function_hook *hooks,
             goto end;
         /* Okay, continue with the outro. */
         make_jump_patch(&trampoline_ptr, (uintptr_t) trampoline_ptr, dpc, arch);
+        trampoline_ptr += -(uintptr_t) trampoline_ptr % ARCH_MAX_CODE_ALIGNMENT;
         trampoline_size_left -= (uint8_t *) trampoline_ptr
                               - (uint8_t *) hi->outro_trampoline;
     }
@@ -251,6 +252,7 @@ int substitute_hook_functions(const struct substitute_function_hook *hooks,
         goto end_dont_free;
     }
 
+    goto end_dont_free;
 end:
     /* if we failed, get rid of the trampolines. */
     for (size_t i = 0; i < nhooks; i++) {

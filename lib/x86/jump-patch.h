@@ -5,7 +5,7 @@
 static inline int jump_patch_size(uint_tptr pc, uint_tptr dpc,
                                   UNUSED struct arch_dis_ctx arch,
                                   bool force) {
-    uint_tptr diff = pc - (dpc + 5);
+    uint_tptr diff = dpc - (pc + 5);
     /* fits in 32? */
     if (diff == (uint_tptr) (int32_t) diff)
         return 5;

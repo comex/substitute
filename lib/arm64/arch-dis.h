@@ -1,6 +1,7 @@
 #pragma once
 #define MIN_INSN_SIZE 4
 #define TD_MAX_REWRITTEN_SIZE (7 * 2 * 4) /* also conservative */
+#define ARCH_MAX_CODE_ALIGNMENT 4
 
 struct arch_pcrel_info {
     unsigned reg;
@@ -24,10 +25,6 @@ struct arch_dis_ctx {
 
 static inline void arch_dis_ctx_init(struct arch_dis_ctx *ctx) {
     ctx->regs_possibly_written = 0;
-}
-
-static inline int arch_code_alignment(UNUSED struct arch_dis_ctx ctx) {
-   return 4;
 }
 
 static inline int arm64_get_unwritten_temp_reg(struct arch_dis_ctx *ctx) {

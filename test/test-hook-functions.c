@@ -34,7 +34,7 @@ void break_after() {
 static const struct substitute_function_hook hooks[] = {
     {getpid, hook_getpid, &old_getpid},
     {hcreate, hook_hcreate, NULL},
-    {fwrite, hook_fwrite, &old_fwrite}
+    {fwrite, hook_fwrite, &old_fwrite},
 };
 int main() {
 #ifdef TARGET_DIS_SUPPORTED

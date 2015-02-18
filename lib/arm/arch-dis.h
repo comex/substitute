@@ -16,6 +16,7 @@
  * since only the actually used space will be taken up in the final output
  */
 #define TD_MAX_REWRITTEN_SIZE (7*4*7 + 4) /* 196 */
+#define ARCH_MAX_CODE_ALIGNMENT 4
 
 struct arch_pcrel_info {
     unsigned reg;

@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <ucontext.h>
 #include <signal.h>
+#include <pthread.h>
 
 #define port_hash(portp) (*(portp))
 #define port_eq(port1p, port2p) (*(port1p) == *(port2p))
@@ -198,6 +199,12 @@ static void resume_other_threads() {
 
 static void segfault_handler(UNUSED int sig, UNUSED siginfo_t *info,
                              void *uap_) {
+    if (pthread_main_np()) {
+        /* The patcher itself segfaulted.  Oops.  Reset the signal so the
+         * process exits rather than going into an infinite loop. */
+        signal(sig, SIG_DFL);
+        return;
+    }
     /* We didn't catch it before it segfaulted so have to fix it up here. */
     ucontext_t *uap = uap_;
     apply_one_pcp_with_state(&uap->uc_mcontext->__ss, g_pc_patch_callback,
@@ -311,8 +318,9 @@ int execmem_foreign_write_with_pc_patch(struct execmem_foreign_write *writes,
 
         last = first;
         while (last + 1 < nwrites) {
-            uintptr_t this_start = (uintptr_t) first_write->dst & ~PAGE_MASK;
-            uintptr_t this_end = ((uintptr_t) first_write->dst +
+            const struct execmem_foreign_write *write = &writes[last + 1];
+            uintptr_t this_start = (uintptr_t) write->dst & ~PAGE_MASK;
+            uintptr_t this_end = ((uintptr_t) write->dst +
                                   first_write->len - 1) & ~PAGE_MASK;
             if (page_start <= this_start && this_start <= page_end) {
                 if (this_end > page_end)
@@ -408,7 +416,7 @@ int execmem_foreign_write_with_pc_patch(struct execmem_foreign_write *writes,
         /* This is probably useless, since the original page is gone
          * forever (intentionally, see above).  May as well arrange the
          * deck chairs, though. */
-        munmap(new, PAGE_SIZE);
+        munmap(new, len);
         goto fail;
     }
 
