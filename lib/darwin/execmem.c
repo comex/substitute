@@ -290,6 +290,18 @@ int execmem_foreign_write_with_pc_patch(struct execmem_foreign_write *writes,
 
     qsort(writes, nwrites, sizeof(*writes), compare_dsts);
 
+    if (callback) {
+        /* Set the segfault handler - stopping all other threads before
+         * doing so in case they were using it for something (this
+         * happens).  One might think the latter makes segfaults
+         * impossible, but we can't prevent injectors from making new
+         * threads that might run during this process.  Hopefully no
+         * *injected* threads try to use segfault handlers for something!
+         */
+        if ((ret = init_pc_patch(callback, callback_ctx)))
+            return ret;
+    }
+
     size_t last;
     for (size_t first = 0; first < nwrites; first = last + 1) {
         const struct execmem_foreign_write *first_write = &writes[first];
@@ -324,15 +336,18 @@ int execmem_foreign_write_with_pc_patch(struct execmem_foreign_write *writes,
         if (kr) {
             /* Weird; this probably means the region doesn't exist, but we should
              * have already read from the memory in order to generate the patch. */
-            return SUBSTITUTE_ERR_VM;
+            ret = SUBSTITUTE_ERR_VM;
+            goto fail;
         }
         /* Instead of trying to set the existing region to write, which may
          * fail due to max_protection, we make a fresh copy and remap it over
          * the original. */
         void *new = mmap(NULL, len, PROT_READ | PROT_WRITE,
                          MAP_ANON | MAP_SHARED, -1, 0);
-        if (new == MAP_FAILED)
-            return SUBSTITUTE_ERR_VM;
+        if (new == MAP_FAILED) {
+            ret = SUBSTITUTE_ERR_VM;
+            goto fail;
+        }
         /* Ideally, if the original page wasn't mapped anywhere else, no actual
          * copy will take place: new will be CoW, then we unmap the original so
          * new becomes the sole owner before actually writing.  Though, for all
@@ -342,17 +357,6 @@ int execmem_foreign_write_with_pc_patch(struct execmem_foreign_write *writes,
         if (kr) {
             ret = SUBSTITUTE_ERR_VM;
             goto fail_unmap;
-        }
-        if (callback) {
-            /* Set the segfault handler - stopping all other threads before
-             * doing so in case they were using it for something (this
-             * happens).  One might think the latter makes segfaults
-             * impossible, but we can't prevent injectors from making new
-             * threads that might run during this process.  Hopefully no
-             * *injected* threads try to use segfault handlers for something!
-             */
-            if ((ret = init_pc_patch(callback, callback_ctx)))
-                goto fail_unmap;
         }
         /* Disable access to the page so anyone trying to execute there
          * will segfault. */
@@ -397,24 +401,27 @@ int execmem_foreign_write_with_pc_patch(struct execmem_foreign_write *writes,
         }
         /* ignore errors... */
         munmap(new, len);
-        if (callback) {
-            /* Other threads are no longer in danger of segfaulting, so put
-             * back the old setfault handler. */
-            if ((ret = finish_pc_patch()))
-                return ret;
-        }
 
         continue;
 
-        fail_unmap:
-            /* This is probably useless, since the original page is gone
-             * forever (intentionally, see above).  May as well arrange the
-             * deck chairs, though. */
-            munmap(new, PAGE_SIZE);
+    fail_unmap:
+        /* This is probably useless, since the original page is gone
+         * forever (intentionally, see above).  May as well arrange the
+         * deck chairs, though. */
+        munmap(new, PAGE_SIZE);
+        goto fail;
+    }
+
+    ret = 0;
+
+fail:
+    if (callback) {
+        /* Other threads are no longer in danger of segfaulting, so put
+         * back the old segfault handler. */
+        if ((ret = finish_pc_patch()))
             return ret;
     }
 
-    /* Shockingly, we made it out! */
-    return SUBSTITUTE_OK;
+    return ret;
 }
 
