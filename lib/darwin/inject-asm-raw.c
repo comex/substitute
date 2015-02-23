@@ -1,3 +1,5 @@
+#define WANT_BSDTHREAD_TERMINATE
+#define WANT_SEMAPHORE_WAIT_TRAP
 #include "darwin/manual-syscall.h"
 
 #ifdef __arm64__
@@ -5,6 +7,11 @@
 #else
 #define _PAGE_SIZE 0x1000
 #endif
+
+int manual_bsdthread_terminate(void *, unsigned long, unsigned, unsigned);
+GEN_SYSCALL(bsdthread_terminate, 361);
+int manual_semaphore_wait_trap(int);
+GEN_SYSCALL(semaphore_wait_trap, -36);
 
 /* This is somewhat more complicated than it has to be because it does not use
  * pthread_join, which depends on pthread_self, which would need to be
@@ -31,7 +38,7 @@ void entry(struct baton *baton) {
     int pt = 0;
     baton->pthread_create(&pt, 0, (void *) bsd_thread_func, baton);
     baton->pthread_detach(pt);
-    manual_syscall(361 /* bsdthread_terminate */, 0, 0, 0, baton->sem_port);
+    manual_bsdthread_terminate(0, 0, 0, baton->sem_port);
     ((void (*)()) 0xbad)();
 }
 static int bsd_thread_func(void *arg) {
@@ -45,7 +52,7 @@ static int bsd_thread_func(void *arg) {
             init(baton->shuttle, baton->nshuttle);
 
     }
-    manual_syscall(-36 /* semaphore_wait_trap */, baton->sem_port, 0, 0, 0);
+    manual_semaphore_wait_trap(baton->sem_port);
 #ifndef __i386__
     /* since we're munmapping our own code, this must be optimized into a jump
      * (taill call elimination) */
@@ -61,8 +68,7 @@ static int bsd_thread_func(void *arg) {
 }
 #ifdef __i386__
 /* yuck */
-asm("jmp _entry;"
-    ".globl _jump_to_munmap;"
+asm(".globl _jump_to_munmap;"
     "_jump_to_munmap:"
         "push %ebp;"
         "mov %esp, %ebp;"

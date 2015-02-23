@@ -4,11 +4,15 @@
 #define _DARWIN_C_SOURCE
 #include "cbit/htab.h"
 #include "execmem.h"
-/* #include "darwin/manual-syscall.h" */
+#include "darwin/manual-syscall.h"
 #include "darwin/mach-decls.h"
 #include "substitute.h"
 #include "substitute-internal.h"
 #include <mach/mach.h>
+#ifndef __MigPackStructs
+#error wtf
+#endif
+#include <mach/mig.h>
 #include <sys/mman.h>
 #include <sys/syscall.h>
 #include <errno.h>
@@ -17,6 +21,30 @@
 #include <ucontext.h>
 #include <signal.h>
 #include <pthread.h>
+
+int manual_sigreturn(void *, int);
+GEN_SYSCALL(sigreturn, 184);
+__typeof__(mmap) manual_mmap;
+GEN_SYSCALL(mmap, 197);
+__typeof__(mprotect) manual_mprotect;
+GEN_SYSCALL(mprotect, 74);
+__typeof__(mach_msg) manual_mach_msg;
+GEN_SYSCALL(mach_msg, -31);
+
+extern int __sigaction(int, struct __sigaction * __restrict, struct sigaction * __restrict);
+
+static void manual_memcpy(void *restrict dest, const void *src, size_t len) {
+    /* volatile to avoid compiler transformation to call to memcpy */
+    volatile uint8_t *d8 = dest;
+    const uint8_t *s8 = src;
+    while (len--)
+        *d8++ = *s8++;
+}
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-variable"
+#include "../generated/manual-mach.inc.h"
+#pragma GCC diagnostic pop
 
 #define port_hash(portp) (*(portp))
 #define port_eq(port1p, port2p) (*(port1p) == *(port2p))
@@ -101,20 +129,22 @@ static bool apply_one_pcp_with_state(native_thread_state *state,
 }
 
 static int apply_one_pcp(mach_port_t thread, execmem_pc_patch_callback callback,
-                         void *ctx) {
+                         void *ctx, mach_port_t reply_port) {
     native_thread_state state;
     mach_msg_type_number_t real_cnt = sizeof(state) / sizeof(int);
     mach_msg_type_number_t cnt = real_cnt;
-    kern_return_t kr = thread_get_state(thread, NATIVE_THREAD_STATE_FLAVOR,
-                                        (thread_state_t) &state, &cnt);
+    kern_return_t kr = manual_thread_get_state(thread, NATIVE_THREAD_STATE_FLAVOR,
+                                               (thread_state_t) &state, &cnt,
+                                               reply_port);
     if (kr == KERN_TERMINATED)
         return SUBSTITUTE_OK;
     if (kr || cnt != real_cnt)
         return SUBSTITUTE_ERR_ADJUSTING_THREADS;;
 
     if (apply_one_pcp_with_state(&state, callback, ctx)) {
-        kr = thread_set_state(thread, NATIVE_THREAD_STATE_FLAVOR,
-                              (thread_state_t) &state, real_cnt);
+        kr = manual_thread_set_state(thread, NATIVE_THREAD_STATE_FLAVOR,
+                                     (thread_state_t) &state, real_cnt,
+                                     reply_port);
         if (kr)
             return SUBSTITUTE_ERR_ADJUSTING_THREADS;
     }
@@ -197,19 +227,23 @@ static void resume_other_threads() {
     htab_free_storage_mach_port_set(suspended_set);
 }
 
-static void segfault_handler(UNUSED int sig, UNUSED siginfo_t *info,
-                             void *uap_) {
+/* note: unusual prototype since we are avoiding _sigtramp */
+static void segfault_handler(UNUSED void *func, int style, int sig,
+                             UNUSED siginfo_t *sinfo, void *uap_) {
+    ucontext_t *uap = uap_;
     if (pthread_main_np()) {
         /* The patcher itself segfaulted.  Oops.  Reset the signal so the
          * process exits rather than going into an infinite loop. */
         signal(sig, SIG_DFL);
-        return;
+        goto sigreturn;
     }
     /* We didn't catch it before it segfaulted so have to fix it up here. */
-    ucontext_t *uap = uap_;
     apply_one_pcp_with_state(&uap->uc_mcontext->__ss, g_pc_patch_callback,
                              g_pc_patch_callback_ctx);
     /* just let it continue, whatever */
+sigreturn:
+    if (manual_sigreturn(uap, style))
+        abort();
 }
 
 static int init_pc_patch(execmem_pc_patch_callback callback, void *ctx) {
@@ -219,22 +253,23 @@ static int init_pc_patch(execmem_pc_patch_callback callback, void *ctx) {
     if ((ret = stop_other_threads()))
         return ret;
 
-    struct sigaction sa;
+    struct __sigaction sa;
     memset(&sa, 0, sizeof(sa));
-    sa.sa_sigaction = segfault_handler;
+    sa.sa_sigaction = (void *) 0xdeadbeef;
+    sa.sa_tramp = segfault_handler;
     sigfillset(&sa.sa_mask);
     sa.sa_flags = SA_RESTART | SA_NODEFER | SA_SIGINFO;
 
-    if (sigaction(SIGSEGV, &sa, &old_segv))
+    if (__sigaction(SIGSEGV, &sa, &old_segv))
         return SUBSTITUTE_ERR_ADJUSTING_THREADS;
-    if (sigaction(SIGBUS, &sa, &old_bus)) {
+    if (__sigaction(SIGBUS, &sa, &old_bus)) {
         sigaction(SIGSEGV, &old_segv, NULL);
         return SUBSTITUTE_ERR_ADJUSTING_THREADS;
     }
     return SUBSTITUTE_OK;
 }
 
-static int run_pc_patch() {
+static int run_pc_patch(mach_port_t reply_port) {
     int ret;
 
     struct htab_mach_port_set *suspended_set = &g_suspended_ports.h;
@@ -242,7 +277,7 @@ static int run_pc_patch() {
                  UNUSED struct empty *_,
                  mach_port_set) {
         if ((ret = apply_one_pcp(*threadp, g_pc_patch_callback,
-                                 g_pc_patch_callback_ctx)))
+                                 g_pc_patch_callback_ctx, reply_port)))
             return ret;
     }
 
@@ -281,14 +316,6 @@ static kern_return_t get_page_prot(uintptr_t ptr, vm_prot_t *prot,
     return kr;
 }
 
-static void manual_memcpy(void *restrict dest, const void *src, size_t len) {
-    /* volatile to avoid compiler transformation to call to memcpy */
-    volatile uint8_t *d8 = dest;
-    const uint8_t *s8 = src;
-    while (len--)
-        *d8++ = *s8++;
-}
-
 int execmem_foreign_write_with_pc_patch(struct execmem_foreign_write *writes,
                                         size_t nwrites,
                                         execmem_pc_patch_callback callback,
@@ -296,6 +323,9 @@ int execmem_foreign_write_with_pc_patch(struct execmem_foreign_write *writes,
     int ret;
 
     qsort(writes, nwrites, sizeof(*writes), compare_dsts);
+
+    mach_port_t task_self = mach_task_self();
+    mach_port_t reply_port = mig_get_reply_port();
 
     if (callback) {
         /* Set the segfault handler - stopping all other threads before
@@ -361,14 +391,18 @@ int execmem_foreign_write_with_pc_patch(struct execmem_foreign_write *writes,
          * new becomes the sole owner before actually writing.  Though, for all
          * I know, these trips through the VM system could be slower than just
          * memcpying a page or two... */
-        kr = vm_copy(mach_task_self(), page_start, len, (vm_address_t) new);
+        kr = vm_copy(task_self, page_start, len, (vm_address_t) new);
         if (kr) {
             ret = SUBSTITUTE_ERR_VM;
             goto fail_unmap;
         }
-        /* Disable access to the page so anyone trying to execute there
-         * will segfault. */
-        if (mmap(NULL, len, PROT_NONE, MAP_ANON | MAP_SHARED, -1, 0)
+        /* Start of danger zone: between the mmap PROT_NONE and remap, we avoid
+         * using any standard library functions in case the user is trying to
+         * hook one of them.  (This includes the mmap, since there's an epilog
+         * after the actual syscall instruction.)
+         * This includes the signal handler! */
+        if (manual_mmap((void *) page_start, len, PROT_NONE,
+                        MAP_ANON | MAP_SHARED | MAP_FIXED, -1, 0)
             == MAP_FAILED) {
             ret = SUBSTITUTE_ERR_VM;
             goto fail_unmap;
@@ -389,25 +423,26 @@ int execmem_foreign_write_with_pc_patch(struct execmem_foreign_write *writes,
              * patched.  (A call instruction within the affected region would
              * break this assumption, as then a thread could move to an
              * affected PC by returning. */
-            if ((ret = run_pc_patch()))
+            if ((ret = run_pc_patch(reply_port)))
                 goto fail_unmap;
         }
 
         /* Protect new like the original, and move it into place. */
         vm_address_t target = page_start;
-        if (mprotect(new, len, prot)) {
+        if (manual_mprotect(new, len, prot)) {
             ret = SUBSTITUTE_ERR_VM;
             goto fail_unmap;
         }
         vm_prot_t c, m;
-        kr = vm_remap(mach_task_self(), &target, len, 0, VM_FLAGS_OVERWRITE,
-                      mach_task_self(), (vm_address_t) new, /*copy*/ FALSE,
-                      &c, &m, inherit);
+        printf("new=%p\n", new);
+        kr = manual_vm_remap(task_self, &target, len, 0, VM_FLAGS_OVERWRITE,
+                             task_self, (vm_address_t) new, /*copy*/ FALSE,
+                             &c, &m, inherit, reply_port);
         if (kr) {
             ret = SUBSTITUTE_ERR_VM;
             goto fail_unmap;
         }
-        /* ignore errors... */
+        /* Danger zone over.  Ignore errors when unmapping the temporary buffer. */
         munmap(new, len);
 
         continue;
@@ -426,8 +461,9 @@ fail:
     if (callback) {
         /* Other threads are no longer in danger of segfaulting, so put
          * back the old segfault handler. */
-        if ((ret = finish_pc_patch()))
-            return ret;
+        int ret2;
+        if ((ret2 = finish_pc_patch()))
+            return ret2;
     }
 
     return ret;

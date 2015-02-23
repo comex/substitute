@@ -86,19 +86,25 @@ out/libsubstitute.dylib: $(LIB_OBJS)
 # Did you know?  With -Oz + -marm, Apple clang-600.0.56 actually generated
 # wrong code for the ARM version.  It works with -Os and with newer clang.
 IACLANG := clang -Os -fno-stack-protector -dynamiclib -nostartfiles -nodefaultlibs -isysroot /dev/null -Ilib -fPIC
-out/inject-asm-raw-x86_64.o: lib/darwin/inject-asm-raw.c Makefile
-	$(IACLANG) -arch x86_64 -o $@ $<
-out/inject-asm-raw-i386.o: lib/darwin/inject-asm-raw.c Makefile
-	$(IACLANG) -arch i386 -o $@ $<
-out/inject-asm-raw-arm.o: lib/darwin/inject-asm-raw.c Makefile
-	$(IACLANG) -arch armv7 -marm -o $@ $<
-out/inject-asm-raw-arm64.o: lib/darwin/inject-asm-raw.c Makefile
-	$(IACLANG) -arch arm64 -o $@ $<
+define define_iar
+out/inject-asm-raw-$(1).o: lib/darwin/inject-asm-raw.c Makefile lib/darwin/manual-syscall.h lib/darwin/inject-asm-raw.order
+	$(IACLANG) -arch $(2) -Wl,-order_file,lib/darwin/inject-asm-raw.order -o $$@ $$<
+endef
+$(eval $(call define_iar,x86_64,x86_64))
+$(eval $(call define_iar,i386,i386))
+$(eval $(call define_iar,arm,armv7 -marm))
+$(eval $(call define_iar,arm64,arm64))
+
 IAR_BINS := out/inject-asm-raw-x86_64.bin out/inject-asm-raw-i386.bin out/inject-asm-raw-arm.bin out/inject-asm-raw-arm64.bin
 out/darwin-inject-asm.S: $(IAR_BINS) Makefile script/gen-inject-asm.sh
 	./script/gen-inject-asm.sh > $@ || rm -f $@
-generateds: out/darwin-inject-asm.S
+generateds: generated/darwin-inject-asm.S
+generated/darwin-inject-asm.S: out/darwin-inject-asm.S
 	cp $< generated/
+
+generateds: generated/manual-mach.inc.h
+generated/manual-mach.inc.h: ./script/gen-manual-mach.sh
+	./script/gen-manual-mach.sh
 
 out/%.bin: out/%.o Makefile
 	segedit -extract __TEXT __text $@ $<
