@@ -45,7 +45,7 @@ void transform_dis_branch(struct transform_dis_ctx *ctx, uint_tptr dpc, int cc) 
 static void transform_dis_pre_dis(UNUSED struct transform_dis_ctx *ctx) {}
 static void transform_dis_post_dis(struct transform_dis_ctx *ctx) {
     uint32_t op = ctx->base.op;
-    ctx->arch.regs_possibly_written |= op & 31;
-    ctx->arch.regs_possibly_written |= op >> 10 & 31;
-    ctx->arch.regs_possibly_written |= op >> 16 & 31;
+    ctx->arch.regs_possibly_written |= 1 << (op & 31);
+    ctx->arch.regs_possibly_written |= 1 << (op >> 10 & 31);
+    ctx->arch.regs_possibly_written |= 1 << (op >> 16 & 31);
 }
