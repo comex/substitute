@@ -30,6 +30,8 @@ __typeof__(mprotect) manual_mprotect;
 GEN_SYSCALL(mprotect, 74);
 __typeof__(mach_msg) manual_mach_msg;
 GEN_SYSCALL(mach_msg, -31);
+__typeof__(mach_thread_self) manual_thread_self;
+GEN_SYSCALL(thread_self, -27);
 
 extern int __sigaction(int, struct __sigaction * __restrict, struct sigaction * __restrict);
 
@@ -63,6 +65,7 @@ static HTAB_STORAGE(mach_port_set) g_suspended_ports;
 static struct sigaction old_segv, old_bus;
 static execmem_pc_patch_callback g_pc_patch_callback;
 static void *g_pc_patch_callback_ctx;
+static mach_port_t g_suspending_thread;
 
 int execmem_alloc_unsealed(uintptr_t hint, void **page_p, size_t *size_p) {
     *size_p = PAGE_SIZE;
@@ -231,7 +234,7 @@ static void resume_other_threads() {
 static void segfault_handler(UNUSED void *func, int style, int sig,
                              UNUSED siginfo_t *sinfo, void *uap_) {
     ucontext_t *uap = uap_;
-    if (pthread_main_np()) {
+    if (manual_thread_self() == g_suspending_thread) {
         /* The patcher itself segfaulted.  Oops.  Reset the signal so the
          * process exits rather than going into an infinite loop. */
         signal(sig, SIG_DFL);
@@ -247,6 +250,7 @@ sigreturn:
 }
 
 static int init_pc_patch(execmem_pc_patch_callback callback, void *ctx) {
+    g_suspending_thread = mach_thread_self();
     g_pc_patch_callback = callback;
     g_pc_patch_callback_ctx = ctx;
     int ret;
