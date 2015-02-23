@@ -263,7 +263,7 @@ got_bits: UNUSED
             default: __builtin_abort();
         }
 
-        bool cond = (byte1 & 0xf0) != 0xe0;
+        bool cond = !(byte1 == 0xe2 || (byte1 >= 0xe8 && byte1 <= 0xeb));
         bool call = !(bits & I_JMP);
         P(branch)(ctx, ctx->base.pc + ctx->base.op_size + imm,
                   cond * CC_CONDITIONAL | call * CC_CALL);

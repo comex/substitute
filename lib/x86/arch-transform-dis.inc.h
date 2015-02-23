@@ -55,58 +55,66 @@ static void transform_dis_pcrel(struct transform_dis_ctx *ctx, uint64_t dpc,
 
 static void transform_dis_branch(struct transform_dis_ctx *ctx, uint_tptr dpc,
                                  int cc) {
-    if (dpc >= ctx->pc_patch_start && dpc < ctx->pc_patch_end) {
-        if (dpc == ctx->base.pc + ctx->base.op_size && (cc & CC_CALL)) {
-            /* Probably a poor man's PC-rel - 'call .; pop %some'.
-             * Push the original address.
-             * Max size: orig + 1 + 11 + 5 + 1
-             * Minimum call size is 4 bytes; at most 2. */
-            void *code = *ctx->rewritten_ptr_ptr;
-            ctx->write_newop_here = NULL;
+    if (dpc == ctx->base.pc + ctx->base.op_size && (cc & CC_CALL)) {
+        /* Probably a poor man's PC-rel - 'call .; pop %some'.
+         * Push the original address.
+         * Max size: orig + 1 + 11 + 5 + 1
+         * Minimum call size is 4 bytes; at most 2. */
+        void *code = *ctx->rewritten_ptr_ptr;
+        ctx->write_newop_here = NULL;
 
-            /* push %whatever */
-            op8(&code, 0x50);
-            /* push %rax; mov $dpc, %rax */
-            push_mov_head(&code, dpc, true);
-            /* mov %rax, 8(%rsp) / mov %eax, 4(%esp) */
+        /* push %whatever */
+        op8(&code, 0x50);
+        /* push %rax; mov $dpc, %rax */
+        push_mov_head(&code, dpc, true);
+        /* mov %rax, 8(%rsp) / mov %eax, 4(%esp) */
 #ifdef TARGET_x86_64
-            memcpy(code, ((uint8_t[]) {0x48, 0x8b, 0x44, 0x24, 0x08}), 5);
-            code += 5;
+        memcpy(code, ((uint8_t[]) {0x48, 0x8b, 0x44, 0x24, 0x08}), 5);
+        code += 5;
 #else
-            memcpy(code, ((uint8_t[]) {0x89, 0x44, 0x24, 0x04}), 4);
-            code += 4;
+        memcpy(code, ((uint8_t[]) {0x89, 0x44, 0x24, 0x04}), 4);
+        code += 4;
 #endif
-            /* pop %rax */
-            push_mov_tail(&code, true);
+        /* pop %rax */
+        push_mov_tail(&code, true);
 
-            *ctx->rewritten_ptr_ptr = code;
-            return;
-        }
+        *ctx->rewritten_ptr_ptr = code;
+        return;
+    }
+    if (dpc >= ctx->pc_patch_start && dpc < ctx->pc_patch_end) {
         ctx->err = SUBSTITUTE_ERR_FUNC_BAD_INSN_AT_START;
         return;
     }
     void *code = *ctx->rewritten_ptr_ptr;
-
-    ctx->write_newop_here = code;
-    code += ctx->base.op_size;
-
     struct arch_dis_ctx arch;
-    uintptr_t source = ctx->pc_trampoline + ctx->base.op_size + 2;
-    int size = jump_patch_size(source, dpc, arch, true);
-    /* If not taken, jmp past the big jump - this is a bit suboptimal but not
-     * that bad.
-     * Max size: orig + 2 + 14
-     * Minimum jump size is 2 bytes; at most 3. */
-    op8(&code, 0xeb);
-    op8(&code, size);
-    make_jump_patch(&code, source, dpc, arch);
 
-    *ctx->rewritten_ptr_ptr = code;
-    ctx->base.newval[0] = 2;
-    ctx->base.modify = true;
+    if (cc & CC_CONDITIONAL) {
+        ctx->write_newop_here = code;
+        code += ctx->base.op_size;
 
-    if (!cc)
+        uintptr_t source = ctx->pc_trampoline + ctx->base.op_size + 2;
+        int size = jump_patch_size(source, dpc, arch, true);
+
+        /* If not taken, jmp past the big jump - this is a bit suboptimal but not
+         * that bad.
+         * Max size: orig + 2 + 14
+         * Minimum jump size is 2 bytes; at most 3. */
+        op8(&code, 0xeb);
+        op8(&code, size);
+
+        make_jump_patch(&code, source, dpc, arch);
+
+        ctx->base.newval[0] = 2;
+        ctx->base.modify = true;
         transform_dis_ret(ctx);
+    } else {
+        ctx->write_newop_here = NULL;
+        make_jmp_or_call(&code, ctx->pc_trampoline, dpc, cc & CC_CALL);
+
+        if (!(cc & CC_CALL))
+            transform_dis_ret(ctx);
+    }
+    *ctx->rewritten_ptr_ptr = code;
 }
 
 static void transform_dis_pre_dis(UNUSED struct transform_dis_ctx *ctx) {}

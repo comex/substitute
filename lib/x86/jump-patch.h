@@ -13,19 +13,24 @@ static inline int jump_patch_size(uint_tptr pc, uint_tptr dpc,
         return force ? (2+4+8) : -1;
 }
 
-static inline void make_jump_patch(void **codep, uint_tptr pc, uint_tptr dpc,
-                                   UNUSED struct arch_dis_ctx arch) {
+static inline void make_jmp_or_call(void **codep, uint_tptr pc, uint_tptr dpc,
+                                    bool call) {
     uint_tptr diff = dpc - (pc + 5);
     void *code = *codep;
     if (diff == (uint_tptr) (int32_t) diff) {
-        op8(&code, 0xe9);
+        op8(&code, call ? 0xe8 : 0xe9);
         op32(&code, diff);
     } else {
         /* jmpq *(%rip) */
         op8(&code, 0xff);
-        op8(&code, 0x25);
+        op8(&code, call ? 0x15 : 0x25);
         op32(&code, 0);
         op64(&code, dpc);
     }
     *codep = code;
+}
+
+static inline void make_jump_patch(void **codep, uint_tptr pc, uint_tptr dpc,
+                                   UNUSED struct arch_dis_ctx arch) {
+    make_jmp_or_call(codep, pc, dpc, false);
 }
