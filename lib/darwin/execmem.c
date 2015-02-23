@@ -45,6 +45,8 @@ static void manual_memcpy(void *restrict dest, const void *src, size_t len) {
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-variable"
+#define __MachMsgErrorWithTimeout(_R_)
+#define __MachMsgErrorWithoutTimeout(_R_)
 #include "../generated/manual-mach.inc.h"
 #pragma GCC diagnostic pop
 
@@ -298,8 +300,8 @@ static int compare_dsts(const void *a, const void *b) {
     return dst_a < dst_b ? -1 : dst_a > dst_b ? 1 : 0;
 }
 
-static kern_return_t get_page_prot(uintptr_t ptr, vm_prot_t *prot,
-                                   vm_inherit_t *inherit) {
+static kern_return_t get_page_info(uintptr_t ptr, vm_prot_t *prot_p,
+                                   vm_inherit_t *inherit_p) {
 
     vm_address_t region = (vm_address_t) ptr;
     vm_size_t region_len = 0;
@@ -310,8 +312,8 @@ static kern_return_t get_page_prot(uintptr_t ptr, vm_prot_t *prot,
                                             &max_depth,
                                             (vm_region_recurse_info_t) &info,
                                             &info_count);
-    *prot = info.protection & (PROT_READ | PROT_WRITE | PROT_EXEC);
-    *inherit = info.inheritance;
+    *prot_p = info.protection & (PROT_READ | PROT_WRITE | PROT_EXEC);
+    *inherit_p = info.inheritance;
     return kr;
 }
 
@@ -369,7 +371,7 @@ int execmem_foreign_write_with_pc_patch(struct execmem_foreign_write *writes,
         /* Assume that a single patch region will be pages of all the same
          * protection, since the alternative is probably someone doing
          * something wrong. */
-        kern_return_t kr = get_page_prot(page_start, &prot, &inherit);
+        kern_return_t kr = get_page_info(page_start, &prot, &inherit);
         if (kr) {
             /* Weird; this probably means the region doesn't exist, but we should
              * have already read from the memory in order to generate the patch. */
@@ -427,16 +429,16 @@ int execmem_foreign_write_with_pc_patch(struct execmem_foreign_write *writes,
         }
 
         /* Protect new like the original, and move it into place. */
-        vm_address_t target = page_start;
         if (manual_mprotect(new, len, prot)) {
             ret = SUBSTITUTE_ERR_VM;
             goto fail_unmap;
         }
         vm_prot_t c, m;
-        printf("new=%p\n", new);
-        kr = manual_vm_remap(task_self, &target, len, 0, VM_FLAGS_OVERWRITE,
-                             task_self, (vm_address_t) new, /*copy*/ FALSE,
-                             &c, &m, inherit, reply_port);
+        mach_vm_address_t target = page_start;
+        kr = manual_mach_vm_remap(mach_task_self(), &target, len, 0,
+                                  VM_FLAGS_OVERWRITE, task_self,
+                                  (mach_vm_address_t) new, /*copy*/ TRUE,
+                                  &c, &m, inherit, reply_port);
         if (kr) {
             ret = SUBSTITUTE_ERR_VM;
             goto fail_unmap;

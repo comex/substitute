@@ -38,7 +38,7 @@ $(eval $(call do_prefix,thumb,-n _thumb,ARM))
 $(eval $(call do_prefix,arm,-n _arm,ARM))
 $(eval $(call do_prefix,arm64,,AArch64))
 
-HEADERS := lib/*.h lib/*/*.h
+HEADERS := lib/*.h lib/*/*.h generated/manual-mach.inc.h
 
 out/%.o: lib/%.c Makefile $(HEADERS)
 	@mkdir -p $(dir $@)
@@ -141,7 +141,7 @@ $(eval $(call define_test,interpose,interpose,$(CC) -std=c11 -lsubstitute))
 $(eval $(call define_test,inject,inject,$(CC) -std=c11 -lsubstitute out/darwin/inject.o out/darwin/read.o))
 $(eval $(call define_test,pc-patch,pc-patch,$(CC) -std=c11 out/darwin/execmem.o))
 $(eval $(call define_test,execmem,execmem,$(CC) -std=c11 out/darwin/execmem.o -segprot __TEST rwx rx))
-$(eval $(call define_test,hook-functions,hook-functions,$(CC) -std=c11 -lsubstitute))
+$(eval $(call define_test,hook-functions,hook-functions,$(CC) -std=c11 -lsubstitute -segprot __TEST rwx rx))
 $(eval $(call define_test,posixspawn-hook,posixspawn-hook,$(CC) -std=c11))
 $(eval $(call define_test,htab,htab,$(CC) -std=c11))
 

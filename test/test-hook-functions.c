@@ -31,7 +31,17 @@ void break_after() {
     __asm__ volatile("");
 }
 
+__attribute__((section("__TEST,__foo"), noinline))
+static int my_own_function(int x) {
+    return x + 4;
+}
+
+static int hook_my_own_function(int x) {
+    return x + 5;
+}
+
 static const struct substitute_function_hook hooks[] = {
+    {my_own_function, hook_my_own_function, NULL},
     {getpid, hook_getpid, &old_getpid},
     {hcreate, hook_hcreate, NULL},
     {fwrite, hook_fwrite, &old_fwrite},
@@ -55,6 +65,7 @@ int main() {
     printf("errno = %d\n", e);
     printf("getpid() => %d\n", getpid());
     printf("hcreate() => %d\n", hcreate(42));
+    printf("my_own_function() => %d\n", my_own_function(0));
 #else
     (void) hooks;
     printf("can't test this here\n");

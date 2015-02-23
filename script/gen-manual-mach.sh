@@ -1,6 +1,6 @@
 #!/bin/bash
 out=generated/manual-mach.inc.h
-(mig -user /dev/stdout -server /dev/null -header /dev/null /usr/include/mach/{thread_act,vm_map}.defs |
+(mig -user /dev/stdout -server /dev/null -header /dev/null /usr/include/mach/{thread_act,mach_vm}.defs |
      unifdef -U__MigTypeCheck |
      grep -v '#define USING_VOUCHERS' |
      sed -E 's/(mach_msg|memcpy)\(/manual_\1(/g;
