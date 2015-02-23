@@ -55,11 +55,6 @@ DECL_STATIC_HTAB_KEY(mach_port_t, mach_port_t, port_hash, port_eq, port_null, 0)
 struct empty {};
 DECL_HTAB(mach_port_set, mach_port_t, struct empty);
 
-    /* ORPHAN: We do the syscall manually just in case the user is trying to write to
-     * the mprotect syscall stub itself, or one of the functions it calls.
-     * (Obviously, it will still break if the user targets some libsubstitute
-     * function within the same page as this one, though.) */
-
 /* This should only run on the main thread, so just use globals. */
 static HTAB_STORAGE(mach_port_set) g_suspended_ports;
 static struct sigaction old_segv, old_bus;
