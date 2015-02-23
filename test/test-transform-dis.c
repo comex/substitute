@@ -37,7 +37,8 @@ static void do_manual(uint8_t *in, size_t in_size, int patch_size,
         &pc_patch_end,
         pc_trampoline,
         &arch,
-        offsets);
+        offsets,
+        TRANSFORM_DIS_BAN_CALLS);
     printf("=> %d\n", ret);
     printf("#endif\n");
     int print_out_idx = 0;
@@ -97,8 +98,10 @@ static void do_auto(uint8_t *in, size_t in_size, struct arch_dis_ctx arch) {
         if (!memcmp(expect, "_ERR", 4)) {
             expect_err = true;
             in += 4;
-            assert(!memcmp(in, "GIVEN", 5));
-            in += 5;
+            if (in != end) {
+                assert(!memcmp(in, "GIVEN", 5));
+                in += 5;
+            }
         } else {
             in = memmem(in, end - in, "GIVEN", 5);
             if (in) {
@@ -123,7 +126,8 @@ static void do_auto(uint8_t *in, size_t in_size, struct arch_dis_ctx arch) {
             &pc_patch_end,
             pc_trampoline,
             &arch,
-            offsets);
+            offsets,
+            TRANSFORM_DIS_BAN_CALLS);
         if (ret) {
             if (expect_err) {
                 printf("OK\n");

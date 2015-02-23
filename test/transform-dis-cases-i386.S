@@ -17,3 +17,15 @@ EXPECT 2: .byte 0x0f, 0x85; .long 2; jmp 1f; 0: jmp .+0x10000+0x1000-8; 1:
 
 GIVEN loopne .+0x80
 EXPECT loopne 0f; jmp 1f; 0: jmp .+0x10000+0x80-4; 1:
+
+GIVEN call .+0x1000; nop
+EXPECT_ERR
+
+GIVEN call *%edi
+EXPECT call *%edi
+
+GIVEN call *%edi; nop
+EXPECT_ERR
+
+GIVEN call *(%edi); nop
+EXPECT_ERR

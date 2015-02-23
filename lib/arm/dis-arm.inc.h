@@ -206,6 +206,13 @@ static INLINE void P(GPR_Rt_addr_offset_none_addr_postidx_reg_Rm_S_1_STRHTr)(tdi
 static INLINE void P(GPR_dst_B_2_BX)(tdis_ctx ctx, UNUSED struct bitslice dst) {
     return P(ret)(ctx);
 }
+static INLINE void P(GPR_func_3_BLX)(tdis_ctx ctx, UNUSED struct bitslice func) {
+    return P(indirect_call)(ctx);
+}
+static INLINE void P(bl_target_func_2_BL)(tdis_ctx ctx, struct bitslice func) {
+    return P(branch)(ctx, ctx->base.pc + 8 + sext(bs_get(func, ctx->base.op), 24),
+                     CC_CALL);
+}
 
 static INLINE void P(dis_arm)(tdis_ctx ctx) {
     uint32_t op = ctx->base.op = *(uint32_t *) ctx->base.ptr;

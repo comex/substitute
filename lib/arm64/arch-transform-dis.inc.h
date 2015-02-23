@@ -23,10 +23,7 @@ void transform_dis_branch(struct transform_dis_ctx *ctx, uint_tptr dpc, int cc) 
            (unsigned long long) ctx->base.pc,
            (unsigned long long) dpc);
 #endif
-    if (dpc >= ctx->pc_patch_start && dpc < ctx->pc_patch_end) {
-        ctx->err = SUBSTITUTE_ERR_FUNC_BAD_INSN_AT_START;
-        return;
-    }
+    transform_dis_branch_top(ctx, dpc, cc);
     ctx->write_newop_here = NULL;
     int mov_br_size = size_of_MOVi64(dpc) + 4;
 
@@ -42,7 +39,7 @@ void transform_dis_branch(struct transform_dis_ctx *ctx, uint_tptr dpc, int cc) 
     }
     int reg = arm64_get_unwritten_temp_reg(&ctx->arch);
     MOVi64(codep, reg, dpc);
-    BR(codep, reg);
+    BR(codep, reg, /*link*/ cc & CC_CALL);
 }
 
 static void transform_dis_pre_dis(UNUSED struct transform_dis_ctx *ctx) {}

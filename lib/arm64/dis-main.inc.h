@@ -55,8 +55,13 @@ static INLINE void P(am_ldrlit_label_unk_Rt_6_LDRDl)(tdis_ctx ctx, struct bitsli
     return P(pcrel)(ctx, ctx->base.pc + sext(bs_get(label, ctx->base.op), 19) * 4,
                     (struct arch_pcrel_info) {bs_get(Rt, ctx->base.op), mode});
 }
-static INLINE void P(GPR64_Rn_1_RET)(tdis_ctx ctx, UNUSED struct bitslice Rn) {
-    return P(ret)(ctx);
+
+static INLINE void P(GPR64_Rn_2_BLR)(tdis_ctx ctx, UNUSED struct bitslice Rn) {
+    int op = ctx->base.op >> 21 & 3;
+    if (op == 1)
+        return P(indirect_call)(ctx);
+    else
+        return P(ret)(ctx);
 }
 
 static INLINE void P(dis)(tdis_ctx ctx) {

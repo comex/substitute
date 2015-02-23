@@ -29,6 +29,14 @@ enum {
      * updated to handle that case properly */
     SUBSTITUTE_ERR_FUNC_BAD_INSN_AT_START,
 
+    /* substitute_hook_functions: can't patch a function because one of the
+     * instructions within the patch region (other than the last instruction)
+     * is a call - meaning that a return address within the region (i.e. about
+     * to point to clobbered code) could be on some thread's stack, where we
+     * can't easily find and patch it.  This check is skipped if
+     * SUBSTITUTE_NO_THREAD_SAFETY is set. */
+    SUBSTITUTE_ERR_FUNC_CALLS_AT_START,
+
     /* substitute_hook_functions: can't patch a function because the (somewhat
      * cursory) jump analysis found a jump later in the function to within the
      * patch region at the beginning */

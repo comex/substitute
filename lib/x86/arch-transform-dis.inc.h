@@ -81,10 +81,7 @@ static void transform_dis_branch(struct transform_dis_ctx *ctx, uint_tptr dpc,
         *ctx->rewritten_ptr_ptr = code;
         return;
     }
-    if (dpc >= ctx->pc_patch_start && dpc < ctx->pc_patch_end) {
-        ctx->err = SUBSTITUTE_ERR_FUNC_BAD_INSN_AT_START;
-        return;
-    }
+    transform_dis_branch_top(ctx, dpc, cc);
     void *code = *ctx->rewritten_ptr_ptr;
     struct arch_dis_ctx arch;
 
@@ -109,10 +106,8 @@ static void transform_dis_branch(struct transform_dis_ctx *ctx, uint_tptr dpc,
         transform_dis_ret(ctx);
     } else {
         ctx->write_newop_here = NULL;
-        make_jmp_or_call(&code, ctx->pc_trampoline, dpc, cc & CC_CALL);
 
-        if (!(cc & CC_CALL))
-            transform_dis_ret(ctx);
+        make_jmp_or_call(&code, ctx->pc_trampoline, dpc, cc & CC_CALL);
     }
     *ctx->rewritten_ptr_ptr = code;
 }

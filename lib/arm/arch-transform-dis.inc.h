@@ -113,7 +113,7 @@ void transform_dis_data(struct transform_dis_ctx *ctx, unsigned o0, unsigned o1,
             POPone(actx, scratch);
         }
     }
-    ctx->modify = true;
+    ctx->base.modify = true;
 #ifdef TRANSFORM_DIS_VERBOSE
     printf("transform_dis_data: => %x %x %x %x\n",
            newval[0], newval[1], newval[2], newval[3]);
@@ -149,23 +149,18 @@ void transform_dis_pcrel(struct transform_dis_ctx *ctx, uintptr_t dpc,
 }
 
 static NOINLINE UNUSED
-void transform_dis_branch(struct transform_dis_ctx *ctx,
-        uintptr_t dpc, int cc) {
+void transform_dis_branch(struct transform_dis_ctx *ctx, uintptr_t dpc, int cc) {
 #ifdef TRANSFORM_DIS_VERBOSE
     printf("transform_dis (0x%llx): branch => 0x%llx\n",
            (unsigned long long) ctx->base.pc,
            (unsigned long long) dpc);
 #endif
-    if (dpc >= ctx->pc_patch_start && dpc < ctx->pc_patch_end) {
-        /* don't support this for now */
-        /* making the simplifying assumption here that functions will not try
-         * to branch into the middle of an IT block, which is the case where
-         * pc_patch_end changes to include additional instructions (as opposed
-         * to include the end of a partially included instruction, which is
-         * common) */
-        ctx->err = SUBSTITUTE_ERR_FUNC_BAD_INSN_AT_START;
-        return;
-    }
+    /* The check in transform_dis_branch_top is correct under the simplifying
+     * assumption here that functions will not try to branch into the middle of
+     * an IT block, which is the case where pc_patch_end changes to include
+     * additional instructions (as opposed to include the end of a partially
+     * included instruction, which is common). */
+    transform_dis_branch_top(ctx, dpc, cc);
     struct assemble_ctx actx = tdctx_to_actx(ctx);
     ctx->write_newop_here = NULL;
     if ((cc & CC_ARMCC) == CC_ARMCC) {

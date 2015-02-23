@@ -170,6 +170,24 @@ static INLINE void P(unk_Rm_B_2_t2TBB)(tdis_ctx ctx, UNUSED struct bitslice Rm) 
 static INLINE void P(unk_Rt_13_VMOVRRD)(tdis_ctx ctx, UNUSED struct bitslice Rt) {
     return P(unidentified)(ctx);
 }
+static INLINE void P(t_bltarget_func_1_tBL)(tdis_ctx ctx, struct bitslice func) {
+    unsigned crap = bs_get(func, ctx->base.op) << 1;
+    unsigned S = crap >> 24 & 1;
+    if (S)
+        crap ^= (3 << 22);
+    return P(branch)(ctx, ctx->base.pc + 4 + 2 * sext(crap, 25), CC_CALL);
+
+}
+static INLINE void P(t_blxtarget_func_1_tBLXi)(tdis_ctx ctx, struct bitslice func) {
+    unsigned crap = bs_get(func, ctx->base.op);
+    unsigned S = crap >> 24 & 1;
+    if (S)
+        crap ^= (3 << 22);
+    return P(branch)(ctx, ctx->base.pc + 4 + 2 * sext(crap, 25), CC_CALL);
+}
+static INLINE void P(rGPR_func_1_t2BXJ)(tdis_ctx ctx, UNUSED struct bitslice func) {
+    return P(unidentified)(ctx);
+}
 
 static INLINE void P(thumb2_do_it)(tdis_ctx ctx) {
     uint32_t op = ctx->base.op;

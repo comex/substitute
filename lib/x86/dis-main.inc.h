@@ -44,6 +44,7 @@ VEX last byte 1:0: {none, 66, f3, f2}
 #define I_JIMM_ONLY 0x80 /* imm is jump offset */
 #define I_JIMM (0x80|I_JMP)
 #define I_BAD  0x80
+#define I_CALL 0x100 /* not really in the table */
 #ifdef TARGET_x86_64
 #define if64(_64, _32) _64
 #else
@@ -119,7 +120,7 @@ static void P(dis)(tdis_ctx ctx) {
     int mod, rm = 0;
 restart:;
     uint8_t byte1 = *ptr++;
-    uint8_t bits = onebyte_bits[byte1];
+    int bits = onebyte_bits[byte1];
     /* printf("b1=%x bytes=%x\n", byte1, bits); */
     if ((bits & I_TYPE_MASK) == I_SPEC) {
         if (byte1 == 0x0f) {
@@ -134,6 +135,8 @@ restart:;
             int subop = modrm >> 3 & 7;
             if (subop == 4 || subop == 5) /* JMP */
                 bits = I_JMP | I_MODA;
+            else if (subop == 2 || subop == 3) /* CALL */
+                bits = I_CALL | I_MODA;
             else
                 bits = I_MODA;
         } else {
@@ -283,6 +286,8 @@ got_bits: UNUSED
 #ifdef TARGET_x86_64
     } else if ((bits & I_MODA) == I_MODA && mod == 0 && rm == 5) {
         int32_t disp = *(int32_t *) (orig + modrm_off + 1);
+        if (bits & I_CALL)
+            P(indirect_call)(ctx);
         /* unlike ARM, we can always switch to non-pcrel without making the
          * instruction from scratch, so we don't have 'reg' and 'lm' */
         struct arch_pcrel_info info = {
@@ -319,6 +324,8 @@ got_bits: UNUSED
 #endif
     } else if ((bits & I_TYPE_MASK) == I_JMP) {
         P(ret)(ctx);
+    } else if (bits & I_CALL) {
+        P(indirect_call)(ctx);
     } else {
         P(unidentified)(ctx);
     }

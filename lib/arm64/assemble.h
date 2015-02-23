@@ -56,8 +56,8 @@ static inline void ADRP_ADD(void **codep, int reg, uint64_t pc, uint64_t dpc) {
     }
 }
 
-static inline void BR(void **codep, int reg) {
-    op32(codep, 0xd61f0000 | reg << 5);
+static inline void BR(void **codep, int reg, bool link) {
+    op32(codep, 0xd61f0000 | reg << 5 | link << 21);
 }
 
 static inline void Bccrel(void **codep, int cc, int offset) {

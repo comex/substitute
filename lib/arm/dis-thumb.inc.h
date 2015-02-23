@@ -81,6 +81,9 @@ static INLINE void P(it_pred_cc_it_mask_mask_1_t2IT)(tdis_ctx ctx, struct bitsli
         ctx->arch.it_conds[i+2] = (cc_val & ~1) | (mask_val >> (3 - i) & 1);
     return P(thumb_it)(ctx);
 }
+static INLINE void P(GPR_func_1_tBLXr)(tdis_ctx ctx, UNUSED struct bitslice func) {
+    return P(indirect_call)(ctx);
+}
 
 static INLINE void P(thumb_do_it)(tdis_ctx ctx) {
     uint16_t op = ctx->base.op = *(uint16_t *) ctx->base.ptr;

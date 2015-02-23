@@ -91,6 +91,10 @@ void jump_dis_pcrel(struct jump_dis_ctx *ctx, uint_tptr dpc,
 }
 
 static INLINE UNUSED
+void jump_dis_indirect_call(UNUSED struct jump_dis_ctx *ctx) {
+}
+
+static INLINE UNUSED
 void jump_dis_ret(struct jump_dis_ctx *ctx) {
     ctx->continue_after_this_insn = false;
 }

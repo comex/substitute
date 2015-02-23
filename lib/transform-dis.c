@@ -12,7 +12,6 @@
 
 struct transform_dis_ctx {
     /* outputs */
-    bool modify;
     int err;
     struct dis_ctx_base base;
 
@@ -24,6 +23,8 @@ struct transform_dis_ctx {
     /* for IT - eww */
     bool force_keep_transforming;
 
+    bool ban_calls; /* i.e. trying to be thread safe */
+
     void **rewritten_ptr_ptr;
     void *write_newop_here;
 
@@ -34,7 +35,14 @@ struct transform_dis_ctx {
 
 /* largely similar to jump_dis */
 
-static INLINE UNUSED
+static NOINLINE UNUSED
+void transform_dis_indirect_call(struct transform_dis_ctx *ctx) {
+    /* see error description */
+    if (ctx->ban_calls && ctx->base.pc + ctx->base.op_size < ctx->pc_patch_end)
+        ctx->err = SUBSTITUTE_ERR_FUNC_CALLS_AT_START;
+}
+
+static NOINLINE UNUSED
 void transform_dis_ret(struct transform_dis_ctx *ctx) {
     /* ret is okay if it's at the end of the required patch (past the original
      * patch size is good too) */
@@ -42,7 +50,7 @@ void transform_dis_ret(struct transform_dis_ctx *ctx) {
         ctx->err = SUBSTITUTE_ERR_FUNC_TOO_SHORT;
 }
 
-static INLINE UNUSED
+static UNUSED
 void transform_dis_unidentified(UNUSED struct transform_dis_ctx *ctx) {
 #ifdef TRANSFORM_DIS_VERBOSE
     printf("transform_dis (0x%llx): unidentified\n", 
@@ -51,7 +59,7 @@ void transform_dis_unidentified(UNUSED struct transform_dis_ctx *ctx) {
     /* this isn't exhaustive, so unidentified is fine */
 }
 
-static INLINE UNUSED
+static NOINLINE UNUSED
 void transform_dis_bad(struct transform_dis_ctx *ctx) {
     ctx->err = SUBSTITUTE_ERR_FUNC_BAD_INSN_AT_START;
 }
@@ -59,6 +67,20 @@ void transform_dis_bad(struct transform_dis_ctx *ctx) {
 static INLINE UNUSED
 void transform_dis_thumb_it(UNUSED struct transform_dis_ctx *ctx) {
     /* ignore, since it was turned into B */
+}
+
+static void transform_dis_branch_top(struct transform_dis_ctx *ctx,
+                                     uintptr_t dpc, int cc) {
+    if (dpc >= ctx->pc_patch_start && dpc < ctx->pc_patch_end) {
+        /* don't support this for now */
+        ctx->err = SUBSTITUTE_ERR_FUNC_BAD_INSN_AT_START;
+        return;
+    }
+    if (cc & CC_CALL) {
+        transform_dis_indirect_call(ctx);
+    } else {
+        transform_dis_ret(ctx);
+    }
 }
 
 static void transform_dis_dis(struct transform_dis_ctx *ctx);
@@ -71,13 +93,15 @@ int transform_dis_main(const void *restrict code_ptr,
                        uint_tptr *pc_patch_end_p,
                        uint_tptr pc_trampoline,
                        struct arch_dis_ctx *arch_ctx_p,
-                       int *offset_by_pcdiff) {
+                       int *offset_by_pcdiff,
+                       int options) {
     struct transform_dis_ctx ctx;
     memset(&ctx, 0, sizeof(ctx));
     ctx.pc_patch_start = pc_patch_start;
     ctx.pc_patch_end = *pc_patch_end_p;
     ctx.base.pc = pc_patch_start;
     ctx.arch = *arch_ctx_p;
+    ctx.ban_calls = options & TRANSFORM_DIS_BAN_CALLS;
     /* data is written to rewritten both by this function directly and, in case
      * additional scaffolding is needed, by arch-specific transform_dis_* */
     ctx.rewritten_ptr_ptr = rewritten_ptr_ptr;

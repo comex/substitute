@@ -3,10 +3,13 @@
 #include <stdbool.h>
 #include stringify(TARGET_DIR/arch-dis.h)
 
+#define TRANSFORM_DIS_BAN_CALLS 1
+
 int transform_dis_main(const void *restrict code_ptr,
                        void **restrict rewritten_ptr_ptr,
                        uint_tptr pc_patch_start,
                        uint_tptr *pc_patch_end_p,
                        uint_tptr pc_trampoline,
                        struct arch_dis_ctx *arch_ctx_p,
-                       int *offset_by_pcdiff);
+                       int *offset_by_pcdiff,
+                       int options);

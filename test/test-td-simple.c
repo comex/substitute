@@ -49,6 +49,11 @@ static void P_ret(UNUSED struct tc *ctx) {
 }
 
 NOINLINE UNUSED
+static void P_indirect_call(UNUSED struct tc *ctx) {
+    printf("indirect call\n");
+}
+
+NOINLINE UNUSED
 static void P_branch(UNUSED struct tc *ctx, uint64_t dpc, int cc) {
     printf("branch(%s,%s) => %08llx\n",
            (cc & CC_CONDITIONAL) ? "cond" : "uncond",

@@ -207,7 +207,8 @@ int substitute_hook_functions(const struct substitute_function_hook *hooks,
          * ending make_jump_patch call) */
         if ((ret = transform_dis_main(code, &trampoline_ptr, pc_patch_start,
                                       &pc_patch_end, (uintptr_t) trampoline_ptr,
-                                      &arch, hi->offset_by_pcdiff)))
+                                      &arch, hi->offset_by_pcdiff,
+                                      thread_safe ? TRANSFORM_DIS_BAN_CALLS : 0)))
             goto end;
 
         uintptr_t dpc = pc_patch_end;
