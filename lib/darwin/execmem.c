@@ -402,9 +402,10 @@ int execmem_foreign_write_with_pc_patch(struct execmem_foreign_write *writes,
          * hook one of them.  (This includes the mmap, since there's an epilog
          * after the actual syscall instruction.)
          * This includes the signal handler! */
-        if (manual_mmap((void *) page_start, len, PROT_NONE,
-                        MAP_ANON | MAP_SHARED | MAP_FIXED, -1, 0)
-            == MAP_FAILED) {
+        void *mmret = manual_mmap((void *) page_start, len, PROT_NONE,
+                                  MAP_ANON | MAP_SHARED | MAP_FIXED, -1, 0);
+        /* MAP_FAILED is a userspace construct */
+        if ((uintptr_t) mmret & 0xfff) {
             ret = SUBSTITUTE_ERR_VM;
             goto fail_unmap;
         }

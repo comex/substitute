@@ -23,9 +23,12 @@
 #elif defined(__i386__)
 #define GEN_SYSCALL_INNER() \
     "mov $num, %eax\n" \
-    "pop %edx\n" \
+    "call 0f\n" \
+    "0: pop %edx\n" \
+    "add $(1f-0b), %edx\n" \
     "mov %esp, %ecx\n" \
-    "sysenter\n"
+    "sysenter\n" \
+    "1: ret\n"
 #elif defined(__arm__)
 #define GEN_SYSCALL_INNER() \
     "mov r12, #num\n" \
