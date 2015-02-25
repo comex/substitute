@@ -35,11 +35,16 @@
 #ifdef __thumb__
 #undef GEN_SYSCALL_PRE
 #define GEN_SYSCALL_PRE(name) \
-    ".thumb_func _manual_" #name "\n"
+    ".thumb_func _manual_" #name "\n" \
+    ".align 2\n"
 #endif
 #define GEN_SYSCALL_INNER() \
+    "mov r12, sp\n" \
+    "push {r4-r6}\n" \
+    "ldm r12, {r4-r6}\n" \
     "mov r12, #num\n" \
     "svc #0x80\n" \
+    "pop {r4-r6}\n" \
     "bx lr\n"
 #elif defined(__arm64__)
 #define GEN_SYSCALL_INNER() \
