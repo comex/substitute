@@ -22,5 +22,5 @@ static inline void make_jump_patch(void **codep, uintptr_t pc, uintptr_t dpc,
         MOVi64(codep, reg, dpc);
     else
         ADRP_ADD(codep, reg, pc, dpc);
-    BR(codep, reg);
+    BR(codep, reg, false);
 }

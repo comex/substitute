@@ -1,7 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include <stdbool.h>
-#include stringify(TARGET_DIR/arch-dis.h)
+#include "dis.h"
 
 #define TRANSFORM_DIS_BAN_CALLS 1
 

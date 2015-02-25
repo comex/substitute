@@ -115,7 +115,7 @@ static bool apply_one_pcp_with_state(native_thread_state *state,
     uintptr_t old = *pcp;
 #ifdef __arm__
     /* thumb */
-    if (state.cpsr & 0x20)
+    if (state->__cpsr & 0x20)
         old |= 1;
 #endif
     uintptr_t new = callback(ctx, *pcp);
@@ -123,7 +123,7 @@ static bool apply_one_pcp_with_state(native_thread_state *state,
     *pcp = new;
 #ifdef __arm__
     *pcp &= ~1;
-    state.cpsr = (state.cpsr & ~0x20) | ((new & 1) * 0x20);
+    state->__cpsr = (state->__cpsr & ~0x20) | ((new & 1) * 0x20);
 #endif
     return changed;
 }
