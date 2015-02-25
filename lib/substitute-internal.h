@@ -75,7 +75,6 @@ enum {
      * can happen are really complicated and dumb, but generally one solution
      * is to be root */
     SUBSTITUTE_ERR_TASK_FOR_PID = 1000,
-    SUBSTITUTE_ERR_TIMEOUT = 1000,
     SUBSTITUTE_ERR_MISC,
 };
 

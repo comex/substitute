@@ -21,13 +21,13 @@ enum {
     /* substitute_hook_functions: can't patch a function because it's too short-
      * i.e. there's an unconditional return instruction inside the patch region
      * (and not at its end) */
-    SUBSTITUTE_ERR_FUNC_TOO_SHORT,
+    SUBSTITUTE_ERR_FUNC_TOO_SHORT = 1,
 
     /* substitute_hook_functions: can't patch a function because one of the
      * instructions within the patch region is one of a few special problematic
      * cases - if you get this on real code, the library should probably be
      * updated to handle that case properly */
-    SUBSTITUTE_ERR_FUNC_BAD_INSN_AT_START,
+    SUBSTITUTE_ERR_FUNC_BAD_INSN_AT_START = 2,
 
     /* substitute_hook_functions: can't patch a function because one of the
      * instructions within the patch region (other than the last instruction)
@@ -35,28 +35,28 @@ enum {
      * to point to clobbered code) could be on some thread's stack, where we
      * can't easily find and patch it.  This check is skipped if
      * SUBSTITUTE_NO_THREAD_SAFETY is set. */
-    SUBSTITUTE_ERR_FUNC_CALLS_AT_START,
+    SUBSTITUTE_ERR_FUNC_CALLS_AT_START = 3,
 
     /* substitute_hook_functions: can't patch a function because the (somewhat
      * cursory) jump analysis found a jump later in the function to within the
      * patch region at the beginning */
-    SUBSTITUTE_ERR_FUNC_JUMPS_TO_START,
+    SUBSTITUTE_ERR_FUNC_JUMPS_TO_START = 4,
 
     /* out of memory */
-    SUBSTITUTE_ERR_OOM,
+    SUBSTITUTE_ERR_OOM = 5,
 
     /* substitute_hook_functions:    mmap, mprotect, vm_copy, or
      *                               vm_remap failure
      * substitute_hook_objc_message: vm_remap failure
      * Most likely to come up with substitute_hook_functions if the kernel is
      * preventing pages from being marked executable. */
-    SUBSTITUTE_ERR_VM,
+    SUBSTITUTE_ERR_VM = 6,
 
     /* substitute_hook_functions: not on the main thread (so stopping all other
      * threads would be unsafe, as concurrent attempts to do the same from
      * other threads would result in deadlock), and you did not pass
      * SUBSTITUTE_NO_THREAD_SAFETY */
-    SUBSTITUTE_ERR_NOT_ON_MAIN_THREAD,
+    SUBSTITUTE_ERR_NOT_ON_MAIN_THREAD = 7,
 
     /* substitute_hook_functions: when trying to patch the PC of other threads
      * (in case they were inside the patched prolog when they were suspended),
@@ -64,22 +64,24 @@ enum {
      * instruction boundary
      * The hooks were otherwise completed, but the thread in question will
      * probably crash now that its code has changed under it. */
-    SUBSTITUTE_ERR_UNEXPECTED_PC_ON_OTHER_THREAD,
+    SUBSTITUTE_ERR_UNEXPECTED_PC_ON_OTHER_THREAD = 8,
 
     /* substitute_hook_functions: destination was out of range, and mmap
      * wouldn't give us a trampoline in range */
-    SUBSTITUTE_ERR_OUT_OF_RANGE,
+    SUBSTITUTE_ERR_OUT_OF_RANGE = 9,
 
     /* substitute_interpose_imports: couldn't redo relocation for an import
      * because the type was unknown */
-    SUBSTITUTE_ERR_UNKNOWN_RELOCATION_TYPE,
+    SUBSTITUTE_ERR_UNKNOWN_RELOCATION_TYPE = 10,
 
     /* substitute_hook_objc_message: no such selector existed in the class's
      * inheritance tree */
-    SUBSTITUTE_ERR_NO_SUCH_SELECTOR,
+    SUBSTITUTE_ERR_NO_SUCH_SELECTOR = 11,
 
     /* substitute_hook_functions: OS error suspending other threads */
-    SUBSTITUTE_ERR_ADJUSTING_THREADS,
+    SUBSTITUTE_ERR_ADJUSTING_THREADS = 12,
+
+    _SUBSTITUTE_CURRENT_MAX_ERR_PLUS_ONE,
 };
 
 struct substitute_function_hook {
