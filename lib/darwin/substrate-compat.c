@@ -45,8 +45,8 @@ void SubHookFunction(void *symbol, void *replace, void **result) {
     struct substitute_function_hook hook = {symbol, replace, result};
     int ret = substitute_hook_functions(&hook, 1, SUBSTITUTE_NO_THREAD_SAFETY);
     if (ret) {
-        panic("SubHookFunction: substitute_hook_functions returned %s\n",
-              substitute_strerror(ret));
+        substitute_panic("SubHookFunction: substitute_hook_functions returned %s\n",
+                         substitute_strerror(ret));
     }
 }
 #endif
@@ -58,7 +58,7 @@ void SubHookMessageEx(Class _class, SEL sel, IMP imp, IMP *result)
 void SubHookMessageEx(Class _class, SEL sel, IMP imp, IMP *result) {
     int ret = substitute_hook_objc_message(_class, sel, imp, result, NULL);
     if (ret) {
-        panic("SubHookMessageEx: substitute_hook_objc_message returned %s\n",
-              substitute_strerror(ret));
+        substitute_panic("SubHookMessageEx: substitute_hook_objc_message returned %s\n",
+                         substitute_strerror(ret));
     }
 }
