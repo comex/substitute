@@ -65,7 +65,7 @@ static INLINE void P(GPR64_Rn_2_BLR)(tdis_ctx ctx, UNUSED struct bitslice Rn) {
 }
 
 static INLINE void P(dis)(tdis_ctx ctx) {
-    uint32_t op = ctx->base.op = *(uint32_t *) ctx->base.ptr;
+    uint32_t op = ctx->base.op = unaligned_r32(ctx->base.ptr);
     ctx->base.op_size = ctx->base.newop_size = 4;
     /* clang doesn't realize that this is unreachable and generates code like
      * "and ecx, 0x1f; cmp ecx, 0x1f; ja abort".  Yeah, nice job there. */

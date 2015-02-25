@@ -9,6 +9,31 @@
 #define INLINE __attribute__((always_inline))
 #define NOINLINE __attribute__((noinline))
 
+static INLINE inline void unaligned_w64(void *ptr, uint64_t val) {
+    __builtin_memcpy(ptr, &val, 8);
+}
+static INLINE inline void unaligned_w32(void *ptr, uint32_t val) {
+    __builtin_memcpy(ptr, &val, 4);
+}
+static INLINE inline void unaligned_w16(void *ptr, uint16_t val) {
+    __builtin_memcpy(ptr, &val, 2);
+}
+static INLINE inline uint64_t unaligned_r64(const void *ptr) {
+    uint64_t val;
+    __builtin_memcpy(&val, ptr, 8);
+    return val;
+}
+static INLINE inline uint32_t unaligned_r32(const void *ptr) {
+    uint32_t val;
+    __builtin_memcpy(&val, ptr, 4);
+    return val;
+}
+static INLINE inline uint16_t unaligned_r16(const void *ptr) {
+    uint16_t val;
+    __builtin_memcpy(&val, ptr, 2);
+    return val;
+}
+
 struct bitslice_run {
     int inpos, outpos, len;
 };
@@ -113,17 +138,17 @@ static const unsigned null_op = -0x100;
 #endif
 
 static inline void op64(void **codep, uint64_t op) {
-    *(uint64_t *) *codep = op;
+    unaligned_w64(*codep, op);
     *codep += 8;
 }
 
 static inline void op32(void **codep, uint32_t op) {
-    *(uint32_t *) *codep = op;
+    unaligned_w32(*codep, op);
     *codep += 4;
 }
 
 static inline void op16(void **codep, uint16_t op) {
-    *(uint16_t *) *codep = op;
+    unaligned_w16(*codep, op);
     *codep += 2;
 }
 

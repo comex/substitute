@@ -86,7 +86,7 @@ static INLINE void P(GPR_func_1_tBLXr)(tdis_ctx ctx, UNUSED struct bitslice func
 }
 
 static INLINE void P(thumb_do_it)(tdis_ctx ctx) {
-    uint16_t op = ctx->base.op = *(uint16_t *) ctx->base.ptr;
+    uint16_t op = ctx->base.op = unaligned_r16(ctx->base.ptr);
     #include "../generated/generic-dis-thumb.inc.h"
     __builtin_abort();
 }

@@ -215,7 +215,7 @@ static INLINE void P(bl_target_func_2_BL)(tdis_ctx ctx, struct bitslice func) {
 }
 
 static INLINE void P(dis_arm)(tdis_ctx ctx) {
-    uint32_t op = ctx->base.op = *(uint32_t *) ctx->base.ptr;
+    uint32_t op = ctx->base.op = unaligned_r32(ctx->base.ptr);
     ctx->base.op_size = ctx->base.newop_size = 4;
     #include "../generated/generic-dis-arm.inc.h"
     __builtin_abort();
