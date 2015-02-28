@@ -1,3 +1,6 @@
+/* This is an iOS executable, placed in /etc/rc.d, that injects
+ * posixspawn-hook.dylib into launchd (pid 1). */
+
 #define IB_LOG_NAME "iil"
 #include "ib-log.h"
 #include "substitute.h"

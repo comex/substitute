@@ -70,7 +70,6 @@ LIB_OBJS := \
 	out/darwin/read.o \
 	out/darwin/substrate-compat.o \
 	out/darwin/execmem.o \
-	out/darwin/unrestrict.o \
 	out/jump-dis.o \
 	out/transform-dis.o \
 	out/hook-functions.o \
@@ -171,29 +170,29 @@ $(foreach arch,i386 x86_64 armv7 arm64,$(eval $(transform-dis-cases)))
 # iOS bootstrap...
 ifneq (,$(IS_IOS))
 SD_OBJS := out/safety-dance/main.o out/safety-dance/AutoGrid.o
-out/safety-dance/%.o: ios-bootstrap/safety-dance/%.m ios-bootstrap/safety-dance/*.h Makefile
+out/safety-dance/%.o: darwin-bootstrap/safety-dance/%.m darwin-bootstrap/safety-dance/*.h Makefile
 	@mkdir -p $(dir $@)
 	$(CC) -c -o $@ $< -fobjc-arc -Wno-unused-parameter
 out/safety-dance/SafetyDance.app/SafetyDance: $(SD_OBJS) Makefile
 	@mkdir -p $(dir $@)
 	$(CC) -o $@ $(SD_OBJS) $(IOS_APP_LDFLAGS)
 	ldid -S $@
-out/safety-dance/SafetyDance.app/Info.plist: ios-bootstrap/safety-dance/Info.plist Makefile
+out/safety-dance/SafetyDance.app/Info.plist: darwin-bootstrap/safety-dance/Info.plist Makefile
 	@mkdir -p $(dir $@)
 	plutil -convert binary1 -o $@ $<
-	cp ios-bootstrap/safety-dance/white.png out/safety-dance/SafetyDance.app/Default.png
-	cp ios-bootstrap/safety-dance/white.png out/safety-dance/SafetyDance.app/Default@2x.png
+	cp darwin-bootstrap/safety-dance/white.png out/safety-dance/SafetyDance.app/Default.png
+	cp darwin-bootstrap/safety-dance/white.png out/safety-dance/SafetyDance.app/Default@2x.png
 safety-dance: out/safety-dance/SafetyDance.app/SafetyDance out/safety-dance/SafetyDance.app/Info.plist
 all: safety-dance
 
-out/posixspawn-hook.dylib: ios-bootstrap/posixspawn-hook.c out/libsubstitute.dylib
+out/posixspawn-hook.dylib: darwin-bootstrap/posixspawn-hook.c out/libsubstitute.dylib
 	$(CC) -dynamiclib -o $@ $< -Lout -lsubstitute
-out/bundle-loader.dylib: ios-bootstrap/bundle-loader.m out/libsubstitute.dylib
+out/bundle-loader.dylib: darwin-bootstrap/bundle-loader.m out/libsubstitute.dylib
 	$(CC) -dynamiclib -o $@ $< -fobjc-arc -Lout -framework Foundation -framework CoreFoundation
-out/unrestrict: ios-bootstrap/unrestrict.c ios-bootstrap/ib-log.h out/libsubstitute.dylib
+out/unrestrict: darwin-bootstrap/unrestrict.c darwin-bootstrap/ib-log.h out/libsubstitute.dylib
 	$(CC) -o $@ $< -Lout -lsubstitute
 	ldid -Sent.plist $@
-out/inject-into-launchd: ios-bootstrap/inject-into-launchd.c ios-bootstrap/ib-log.h out/libsubstitute.dylib
+out/inject-into-launchd: darwin-bootstrap/inject-into-launchd.c darwin-bootstrap/ib-log.h out/libsubstitute.dylib
 	$(CC) -o $@ $< -Lout -lsubstitute -framework IOKit -framework CoreFoundation
 	ldid -Sent.plist $@
 all: out/posixspawn-hook.dylib out/bundle-loader.dylib out/unrestrict out/inject-into-launchd

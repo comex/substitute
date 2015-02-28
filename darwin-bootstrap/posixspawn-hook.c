@@ -1,15 +1,29 @@
+/* This library is loaded into launchd, and from there into xpcproxy, which
+ * launchd (always?) uses as an intermediary to exec its processes; its main
+ * purpose is to ensure that bundle-loader.dylib is specified in
+ * DYLD_INSERT_LIBRARIES when launching such processes.  In the interests of
+ * not making ssh really weird (and because it's what Substrate does), this is
+ * separate from bundle-loader itself, so any processes that do their own
+ * spawning won't get the environment override.
+ *
+ * It also handles the sandbox override for substituted. */
+
 #define IB_LOG_NAME "posixspawn-hook"
 #include "ib-log.h"
 #include "substitute.h"
 #include "substitute-internal.h"
 #include <mach/mach.h>
 #include <mach-o/dyld.h>
+#include <mach-o/loader.h>
+#include <mach-o/fat.h>
 #include <spawn.h>
 #include <sys/wait.h>
 #include <syslog.h>
 #include <malloc/malloc.h>
 #include <assert.h>
 #include <errno.h>
+#include <arpa/inet.h>
+#include <libkern/OSByteOrder.h>
 
 extern char ***_NSGetEnviron(void);
 
@@ -45,6 +59,77 @@ static bool spawn_unrestrict(pid_t pid, bool should_resume, bool is_exec) {
         ib_log("posixspawn-hook: couldn't waitpid");
     ib_log("unrestrict xstat=%x", xstat);
     return true;
+}
+
+static bool looks_restricted(const char *filename) {
+    int fd = open(filename, O_RDONLY);
+    if (fd == -1) {
+        ib_log("open '%s': %s", filename, strerror(errno));
+        return false;
+    }
+    uint32_t offset = 0;
+    union {
+        uint32_t magic;
+        struct {
+            struct fat_header fh;
+            struct fat_arch fa1;
+        };
+        struct mach_header mh;
+    } u;
+    if (read(fd, &u, sizeof(u)) != sizeof(u)) {
+        ib_log("read header for '%s': %s", filename, strerror(errno));
+        return false;
+    }
+    if (ntohl(u.magic) == FAT_MAGIC) {
+        /* Fat binary - to avoid needing to replicate grade_binary in the
+         * kernel, we assume all architectures have the same restrict-ness. */
+         if (u.fh.nfat_arch == 0)
+            return false;
+        offset = ntohl(u.fa1.offset);
+        if (pread(fd, &u, sizeof(u), offset) != sizeof(u)) {
+            ib_log("read header (inside fat) for '%s': %s",
+                   filename, strerror(errno));
+            return false;
+        }
+    }
+    bool swap, is64;
+    switch (u.magic) {
+    case MH_MAGIC:
+        swap = false;
+        is64 = false;
+        break;
+    case MH_MAGIC_64:
+        swap = false;
+        is64 = true;
+        break;
+    case MH_CIGAM:
+        swap = true;
+        is64 = false;
+        break;
+    case MH_CIGAM_64:
+        swap = true;
+        is64 = true;
+        break;
+    default:
+        ib_log("bad mach-o magic for '%s'", filename);
+        return false;
+    }
+    uint32_t sizeofcmds = u.mh.sizeofcmds;
+    if (swap)
+        sizeofcmds = OSSwapInt32(sizeofcmds);
+    offset += is64 ? sizeof(struct mach_header_64) : sizeof(struct mach_header);
+    char *cmds_buf = malloc(sizeofcmds);
+    ssize_t actual = pread(fd, cmds_buf, sizeofcmds, offset);
+    if (actual < 0 || (uint32_t) actual != sizeofcmds) {
+        ib_log("read load cmds for '%s': %s", filename, strerror(errno));
+        free(cmds_buf);
+        return false;
+    }
+    /* overestimation is fine here */
+    const char sectname[] = "__restrict";
+    bool ret = !!memmem(cmds_buf, sizeofcmds, sectname, sizeof(sectname));
+    free(cmds_buf);
+    return ret;
 }
 
 static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
@@ -90,25 +175,10 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
      * maximum safety... */
     bool safe_mode = false;
 
-    /* If Foundation is loaded into notifyd, the system doesn't boot.  I spent
-     * some time trying to figure out why, but managed to brick my device
-     * instead (no idea how that happened either).  I want to solve this before
-     * a stable release, but this works for now.
-     * n.b. Substrate isn't affected by this because it uses only
-     * CoreFoundation, not Foundation.  However, CoreFoundation is pretty big
-     * itself, and also brings in libobjc, so it's not necessarily that
-     * principled to switch.  I suppose principled might be to extract the
-     * plist code from CF... */
-    if (!strcmp(path, "/usr/sbin/notifyd")) {
-        /* why? */
-        safe_mode = true;
-    }
-
-
     const char *orig_dyld_insert = "";
-    static const char my_dylib_1[] =
+    static const char bl_dylib[] =
         "/Library/Substitute/bundle-loader.dylib";
-    static const char my_dylib_2[] =
+    static const char psh_dylib[] =
         "/Library/Substitute/posixspawn-hook.dylib";
     size_t env_count = 0;
     for (char *const *ep = my_envp; *ep; ep++) {
@@ -126,7 +196,7 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
         }
     }
     new = malloc(sizeof("DYLD_INSERT_LIBRARIES=") - 1 +
-                 sizeof(my_dylib_2) /* not - 1, because : */ +
+                 sizeof(psh_dylib) /* not - 1, because : */ +
                  strlen(orig_dyld_insert) + 1);
     char *newp_orig = stpcpy(new, "DYLD_INSERT_LIBRARIES=");
     char *newp = newp_orig;
@@ -135,10 +205,10 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
         const char *next = strchr(p, ':') ?: (p + strlen(p));
         /* append if it isn't one of ours */
         bool is_substitute =
-            (next - p == sizeof(my_dylib_1) - 1 &&
-             !memcmp(next, my_dylib_1, sizeof(my_dylib_1) - 1)) ||
-            (next - p == sizeof(my_dylib_2) - 1 &&
-             !memcmp(next, my_dylib_2, sizeof(my_dylib_2) - 1));
+            (next - p == sizeof(bl_dylib) - 1 &&
+             !memcmp(next, bl_dylib, sizeof(bl_dylib) - 1)) ||
+            (next - p == sizeof(psh_dylib) - 1 &&
+             !memcmp(next, psh_dylib, sizeof(psh_dylib) - 1));
         if (!is_substitute) {
             if (newp != newp_orig)
                 *newp++ = ':';
@@ -154,8 +224,8 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
         if (newp != newp_orig)
             *newp++ = ':';
         const char *dylib_to_add = !strcmp(path, "/usr/libexec/xpcproxy")
-                                   ? my_dylib_2
-                                   : my_dylib_1;
+                                   ? psh_dylib
+                                   : bl_dylib;
         newp = stpcpy(newp, dylib_to_add);
     }
     if (IB_VERBOSE)
@@ -182,17 +252,10 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
         goto skip;
 
 
-    /* XXX Even async on a separate thread, task_for_pid from launchd hangs in
-     * kernel - AMFI permitUnrestrictedDebugging waiting on some mach port.
-     * Normally (from other processes) task_for_pid doesn't even ask amfid
-     * because we have the right entitlements, but it doesn't usually *hang*.
-     * Probably should do what Substrate does and only launch a process for the
-     * few actually restricted executables.  I was originally hesitant about
-     * this because of complications with fat files.  Whatever. */
-    bool need_unrestrict = getuid() == 0;
-
     /* Deal with the dumb __restrict section.  A complication is that this
      * could actually be an exec. */
+    bool need_unrestrict = looks_restricted(path);
+
     /* TODO skip this if Substrate is doing it anyway */
     bool was_suspended;
     if (need_unrestrict) {
@@ -224,24 +287,8 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
     /* Since it returned, obviously it was not SETEXEC, so we need to
      * unrestrict it ourself. */
     pid_t pid = *pidp;
-#if 0
-    dispatch_queue_t q = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT,
-                                                   0);
-    dispatch_async(q, ^{
-        char *error;
-        ib_log("unrestricting %d", pid);
-        int sret = substitute_ios_unrestrict(pid, !was_suspended, &error);
-        ib_log("unrestricting done");
-        if (sret) {
-            ib_log("posixspawn-hook: substitute_ios_unrestrict => %d (%s)",
-                    sret, error);
-        }
-        free(error);
-    });
-#else
     if (need_unrestrict)
         spawn_unrestrict(pid, !was_suspended, false);
-#endif
     goto cleanup;
 crap:
     ib_log("posixspawn-hook: weird error - OOM?  skipping our stuff");
