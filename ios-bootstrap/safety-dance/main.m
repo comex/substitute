@@ -64,7 +64,7 @@ static void compression(UIView *view, UILayoutPriority pri) {
     compression(explain, 999);
     explain.text = EXPLANATION;
     explain.font = [UIFont systemFontOfSize:14];
-    explain.minimumFontSize = 7;
+    explain.minimumScaleFactor = 0.5; /* test */
     explain.numberOfLines = 0;
     [self.view addSubview:explain];
 
