@@ -1,12 +1,20 @@
 /* This library is loaded into launchd, and from there into xpcproxy, which
- * launchd (always?) uses as an intermediary to exec its processes; its main
- * purpose is to ensure that bundle-loader.dylib is specified in
- * DYLD_INSERT_LIBRARIES when launching such processes.  In the interests of
- * not making ssh really weird (and because it's what Substrate does), this is
- * separate from bundle-loader itself, so any processes that do their own
- * spawning won't get the environment override.
+ * launchd uses as an intermediary to exec its processes; its main purpose is
+ * to ensure that bundle-loader.dylib is specified in DYLD_INSERT_LIBRARIES
+ * when launching such processes.  In the interests of not making ssh really
+ * weird (and because it's what Substrate does), this is separate from
+ * bundle-loader itself, so any processes that do their own spawning won't get
+ * the environment override (though D_I_L will be inherited if the environment
+ * isn't reset).
  *
- * It also handles the sandbox override for substituted. */
+ * It also handles the sandbox override for substituted.
+ *
+ * Note: Because bundle-loader synchronously contacts substituted, it must not
+ * be loaded into any synchronous stuff launchd runs before starting jobs
+ * proper.  Therefore, it's only inserted if the spawning process is xpcproxy
+ * (rather than launchd directly).  I don't think iOS 7 does this yet, so this
+ * needs to be fixed there.
+ */
 
 #define IB_LOG_NAME "posixspawn-hook"
 #include "ib-log.h"
@@ -20,7 +28,6 @@
 #include <sys/wait.h>
 #include <syslog.h>
 #include <malloc/malloc.h>
-#include <assert.h>
 #include <errno.h>
 #include <arpa/inet.h>
 #include <libkern/OSByteOrder.h>
@@ -30,7 +37,10 @@ extern char ***_NSGetEnviron(void);
 static __typeof__(posix_spawn) *old_posix_spawn, *old_posix_spawnp,
                                hook_posix_spawn, hook_posix_spawnp;
 static __typeof__(wait4) *old_wait4, hook_wait4;
-static __typeof__(waitpid) *old_waitpid, hook_waitpid;
+static typeof(waitpid) *old_waitpid, hook_waitpid;
+static int (*old_sandbox_check)(pid_t, const char *, int type, ...);
+
+static bool is_launchd;
 
 static bool advance(char **strp, const char *template) {
     size_t len = strlen(template);
@@ -144,6 +154,34 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
     char *const *my_envp = envp ? envp : *_NSGetEnviron();
     posix_spawnattr_t my_attr = NULL;
 
+    short flags = 0;
+    if (posix_spawnattr_getflags(attrp, &flags))
+        goto crap;
+
+    if (IB_VERBOSE) {
+        ib_log("hook_posix_spawn_generic: path=%s%s%s",
+               path,
+               (flags & POSIX_SPAWN_SETEXEC) ? " (exec)" : "",
+               (flags & POSIX_SPAWN_START_SUSPENDED) ? " (suspend)" : "");
+        for (char *const *ap = argv; *ap; ap++)
+            ib_log("   %s", *ap);
+    }
+
+
+    static const char bl_dylib[] =
+        "/Library/Substitute/bundle-loader.dylib";
+    static const char psh_dylib[] =
+        "/Library/Substitute/posixspawn-hook.dylib";
+
+    /* which dylib should we add, if any? */
+    const char *dylib_to_add;
+    if (!is_launchd)
+        dylib_to_add = bl_dylib;
+    else if (!strcmp(path, "/usr/libexec/xpcproxy"))
+        dylib_to_add = psh_dylib;
+    else
+        goto skip;
+
     if (attrp) {
         posix_spawnattr_t attr = *attrp;
         size_t size = malloc_size(attr);
@@ -155,31 +193,13 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
         if (posix_spawnattr_init(&my_attr))
             goto crap;
     }
-
-    short flags;
-    if (posix_spawnattr_getflags(&my_attr, &flags))
-        goto crap;
-    if (IB_VERBOSE) {
-        ib_log("hook_posix_spawn_generic: path=%s%s%s",
-               path,
-               (flags & POSIX_SPAWN_SETEXEC) ? " (exec)" : "",
-               (flags & POSIX_SPAWN_START_SUSPENDED) ? " (suspend)" : "");
-        for (char *const *ap = argv; *ap; ap++)
-            ib_log("   %s", *ap);
-    }
-
     /* This mirrors Substrate's logic with safe mode.  I don't really
      * understand the point of the difference between its 'safe' (which removes
      * Substrate from DYLD_INSERT_LIBRARIES) and 'quit' (which just skips
      * directly to the original spawn), but I guess I'll just do the same for
      * maximum safety... */
     bool safe_mode = false;
-
     const char *orig_dyld_insert = "";
-    static const char bl_dylib[] =
-        "/Library/Substitute/bundle-loader.dylib";
-    static const char psh_dylib[] =
-        "/Library/Substitute/posixspawn-hook.dylib";
     size_t env_count = 0;
     for (char *const *ep = my_envp; *ep; ep++) {
         env_count++;
@@ -223,9 +243,6 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
     if (!safe_mode) {
         if (newp != newp_orig)
             *newp++ = ':';
-        const char *dylib_to_add = !strcmp(path, "/usr/libexec/xpcproxy")
-                                   ? psh_dylib
-                                   : bl_dylib;
         newp = stpcpy(newp, dylib_to_add);
     }
     if (IB_VERBOSE)
@@ -335,6 +352,26 @@ pid_t hook_waitpid(pid_t pid, int *stat_loc, int options) {
     return ret;
 }
 
+int hook_sandbox_check(pid_t pid, const char *op, int type, ...) {
+    /* Can't easily determine the number of arguments, so just assume there's
+     * less than 5 pointers' worth. */
+    va_list ap;
+    va_start(ap, type);
+    long blah[5];
+    for (int i = 0; i < 5; i++)
+        blah[i] = va_arg(ap, long);
+    va_end(ap);
+    if (!strcmp(op, "mach-lookup")) {
+        const char *name = (void *) blah[0];
+        if (!strcmp(name, "com.ex.substituted")) {
+            /* always allow */
+            return 0;
+        }
+    }
+    return old_sandbox_check(pid, op, type,
+                             blah[0], blah[1], blah[2], blah[3], blah[4]);
+}
+
 void substitute_init(struct shuttle *shuttle, size_t nshuttle) {
     /* Just tell them we're done */
     if (nshuttle != 1) {
@@ -372,7 +409,9 @@ static void init() {
      * disk...)
      */
 
-    struct substitute_image *im = substitute_open_image(_dyld_get_image_name(0));
+    const char *image0 = _dyld_get_image_name(0);
+    is_launchd = !!strstr(image0, "launchd");
+    struct substitute_image *im = substitute_open_image(image0);
     if (!im) {
         ib_log("posixspawn-hook: substitute_open_image failed");
         goto end;
@@ -383,6 +422,7 @@ static void init() {
         {"_posix_spawnp", hook_posix_spawnp, &old_posix_spawnp},
         {"_waitpid", hook_waitpid, &old_waitpid},
         {"_wait4", hook_wait4, &old_wait4},
+        {"_sandbox_check", hook_sandbox_check, &old_sandbox_check},
     };
 
     int err = substitute_interpose_imports(im, hooks, sizeof(hooks)/sizeof(*hooks), 0);

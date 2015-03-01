@@ -187,15 +187,17 @@ all: safety-dance
 
 out/posixspawn-hook.dylib: darwin-bootstrap/posixspawn-hook.c out/libsubstitute.dylib
 	$(CC) -dynamiclib -o $@ $< -Lout -lsubstitute
-out/bundle-loader.dylib: darwin-bootstrap/bundle-loader.m out/libsubstitute.dylib
-	$(CC) -dynamiclib -o $@ $< -fobjc-arc -Lout -framework Foundation -framework CoreFoundation
+out/bundle-loader.dylib: darwin-bootstrap/bundle-loader.c darwin-bootstrap/substituted-messages.h out/libsubstitute.dylib
+	$(CC) -dynamiclib -o $@ $< -Lout
 out/unrestrict: darwin-bootstrap/unrestrict.c darwin-bootstrap/ib-log.h out/libsubstitute.dylib
 	$(CC) -o $@ $< -Lout -lsubstitute
 	ldid -Sent.plist $@
 out/inject-into-launchd: darwin-bootstrap/inject-into-launchd.c darwin-bootstrap/ib-log.h out/libsubstitute.dylib
 	$(CC) -o $@ $< -Lout -lsubstitute -framework IOKit -framework CoreFoundation
 	ldid -Sent.plist $@
-all: out/posixspawn-hook.dylib out/bundle-loader.dylib out/unrestrict out/inject-into-launchd
+out/substituted: darwin-bootstrap/substituted*
+	$(CC) -o $@ darwin-bootstrap/substituted{.c,-plist-loader.m} -framework Foundation -framework CoreFoundation -lbsm -fobjc-arc
+all: out/posixspawn-hook.dylib out/bundle-loader.dylib out/unrestrict out/inject-into-launchd out/substituted
 endif
 
 

@@ -9,3 +9,8 @@ kern_return_t mach_vm_allocate(vm_map_t, mach_vm_address_t *, mach_vm_size_t, in
 kern_return_t mach_vm_deallocate(vm_map_t, mach_vm_address_t, mach_vm_size_t);
 kern_return_t mach_vm_region(vm_map_t, mach_vm_address_t *, mach_vm_size_t *, vm_region_flavor_t, vm_region_info_t, mach_msg_type_number_t *, mach_port_t *);
 
+/* bootstrap.h */
+extern mach_port_t bootstrap_port;
+typedef char name_t[128];
+kern_return_t bootstrap_check_in(mach_port_t, const name_t, mach_port_t *);
+kern_return_t bootstrap_look_up(mach_port_t, const name_t, mach_port_t *);
