@@ -30,6 +30,13 @@ struct jump_dis_ctx {
 
     uint_tptr pc_patch_start;
     uint_tptr pc_patch_end;
+    /* For now, this is pretty hacky.  Once we find a ret, we don't process any
+     * instructions after it, because they might be calls to __stack_chk_fail.
+     * That means any function with a ret midway will only have part of it
+     * checked, but whatever; heuristic, remember.  Instructions are not
+     * actually guaranteed to be processed in sorted order, but we'll follow
+     * the straight line before branches, which should be good enough. */
+    uint_tptr pc_ret;
 
     uint8_t seen_mask[JUMP_ANALYSIS_MAX_INSNS / 8];
     /* queue of instructions to visit (well, stack) */
@@ -81,6 +88,8 @@ void jump_dis_indirect_call(UNUSED struct jump_dis_ctx *ctx) {
 
 static INLINE UNUSED
 void jump_dis_ret(struct jump_dis_ctx *ctx) {
+    if (ctx->pc_ret > ctx->base.pc)
+        ctx->pc_ret = ctx->base.pc;
     ctx->continue_after_this_insn = false;
 }
 
@@ -119,6 +128,7 @@ bool jump_dis_main(void *code_ptr, uint_tptr pc_patch_start, uint_tptr pc_patch_
     memset(&ctx, 0, sizeof(ctx));
     ctx.pc_patch_start = pc_patch_start;
     ctx.pc_patch_end = pc_patch_end;
+    ctx.pc_ret = -1;
     ctx.base.pc = pc_patch_end;
     ctx.arch = initial_dis_ctx;
     while (1) {
@@ -142,10 +152,13 @@ bool jump_dis_main(void *code_ptr, uint_tptr pc_patch_start, uint_tptr pc_patch_
             jump_dis_add_to_queue(&ctx, ctx.base.pc + ctx.base.op_size);
 
         /* get next address */
-        if (!ctx.queue.v.length)
-            break;
-        ctx.base.pc = vec_pop_uint_tptr(&ctx.queue.v);
+        do {
+            if (!ctx.queue.v.length)
+                goto done;
+            ctx.base.pc = vec_pop_uint_tptr(&ctx.queue.v);
+        } while (ctx.base.pc > ctx.pc_ret);
     }
+done:
     /* no bad instructions! */
     ret = false;
 fail:
