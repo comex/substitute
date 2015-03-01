@@ -58,7 +58,8 @@ int main() {
     }
     printf("getpid() => %d\n", getpid());
     break_before();
-    int ret = substitute_hook_functions(hooks, sizeof(hooks)/sizeof(*hooks), 0);
+    int ret = substitute_hook_functions(hooks, sizeof(hooks)/sizeof(*hooks),
+                                        NULL, 0);
     break_after();
     int e = errno;
     printf("ret = %d\n", ret);

@@ -52,9 +52,7 @@ enum {
      * preventing pages from being marked executable. */
     SUBSTITUTE_ERR_VM = 6,
 
-    /* substitute_hook_functions: not on the main thread (so stopping all other
-     * threads would be unsafe, as concurrent attempts to do the same from
-     * other threads would result in deadlock), and you did not pass
+    /* substitute_hook_functions: not on the main thread, and you did not pass
      * SUBSTITUTE_NO_THREAD_SAFETY */
     SUBSTITUTE_ERR_NOT_ON_MAIN_THREAD = 7,
 
@@ -84,23 +82,66 @@ enum {
     _SUBSTITUTE_CURRENT_MAX_ERR_PLUS_ONE,
 };
 
+/* Get a string representation for a SUBSTITUTE_* error code. */
+const char *substitute_strerror(int err);
+
 struct substitute_function_hook {
     void *function;
     void *replacement;
     void *old_ptr; /* optional: out *pointer* to function pointer to call old impl */
 };
 
-/* Get a string representation for a SUBSTITUTE_* error code. */
-const char *substitute_strerror(int err);
-
 /* substitute_hook_functions options */
 enum {
     SUBSTITUTE_NO_THREAD_SAFETY = 1,
 };
 
-/* TODO doc */
+/* Patch the machine code of the specified functions to redirect them to the
+ * specified replacements.
+ *
+ * After hooking, you can use the function pointer written to 'old_ptr' to call
+ * the original implementation.  (It points to a trampoline that executes the
+ * original first few instructions, which were written over in the real
+ * function, then jumps there for the rest.)
+ *
+ * This function must be called from the main thread.  In return, it attempts
+ * to be atomic in the face of concurrent calls to the functions being hooked.
+ * Since there is no way to do that directly, it resorts to pausing all other
+ * threads while doing its job; and since there is no way to do *that*
+ * atomically on currently supported platforms, it does so by pausing each
+ * thread one at a time.  If multiple threads each tried to pause each other
+ * this way, the process would be deadlocked, so mutual exclusion must be
+ * implicitly provided by running on the main thread.
+ *
+ * You can disable the main thread check and all synchronization by passing
+ * SUBSTITUTE_NO_THREAD_SAFETY.
+ *
+ * Why not just use a mutex to prevent deadlock?  That would work between
+ * multiple calls into libsubstitute, but there may be other libraries that
+ * want to do the same thing and would not know about our mutex.  My hope is
+ * that using the main thread is sufficiently natural that the author of any
+ * other similar library which cares about atomicity, noticing the same
+ * concern, would independently come up with the same restriction - at least,
+ * if they do not find an easier method to avoid deadlocks.  Note that all
+ * existing hooking libraries I know of do not attempt to do any
+ * synchronization at all; this is fine if hooking is only done during
+ * initialization while the process is single threaded, but I want to properly
+ * support dynamic injection.  (Note - if there is such an easier method on OS
+ * X that does not involve spawning a separate process, I'd be curious to hear
+ * about it.)
+ *
+ *
+ * @hooks    see struct substitute_function_hook
+ * @nhooks   number of hooks
+ * @recordp  if non-NULL, on success receives a pointer that can be used to
+ *           cleanly undo the hooks; currently unimplemented, so pass NULL
+ * @options  options - see above
+ * @return   SUBSTITUTE_OK, or any of most of the SUBSTITUTE_ERR_*
+ */
+struct substitute_function_hook_record;
 int substitute_hook_functions(const struct substitute_function_hook *hooks,
                               size_t nhooks,
+                              struct substitute_function_hook_record **recordp,
                               int options);
 
 #if 1 /* declare dynamic linker-related stuff? */
@@ -203,14 +244,19 @@ struct substitute_import_hook {
  * @handle   handle of the importing library
  * @hooks    see struct substitute_import_hook
  * @nhooks   number of hooks
- * @options  options - pass 0.
+ * @recordp  if non-NULL, on success receives a pointer that can be used to
+ *           cleanly undo the hooks; currently unimplemented, so pass NULL
+ * @options  options - pass 0
  * @return   SUBSTITUTE_OK
  *           SUBSTITUTE_ERR_UNKNOWN_RELOCATION_TYPE
  *           SUBSTITUTE_ERR_VM - in the future with RELRO on Linux
  */
+struct substitute_import_hook_record;
 int substitute_interpose_imports(const struct substitute_image *handle,
                                  const struct substitute_import_hook *hooks,
-                                 size_t nhooks, int options);
+                                 size_t nhooks,
+                                 struct substitute_import_hook_record **recordp,
+                                 int options);
 
 
 #endif /* 1 */

@@ -147,11 +147,16 @@ static void *off_to_addr(const struct interpose_state *st, uint32_t off) {
 EXPORT
 int substitute_interpose_imports(const struct substitute_image *image,
                                  const struct substitute_import_hook *hooks,
-                                 size_t nhooks, int options) {
+                                 size_t nhooks,
+                                 struct substitute_import_hook_record **recordp,
+                                 int options) {
     int ret = SUBSTITUTE_OK;
 
     if (options != 0)
         substitute_panic("%s: unrecognized options\n", __func__);
+
+    if (recordp)
+        *recordp = NULL;
 
     struct interpose_state st;
     st.slide = image->slide;

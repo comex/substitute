@@ -425,7 +425,8 @@ static void init() {
         {"_sandbox_check", hook_sandbox_check, &old_sandbox_check},
     };
 
-    int err = substitute_interpose_imports(im, hooks, sizeof(hooks)/sizeof(*hooks), 0);
+    int err = substitute_interpose_imports(im, hooks, sizeof(hooks)/sizeof(*hooks),
+                                           NULL, 0);
     if (err) {
         ib_log("posixspawn-hook: substitute_interpose_imports failed: %s",
                substitute_strerror(err));

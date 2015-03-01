@@ -127,10 +127,15 @@ end:
 
 EXPORT
 int substitute_hook_functions(const struct substitute_function_hook *hooks,
-                              size_t nhooks, int options) {
+                              size_t nhooks,
+                              struct substitute_function_hook_record **recordp,
+                              int options) {
     bool thread_safe = !(options & SUBSTITUTE_NO_THREAD_SAFETY);
     if (thread_safe && !pthread_main_np())
         return SUBSTITUTE_ERR_NOT_ON_MAIN_THREAD;
+
+    if (recordp)
+        *recordp = NULL;
 
     struct execmem_foreign_write *fws;
     struct hook_internal *his = malloc(nhooks * sizeof(*his) +

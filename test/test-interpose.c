@@ -26,7 +26,7 @@ int main() {
 	};
 	pid_t (*gp)() = getpid_plus - 5;
 	printf("original pid: %d\n", (int) gp());
-	substitute_interpose_imports(handle, hooks, sizeof(hooks)/sizeof(*hooks), 0);
+	substitute_interpose_imports(handle, hooks, sizeof(hooks)/sizeof(*hooks), NULL, 0);
 	gp = getpid_plus - 5;
 	printf("new pid: %d\n", (int) gp());
 	printf("new gid: %d\n", (int) getgid());
