@@ -14,7 +14,10 @@ mkdir -p $debroot/usr/include/substitute
 cp lib/substitute.h $debroot/usr/include/substitute/
 cp substrate/substrate.h $debroot/usr/include/substitute/
 mkdir -p $debroot/Library/Substitute/DynamicLibraries
-cp out/{posixspawn-hook.dylib,bundle-loader.dylib,unrestrict,inject-into-launchd} $debroot/Library/Substitute/
+mkdir -p $debroot/Library/Substitute/Helpers
+cp out/{posixspawn-hook.dylib,bundle-loader.dylib,unrestrict,inject-into-launchd,substituted} $debroot/Library/Substitute/Helpers/
+mkdir -p $debroot/Library/LaunchDaemons
+cp darwin-bootstrap/com.ex.substituted.plist $debroot/Library/LaunchDaemons/
 cp -a DEBIAN $debroot/
 sed "s#{VERSION}#$version#g" DEBIAN/control > $debroot/DEBIAN/control
 #... add bootstrap stuff

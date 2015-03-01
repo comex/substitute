@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>ProcessType</key>
+	<string>Interactive</string>
+	<key>MachServices</key>
+	<dict>
+		<key>com.ex.substituted</key>
+		<true/>
+	</dict>
+	<key>Label</key>
+	<string>com.ex.substituted</string>
+	<key>Program</key>
+	<string>/Library/Substitute/Helpers/substituted</string>
+</dict>
+</plist>
+
