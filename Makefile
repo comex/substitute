@@ -70,6 +70,7 @@ LIB_OBJS := \
 	out/darwin/read.o \
 	out/darwin/substrate-compat.o \
 	out/darwin/execmem.o \
+	out/cbit/vec.o \
 	out/jump-dis.o \
 	out/transform-dis.o \
 	out/hook-functions.o \
@@ -143,6 +144,7 @@ $(eval $(call define_test,execmem,execmem,$(CC) -std=c11 out/darwin/execmem.o -s
 $(eval $(call define_test,hook-functions,hook-functions,$(CC) -std=c11 -lsubstitute -segprot __TEST rwx rx))
 $(eval $(call define_test,posixspawn-hook,posixspawn-hook,$(CC) -std=c11))
 $(eval $(call define_test,htab,htab,$(CC) -std=c11))
+$(eval $(call define_test,vec,vec,$(CXX) -std=c++98 out/cbit/vec.o))
 
 out/injected-test-dylib.dylib: test/injected-test-dylib.c Makefile
 	$(CC) -std=c11 -dynamiclib -o $@ $<

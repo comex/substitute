@@ -12,8 +12,6 @@ struct htab_internal {
     char hi_storage[1]; // see vec.h
 };
 
-#define UNUSED_STATIC_INLINE __attribute__((unused)) static inline
-
 /* Declare the helper functions for a htab key type without static - put this
  * in the .h and IMPL_HTAB_KEY in a .c. */
 #define DECL_EXTERN_HTAB_KEY( \
@@ -188,7 +186,6 @@ struct htab_internal {
     }; \
     htab_ty { \
         union { \
-            char h[0]; \
             struct htab_internal hi; \
             struct { \
                 size_t length; \
@@ -273,11 +270,13 @@ struct htab_internal {
 } while (0)
 
 #define HTAB_FOREACH(ht, key_var, val_var, name) \
-    LET(struct htab_##name *__ht = (ht)) \
-        for (size_t __htfe_bucket = 0; __htfe_bucket < __ht->capacity; __htfe_bucket++) \
-            if(__htab_is_null_##name(&__ht->base[__htfe_bucket].key)) \
+    LET(struct htab_##name *__htfe_ht = (ht)) \
+        for (size_t __htfe_bucket = 0; \
+             __htfe_bucket < __htfe_ht->capacity; \
+             __htfe_bucket++) \
+            if(__htab_is_null_##name(&__htfe_ht->base[__htfe_bucket].key)) \
                 continue; \
             else \
-                LET_LOOP(key_var = &__ht->base[__htfe_bucket].key) \
-                LET_LOOP(val_var = &__ht->base[__htfe_bucket].value)
+                LET_LOOP(key_var = &__htfe_ht->base[__htfe_bucket].key) \
+                LET_LOOP(val_var = &__htfe_ht->base[__htfe_bucket].value)
 

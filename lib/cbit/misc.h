@@ -1,5 +1,7 @@
 #pragma once
 
+#define UNUSED_STATIC_INLINE __attribute__((unused)) static inline
+
 #define LET_LOOP__(expr, ctr) \
     if (0) \
        __done_##ctr: continue; \
@@ -40,5 +42,7 @@
 #define LET_(expr, ctr) LET__(expr, ctr)
 #define LET(expr) LET_(expr, __COUNTER__)
 
-#define safe_mul(a, b) ((a) * (b)) /* XXX */
+/* XXX */
+#define safe_mul(a, b) ((a) * (b))
+#define safe_add(a, b) ((a) + (b))
 
