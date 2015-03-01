@@ -101,7 +101,7 @@ static int try_bind_section(void *bind, size_t size, const struct interpose_stat
                             if ((uint32_t) new != new) {
                                 /* text rels should only show up on i386, where
                                  * this is impossible... */
-                                panic("bad TEXT_ABSOLUTE32 rel\n");
+                                substitute_panic("bad TEXT_ABSOLUTE32 rel\n");
                             }
                             old = __atomic_exchange_n((uint32_t *) p, (uint32_t) new, __ATOMIC_RELAXED);
                             break;
@@ -111,14 +111,14 @@ static int try_bind_section(void *bind, size_t size, const struct interpose_stat
                             uintptr_t rel = new - pc;
                             if ((uint32_t) rel != rel) {
                                 /* ditto */
-                                panic("bad TEXT_ABSOLUTE32 rel\n");
+                                substitute_panic("bad TEXT_ABSOLUTE32 rel\n");
                             }
                             old = __atomic_exchange_n((uint32_t *) p, (uint32_t) rel, __ATOMIC_RELAXED);
                             old += pc;
                             break;
                         }
                         default:
-                            panic("unknown relocation type\n");
+                            substitute_panic("unknown relocation type\n");
                             break;
                         }
                         if (h->old_ptr)
@@ -151,7 +151,7 @@ int substitute_interpose_imports(const struct substitute_image *image,
     int ret = SUBSTITUTE_OK;
 
     if (options != 0)
-        panic("%s: unrecognized options\n", __func__);
+        substitute_panic("%s: unrecognized options\n", __func__);
 
     struct interpose_state st;
     st.slide = image->slide;

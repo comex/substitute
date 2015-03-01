@@ -55,7 +55,8 @@ static int get_trampoline(void *func, void *arg1, void *arg2, void *tramp_ptr) {
     struct tramp_info_page_header *header = LIST_FIRST(&tramp_free_page_list);
     if (!header) {
         if (PAGE_SIZE > _PAGE_SIZE)
-            panic("%s: strange PAGE_SIZE %x\n", __func__, PAGE_SIZE);
+            substitute_panic("%s: strange PAGE_SIZE %lx\n",
+                             __func__, (long) PAGE_SIZE);
         void *new_pages = mmap(NULL, _PAGE_SIZE * 2, PROT_READ | PROT_WRITE,
                                MAP_SHARED | MAP_ANON, -1, 0);
         if (new_pages == MAP_FAILED) {
@@ -125,7 +126,7 @@ static void free_trampoline(void *tramp) {
     struct tramp_info_page_header *header = page + 2 * _PAGE_SIZE - sizeof(*header);
 
     if (header->magic != TRAMP_MAGIC)
-        panic("%s: bad pointer\n", __func__);
+        substitute_panic("%s: bad pointer\n", __func__);
     if (header->version != TRAMP_VERSION) {
         /* shouldn't happen, but just in case multiple versions of this library
          * are mixed up */
@@ -185,7 +186,8 @@ int substitute_hook_objc_message(Class class, SEL selector, void *replacement,
                  * the meantime, since we found the method above and it
                  * couldn't have been found in a superclass, but the objc2
                  * runtime doesn't allow removing methods. */
-                panic("%s: no superclass but the method didn't exist\n", __func__);
+                substitute_panic("%s: no superclass but the method didn't exist\n",
+                                 __func__);
             }
             ret = get_trampoline(class_getMethodImplementation, super, selector, old_ptr);
             if (created_imp_ptr)
