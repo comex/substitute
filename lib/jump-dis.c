@@ -1,3 +1,4 @@
+#include "cbit/vec.h"
 #include "substitute-internal.h"
 #ifdef TARGET_DIS_SUPPORTED
 #define DIS_MAY_MODIFY 0
@@ -18,6 +19,8 @@ enum {
     JUMP_ANALYSIS_MAX_SIZE = JUMP_ANALYSIS_MAX_INSNS * MIN_INSN_SIZE,
 };
 
+DECL_VEC(uint_tptr, uint_tptr);
+
 struct jump_dis_ctx {
     /* outputs */
     bool bad_insn;
@@ -29,12 +32,8 @@ struct jump_dis_ctx {
     uint_tptr pc_patch_end;
 
     uint8_t seen_mask[JUMP_ANALYSIS_MAX_INSNS / 8];
-    /* queue of instructions to visit */
-    uint_tptr *queue;
-    size_t queue_write_off;
-    size_t queue_read_off;
-    size_t queue_size;
-    size_t queue_count;
+    /* queue of instructions to visit (well, stack) */
+    VEC_STORAGE_CAPA(uint_tptr, 10) queue;
 
     struct arch_dis_ctx arch;
 };
@@ -60,21 +59,7 @@ static void jump_dis_add_to_queue(struct jump_dis_ctx *ctx, uint_tptr pc) {
     }
     ctx->seen_mask[diff / 8] |= 1 << (diff % 8);
 
-    if (ctx->queue_write_off == ctx->queue_read_off && (ctx->queue_count || !ctx->queue_size)) {
-        size_t new_size = ctx->queue_size * 2 + 5;
-        ctx->queue = realloc(ctx->queue, new_size * sizeof(*ctx->queue));
-        if (!ctx->queue)
-            substitute_panic("%s: out of memory\n", __func__);
-        size_t new_read_off = new_size - (ctx->queue_size - ctx->queue_read_off);
-        memmove(ctx->queue + new_read_off,
-                ctx->queue + ctx->queue_read_off,
-                (ctx->queue_size - ctx->queue_read_off) * sizeof(*ctx->queue));
-        ctx->queue_read_off = new_read_off % new_size;
-        ctx->queue_size = new_size;
-    }
-    ctx->queue[ctx->queue_write_off] = pc;
-    ctx->queue_write_off = (ctx->queue_write_off + 1) % ctx->queue_size;
-    ctx->queue_count++;
+    vec_append_uint_tptr(&ctx->queue.v, pc);
 }
 
 static INLINE UNUSED
@@ -157,16 +142,14 @@ bool jump_dis_main(void *code_ptr, uint_tptr pc_patch_start, uint_tptr pc_patch_
             jump_dis_add_to_queue(&ctx, ctx.base.pc + ctx.base.op_size);
 
         /* get next address */
-        if (ctx.queue_read_off == ctx.queue_write_off)
+        if (!ctx.queue.v.length)
             break;
-        ctx.base.pc = ctx.queue[ctx.queue_read_off];
-        ctx.queue_read_off = (ctx.queue_read_off + 1) % ctx.queue_size;
-        ctx.queue_count--;
+        ctx.base.pc = vec_pop_uint_tptr(&ctx.queue.v);
     }
     /* no bad instructions! */
     ret = false;
 fail:
-    free(ctx.queue);
+    vec_free_storage(&ctx.queue.v);
     return ret;
 }
 
