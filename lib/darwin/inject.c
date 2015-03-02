@@ -381,7 +381,7 @@ got_symbol:;
     return true;
 }
 
-static int do_baton(const char *filename, size_t filelen, bool is64,
+static int do_baton(const char *filename, size_t filelen, cpu_type_t cputype,
                     mach_vm_address_t target_stackpage_end,
                     mach_vm_address_t *target_stack_top_p,
                     uint64_t sym_addrs[static 5],
@@ -391,13 +391,16 @@ static int do_baton(const char *filename, size_t filelen, bool is64,
                     mach_port_t task,
                     char **error) {
     int ret;
+    bool is64 = !!(cputype & CPU_ARCH_ABI64);
 
     size_t baton_len = 8 * (is64 ? 8 : 4);
     size_t shuttles_len = nshuttle * sizeof(struct shuttle);
     size_t filelen_rounded = (filelen + 7) & ~7;
     size_t total_len = baton_len + shuttles_len + filelen_rounded;
     mach_vm_address_t target_stack_top = target_stackpage_end - total_len;
-    target_stack_top &= ~7;
+    target_stack_top &= ~15;
+    if (cputype == CPU_TYPE_X86_64)
+        target_stack_top -= 8;
     *target_stack_top_p = target_stack_top;
     char *stackbuf = calloc(total_len, 1);
     if (!stackbuf) {
@@ -639,7 +642,7 @@ int substitute_dlopen_in_pid(int pid, const char *filename, int options,
                             dlsym_addr,
                             munmap_addr};
     mach_vm_address_t target_stack_top;
-    if ((ret = do_baton(filename, filelen, cputype & CPU_ARCH_ABI64,
+    if ((ret = do_baton(filename, filelen, cputype,
                         target_code_page, &target_stack_top,
                         sym_addrs, shuttle, nshuttle, &target_shuttle, &sem_port,
                         task, error)))
