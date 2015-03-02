@@ -34,7 +34,9 @@ ALPHA VERSION:
 
     make ARCH="-arch armv7 -arch arm64 -isysroot <xxx>" && ./script/gen-deb.sh
 
-    or use the deb I uploaded to GitHub.
+    or use a deb I uploaded to GitHub - see the release page:
+
+    https://github.com/comex/substitute/releases
 
     Extensions should be placed in /Library/Substitute/DynamicLibraries, with
     the same layout as Substrate.  If you want to quickly test whether an
