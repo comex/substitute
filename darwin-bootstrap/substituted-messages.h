@@ -22,7 +22,9 @@ struct substituted_msg_body_hello_resp {
     int error;
 };
 
-/* bundle_list: a bunch of substituted_bundle_list_ops */
+/* bundle_list: a bunch of substituted_bundle_list_ops
+ * this is pretty silly because even low-level bootstrap_lookup uses xpc now -
+ * so could have just used xpc structures - but this is more fun */
 
 enum substituted_bundle_list_opc {
     SUBSTITUTED_TEST_BUNDLE,
@@ -34,4 +36,4 @@ struct substituted_bundle_list_op {
     uint16_t namelen;
     uint8_t opc;
     /* char name[namelen + 1]; */
-};
+} __attribute__((packed));

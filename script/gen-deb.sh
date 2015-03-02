@@ -22,7 +22,7 @@ cp -a DEBIAN $debroot/
 sed "s#{VERSION}#$version#g" DEBIAN/control > $debroot/DEBIAN/control
 #... add bootstrap stuff
 # yay, old forks and deprecated compression
-dpkg-deb -Zlzma -b $debroot out/com.ex.substitute-$version.deb
+fakeroot dpkg-deb -Zlzma -b $debroot out/com.ex.substitute-$version.deb
 
 
 

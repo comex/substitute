@@ -31,7 +31,7 @@ struct msgbuf {
 
 static void handle_hello(struct msgbuf *buf, pid_t pid) {
     if (buf->hdr.msgh_size < offsetof(struct msgbuf, u.hello.argv0)) {
-        ib_log("mesage too short");
+        ib_log("message too short");
         return;
     }
     ((char *) buf)[buf->hdr.msgh_size] = '\0'; /* overwrite trailer or whatever */

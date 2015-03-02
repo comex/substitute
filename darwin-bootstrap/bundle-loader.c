@@ -1,3 +1,6 @@
+#define IB_LOG_NAME "bundle-loader"
+#define IB_LOG_TO_SYSLOG
+#include "ib-log.h"
 #include "darwin/mach-decls.h"
 #include "substituted-messages.h"
 #include <dlfcn.h>
@@ -23,7 +26,7 @@ static bool pop(const void **buf, const void *end,
     op = *buf;
     *buf += sizeof(*op);
     *opc = op->opc;
-    if ((size_t) (end - *buf) < op->namelen + 1 ||
+    if ((size_t) (end - *buf) <= op->namelen ||
         ((const char *) buf)[op->namelen] != '\0')
         return false;
     *name = *buf;
@@ -83,27 +86,38 @@ static bool objc_has_class(const char *name) {
 }
 
 static void use_dylib(const char *name) {
-    syslog(LOG_ERR, "loading dylib %s", name);
+    ib_log("loading dylib %s", name);
     // ..
 }
 
 static void load_bundle_list(const void *buf, size_t size) {
+    if (IB_VERBOSE) {
+        ib_log("load_bundle_list: %p,%zu", buf, size);
+        ib_log_hex(buf, size);
+    }
     int opc;
     const char *name;
     const void *end = buf + size;
     while (buf != end) {
         if (!pop(&buf, end, &opc, &name))
             goto invalid;
+        bool pass;
         switch (opc) {
         case SUBSTITUTED_TEST_BUNDLE:
-            if (cf_has_bundle(name))
+            pass = cf_has_bundle(name);
+            if (IB_VERBOSE)
+                ib_log("cf_has_bundle('%s'): %d", name, pass);
+            if (pass)
                 goto pass_type;
             /* fail, so... */
             if (peek(buf, end) != SUBSTITUTED_TEST_BUNDLE)
                 goto fail;
             break;
         case SUBSTITUTED_TEST_CLASS:
-            if (objc_has_class(name))
+            pass = objc_has_class(name);
+            if (IB_VERBOSE)
+                ib_log("objc_has_class('%s'): %d", name, pass);
+            if (pass)
                 goto pass_type;
             if (peek(buf, end) != SUBSTITUTED_TEST_CLASS)
                 goto fail;
@@ -126,7 +140,7 @@ static void load_bundle_list(const void *buf, size_t size) {
     }
     return;
 invalid:
-    syslog(LOG_ERR, "invalid bundle list data");
+    ib_log("invalid bundle list data");
 }
 
 static kern_return_t substituted_hello(mach_port_t service, int proto_version,
@@ -149,9 +163,12 @@ static kern_return_t substituted_hello(mach_port_t service, int proto_version,
     buf.hdr.msgh_id = SUBSTITUTED_MSG_HELLO;
     buf.u.req.proto_version = proto_version;
     strlcpy(buf.u.req.argv0, argv0, sizeof(buf.u.req.argv0));
-    buf.hdr.msgh_size = sizeof(buf.hdr) +
-                        sizeof(buf.u.req) +
-                        strlen(buf.u.req.argv0);
+    size_t size = sizeof(buf.hdr) +
+                  offsetof(struct substituted_msg_body_hello, argv0) +
+                  strlen(buf.u.req.argv0);
+    size_t round = round_msg(size);
+    memset((char *) &buf + size, 0, round - size);
+    buf.hdr.msgh_size = round;
     kern_return_t kr = mach_msg(&buf.hdr, MACH_RCV_MSG | MACH_SEND_MSG,
                                 buf.hdr.msgh_size, sizeof(buf), reply_port,
                                 MACH_MSG_TIMEOUT_NONE, MACH_PORT_NULL);
@@ -171,6 +188,7 @@ static kern_return_t substituted_hello(mach_port_t service, int proto_version,
     }
 
     if (buf.u.resp.error) {
+        ib_log("substituted_hello returned error %x", buf.u.resp.error);
         kr = KERN_FAILURE;
         goto out;
     }
@@ -191,7 +209,7 @@ static void init() {
     kern_return_t kr = bootstrap_look_up(bootstrap_port, "com.ex.substituted",
                                          &service);
     if (kr) {
-        syslog(LOG_ERR, "bootstrap_look_up com.ex.substituted: %x", kr);
+        ib_log("bootstrap_look_up com.ex.substituted: %x", kr);
         return;
     }
     const char *argv0 = (*_NSGetArgv())[0];
@@ -200,7 +218,7 @@ static void init() {
     kr = substituted_hello(service, SUBSTITUTED_PROTO_VERSION, argv0,
                            &bundle_list, &bundle_list_size);
     if (kr) {
-        syslog(LOG_ERR, "substituted_hello: %x", kr);
+        ib_log("substituted_hello: %x", kr);
         return;
     }
     load_bundle_list(bundle_list, bundle_list_size);
