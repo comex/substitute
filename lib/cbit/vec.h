@@ -73,8 +73,8 @@ void vec_realloc_internal_as_necessary(struct vec_internal *vi,
    VEC_TY(name) vec_pop_##name(struct vec_##name *v) { \
       size_t i = v->length - 1; \
       VEC_TY(name) ret = v->els[i]; \
-      if (i - 1 < v->capacity / 3) \
-         vec_realloc_internal_as_necessary(&v->vi, i - 1, sizeof(v->els[0])); \
+      if (v->els != v->storage && i < v->capacity / 3) \
+         vec_realloc_internal_as_necessary(&v->vi, i, sizeof(v->els[0])); \
       v->length = i; \
       return ret; \
    } \

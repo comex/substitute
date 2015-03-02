@@ -12,6 +12,7 @@ static struct assemble_ctx tdctx_to_actx(const struct transform_dis_ctx *ctx) {
     }
     return (struct assemble_ctx) {
         ctx->rewritten_ptr_ptr,
+        (uint_tptr) (uintptr_t) ctx->rewritten_ptr_ptr,
         ctx->arch.pc_low_bit,
         cond
     };
@@ -121,7 +122,7 @@ void transform_dis_data(struct transform_dis_ctx *ctx, unsigned o0, unsigned o1,
 }
 
 static NOINLINE UNUSED
-void transform_dis_pcrel(struct transform_dis_ctx *ctx, uintptr_t dpc,
+void transform_dis_pcrel(struct transform_dis_ctx *ctx, uint_tptr dpc,
                          struct arch_pcrel_info info) {
 #ifdef TRANSFORM_DIS_VERBOSE
     printf("transform_dis_pcrel: (0x%llx) dpc=0x%llx reg=%x mode=%d\n",
@@ -149,7 +150,7 @@ void transform_dis_pcrel(struct transform_dis_ctx *ctx, uintptr_t dpc,
 }
 
 static NOINLINE UNUSED
-void transform_dis_branch(struct transform_dis_ctx *ctx, uintptr_t dpc, int cc) {
+void transform_dis_branch(struct transform_dis_ctx *ctx, uint_tptr dpc, int cc) {
 #ifdef TRANSFORM_DIS_VERBOSE
     printf("transform_dis (0x%llx): branch => 0x%llx\n",
            (unsigned long long) ctx->base.pc,
@@ -192,6 +193,7 @@ static void transform_dis_pre_dis(struct transform_dis_ctx *ctx) {
 static void transform_dis_post_dis(struct transform_dis_ctx *ctx) {
     if (ctx->arch.bccrel_p) {
         struct assemble_ctx actx = {&ctx->arch.bccrel_p,
+                                    (uint_tptr) (uintptr_t) ctx->arch.bccrel_p,
                                     /*thumb*/ true,
                                     ctx->arch.bccrel_bits};
         Bccrel(actx, *ctx->rewritten_ptr_ptr - ctx->arch.bccrel_p);

@@ -89,7 +89,7 @@ static void transform_dis_branch(struct transform_dis_ctx *ctx, uint_tptr dpc,
         ctx->write_newop_here = code;
         code += ctx->base.op_size;
 
-        uintptr_t source = ctx->pc_trampoline + ctx->base.op_size + 2;
+        uint_tptr source = ctx->pc_trampoline + ctx->base.op_size + 2;
         int size = jump_patch_size(source, dpc, arch, true);
 
         /* If not taken, jmp past the big jump - this is a bit suboptimal but not

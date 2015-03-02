@@ -197,7 +197,7 @@ static INLINE void P(thumb2_do_it)(tdis_ctx ctx) {
 
 static INLINE void P(dis_thumb2)(tdis_ctx ctx) {
     ctx->base.op = unaligned_r32(ctx->base.ptr);
-    ctx->base.op_size = ctx->base.newop_size = 2;
+    ctx->base.op_size = ctx->base.newop_size = 4;
     /* LLVM likes to think about Thumb2 instructions the way the ARM manual
      * does - 15..0 15..0 rather than 31..0 as actually laid out in memory... */
     ctx->base.op = flip16(ctx->base.op);

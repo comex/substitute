@@ -59,7 +59,8 @@ static bool spawn_unrestrict(pid_t pid, bool should_resume, bool is_exec) {
     const char *is_exec_s = is_exec ? "1" : "0";
     const char *argv[] = {prog, pid_s, should_resume_s, is_exec_s, NULL};
     pid_t prog_pid;
-    if (old_posix_spawn(&prog_pid, prog, NULL, NULL, (char **) argv, NULL)) {
+    char *env[] = {"_MSSafeMode=1", NULL};
+    if (old_posix_spawn(&prog_pid, prog, NULL, NULL, (char **) argv, env)) {
         ib_log("posixspawn-hook: couldn't start unrestrict - oh well...");
         return false;
     }
@@ -67,7 +68,8 @@ static bool spawn_unrestrict(pid_t pid, bool should_resume, bool is_exec) {
     /* reap intermediate to avoid zombie - if it doesn't work, not a big deal */
     if (waitpid(prog_pid, &xstat, 0) == -1)
         ib_log("posixspawn-hook: couldn't waitpid");
-    ib_log("unrestrict xstat=%x", xstat);
+    if (IB_VERBOSE)
+        ib_log("unrestrict xstat=%x", xstat);
     return true;
 }
 
@@ -182,7 +184,14 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
         else
             goto skip;
     } else {
-        if (!strcmp(path, "/Library/Substitute/Helpers/substituted"))
+        /* substituted obviously doesn't want to have bundle_loader run in it
+         * and try to contact substituted.  I am not sure why notifyd is an
+         * issue.  Some libc functions (localtime) synchronously contact it,
+         * which launchd could be calling, but I haven't caught it in the act.
+         * XXX I'd like to be completely sure that notifyd and nothing else is
+         * a problem. */
+        if (!strcmp(path, "/Library/Substitute/Helpers/substituted") ||
+            !strcmp(path, "/usr/sbin/notifyd"))
             goto skip;
         else
             dylib_to_add = bl_dylib;
@@ -442,5 +451,4 @@ static void init() {
 end:
     if (im)
         substitute_close_image(im);
-
 }

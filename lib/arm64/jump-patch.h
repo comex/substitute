@@ -1,8 +1,9 @@
 #pragma once
 #include "arm64/assemble.h"
 #define MAX_JUMP_PATCH_SIZE 20
+#define MAX_EXTENDED_PATCH_SIZE MAX_JUMP_PATCH_SIZE
 
-static inline int jump_patch_size(uintptr_t pc, uintptr_t dpc,
+static inline int jump_patch_size(uint_tptr pc, uint_tptr dpc,
                                   UNUSED struct arch_dis_ctx arch,
                                   bool force) {
     intptr_t diff = (dpc & ~0xfff) - (pc & ~0xfff);
@@ -14,7 +15,7 @@ static inline int jump_patch_size(uintptr_t pc, uintptr_t dpc,
         return 12;
 }
 
-static inline void make_jump_patch(void **codep, uintptr_t pc, uintptr_t dpc,
+static inline void make_jump_patch(void **codep, uint_tptr pc, uint_tptr dpc,
                                    struct arch_dis_ctx arch) {
     int reg = arm64_get_unwritten_temp_reg(&arch);
     intptr_t diff = (dpc & ~0xfff) - (pc & ~0xfff);

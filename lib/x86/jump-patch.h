@@ -1,5 +1,6 @@
 #pragma once
 #define MAX_JUMP_PATCH_SIZE 14
+#define MAX_EXTENDED_PATCH_SIZE (MAX_JUMP_PATCH_SIZE+14)
 #include "dis.h"
 
 static inline int jump_patch_size(uint_tptr pc, uint_tptr dpc,

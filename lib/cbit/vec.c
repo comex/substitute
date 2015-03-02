@@ -1,12 +1,16 @@
 #include "cbit/vec.h"
 #include <stdio.h>
+#include <stdlib.h>
 
 void vec_realloc_internal(struct vec_internal *vi, size_t new_capacity,
                           size_t esize) {
+    if (new_capacity == 0)
+        abort();
     size_t new_size = safe_mul(new_capacity, esize);
     if (vi->els == vi->storage) {
         void *new = malloc(new_size);
-        memcpy(new, vi->els, vi->capacity * esize);
+        size_t min_cap = new_capacity < vi->capacity ? new_capacity : vi->capacity;
+        memcpy(new, vi->els, min_cap * esize);
         vi->els = new;
     } else {
         vi->els = realloc(vi->els, new_size);

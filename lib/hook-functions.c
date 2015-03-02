@@ -8,7 +8,7 @@
 #include <pthread.h>
 
 struct hook_internal {
-    int offset_by_pcdiff[MAX_JUMP_PATCH_SIZE + 1];
+    int offset_by_pcdiff[MAX_EXTENDED_PATCH_SIZE + 1];
     uint8_t jump_patch[MAX_JUMP_PATCH_SIZE];
     size_t jump_patch_size;
     void *code;
@@ -139,7 +139,7 @@ int substitute_hook_functions(const struct substitute_function_hook *hooks,
 
     struct execmem_foreign_write *fws;
     struct hook_internal *his = malloc(nhooks * sizeof(*his) +
-                                       nhooks + sizeof(*fws));
+                                       nhooks * sizeof(*fws));
     if (!his)
         return SUBSTITUTE_ERR_OOM;
     fws = (void *) (his + nhooks);
@@ -202,7 +202,12 @@ int substitute_hook_functions(const struct substitute_function_hook *hooks,
             hi->trampoline_page = trampoline_ptr;
         }
 
-        hi->outro_trampoline = trampoline_ptr;
+        void *outro_trampoline_real = trampoline_ptr;
+        hi->outro_trampoline = outro_trampoline_real;
+#ifdef __arm__
+        if (arch.pc_low_bit)
+            hi->outro_trampoline++;
+#endif
         if (hook->old_ptr)
             *(void **) hook->old_ptr = hi->outro_trampoline;
 
@@ -218,10 +223,8 @@ int substitute_hook_functions(const struct substitute_function_hook *hooks,
 
         uintptr_t dpc = pc_patch_end;
 #ifdef __arm__
-        if (arch.pc_low_bit) {
-            hi->outro_trampoline++;
+        if (arch.pc_low_bit)
             dpc++;
-        }
 #endif
 
         /* Now that transform_dis_main has given us the final pc_patch_end,
@@ -233,7 +236,7 @@ int substitute_hook_functions(const struct substitute_function_hook *hooks,
         make_jump_patch(&trampoline_ptr, (uintptr_t) trampoline_ptr, dpc, arch);
         trampoline_ptr += -(uintptr_t) trampoline_ptr % ARCH_MAX_CODE_ALIGNMENT;
         trampoline_size_left -= (uint8_t *) trampoline_ptr
-                              - (uint8_t *) hi->outro_trampoline;
+                              - (uint8_t *) outro_trampoline_real;
     }
 
     /* Now commit. */

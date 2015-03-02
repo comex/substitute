@@ -46,7 +46,7 @@ static inline void LDRxi(void **codep, int Rt, int Rn, uint32_t off,
 }
 
 static inline void ADRP_ADD(void **codep, int reg, uint64_t pc, uint64_t dpc) {
-    uintptr_t diff = (dpc & ~0xfff) - (pc & ~0xfff);
+    uint64_t diff = (dpc & ~0xfff) - (pc & ~0xfff);
     /* ADRP reg, dpc */
     op32(codep, 0x90000000 | reg | (diff & 0x3000) << 17 | (diff & 0x1ffffc000) >> 9);
     uint32_t lo = dpc & 0xfff;

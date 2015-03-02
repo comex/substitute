@@ -16,6 +16,8 @@ cp substrate/substrate.h $debroot/usr/include/substitute/
 mkdir -p $debroot/Library/Substitute/DynamicLibraries
 mkdir -p $debroot/Library/Substitute/Helpers
 cp out/{posixspawn-hook.dylib,bundle-loader.dylib,unrestrict,inject-into-launchd,substituted} $debroot/Library/Substitute/Helpers/
+mkdir -p $debroot/etc/rc.d
+ln -s /Library/Substitute/Helpers/inject-into-launchd $debroot/etc/rc.d/substitute
 mkdir -p $debroot/Library/LaunchDaemons
 cp darwin-bootstrap/com.ex.substituted.plist $debroot/Library/LaunchDaemons/
 cp -a DEBIAN $debroot/

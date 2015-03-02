@@ -41,4 +41,4 @@ static inline void ib_log_hex(const void *buf, size_t size) {
     free(hex);
 }
 
-#define IB_VERBOSE 1
+#define IB_VERBOSE 0

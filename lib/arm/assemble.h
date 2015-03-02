@@ -3,6 +3,7 @@
 
 struct assemble_ctx {
     void **codep;
+    uint_tptr pc;
     bool thumb;
     int cond;
 };
@@ -100,6 +101,8 @@ static inline void Bccrel(struct assemble_ctx ctx, int offset) {
 }
 
 static inline void LDR_PC(struct assemble_ctx ctx, uint32_t dpc) {
+    if (ctx.pc & 2)
+        op16(ctx.codep, 0xbf00);
     if (ctx.thumb)
         op32(ctx.codep, 0xf000f8df);
     else

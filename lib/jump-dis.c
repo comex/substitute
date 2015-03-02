@@ -131,6 +131,7 @@ bool jump_dis_main(void *code_ptr, uint_tptr pc_patch_start, uint_tptr pc_patch_
     ctx.pc_ret = -1;
     ctx.base.pc = pc_patch_end;
     ctx.arch = initial_dis_ctx;
+    VEC_STORAGE_INIT(&ctx.queue, uint_tptr);
     while (1) {
         ctx.bad_insn = false;
         ctx.continue_after_this_insn = true;
