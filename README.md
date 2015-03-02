@@ -1,13 +1,8 @@
 (lib)substitute
 ---------------
 
-NOT EVEN ALPHA YET:
-
-    I wrote the below disclaimer assuming I would at least fix the boot process
-    before publishing this.  I need to sleep, so that will happen tomorrow, but
-    for now it's simply broken.  Please don't install the package yet, but feel
-    free to look at the code.
-
+[3/1/15] Time flies whether or not you're having fun?  "Tomorrow" became a
+month, thanks to work, but at least we're getting somewhere.
 
 ALPHA VERSION:
 
@@ -15,11 +10,42 @@ ALPHA VERSION:
     completely broken.  Especially sharp edges are the iOS bootstrap stuff and
     the disassemblers.
 
+    Please only try to install this on iOS 8 (TODO make this a dpkg
+    dependency).  Before installing this, *please* install
+    [safestrat](https://github.com/comex/safestrat) so that if Substitute
+    breaks booting, you can SSH in and uninstall it.
+
+    Please reboot after installing and uninstalling.  Magic rebootless
+    installation and uninstallation is planned, but not implemented yet!
+
+    Known issue: For some reason, unrestrict seems to not work until something
+    (amfid?) has loaded, which is a chicken and egg problem because amfid is
+    restricted; so restricted binaries might not load bundles.  This only
+    affects a few binaries: afcd, amfid, installd, mobile_house_arrest.
+
     Automatically entering a safe mode after SpringBoard crashes is not
     implemented yet (though you can see the UI in progress in
     ios-bootstrap/SafetyDance).  Manually disabling the system by holding
     volume up while booting (the same shortcut as Substrate) should work,
     though.
+
+    ...If you read through all that and still want to install, you can build it
+    on a Mac with:
+
+    make ARCH="-arch armv7 -arch arm64 -isysroot <xxx>" && ./script/gen-deb.sh
+
+    or use the deb I uploaded to GitHub.
+
+    Extensions should be placed in /Library/Substitute/DynamicLibraries, with
+    the same layout as Substrate.  If you want to quickly test whether an
+    existing Substrate extension works with Substitute, you can run
+
+    install_name_tool -change \
+      /Library/Frameworks/CydiaSubstrate.framework/CydiaSubstrate \
+      /usr/lib/libsubstitute.0.dylib \
+      extension.dylib
+
+    and move it to the new directory.
 
 Substitute is a system for modifying code at runtime by substituting custom
 implementations for arbitrary functions and Objective-C methods.  It is also a
@@ -29,12 +55,13 @@ It currently has full support for iOS and limited support for OS X; in the
 
 License: LGPLv2.1+ with optional extra permissiveness; see LICENSE.txt
 
+Note: x86 support should be functional now, although I haven't tested it much.
+
 Substitute compared to Substrate
 ================================
 * `+` Free software, so you can actually use it somewhere other than iOS or
       Android, e.g. by bundling whatever parts of it you need with your app.
-      (Well, you could if it didn't lack x86 support, which will be fixed
-      quite soon.)  See below for more on this.
+      See below for more on this.
 * `+` More sophisticated, partially automatically generated disassemblers,
       which handle a larger portion of the space of possible PC-relative
       instructions that might be found in a patch target function - though I'm
@@ -68,7 +95,6 @@ Todo list (approx. priority order)
 - iOS: safe mode
 - iOS: ensure re-patching launchd (for upgrades) works
 - iOS: install without reboot
-- x86
 - On-the-fly hooking and unhooking support:
     - support for optimistically trying to unhook, in the hope that no further modifications were made to that memory
     - some API to load/unload from all existing processes
