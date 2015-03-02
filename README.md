@@ -13,7 +13,9 @@ ALPHA VERSION:
     Please only try to install this on iOS 8 (TODO make this a dpkg
     dependency).  Before installing this, *please* install
     [safestrat](https://github.com/comex/safestrat) so that if Substitute
-    breaks booting, you can SSH in and uninstall it.
+    breaks booting, you can SSH in and uninstall it.  (Ensure that its entry in
+    /etc/rc.d comes alphabetically before 'substitute'!  Although this
+    package's volume-up disable should be pretty stable too.)
 
     Please reboot after installing and uninstalling.  Magic rebootless
     installation and uninstallation is planned, but not implemented yet!
