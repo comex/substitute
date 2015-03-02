@@ -40,7 +40,6 @@ static struct {
     typeof(CFStringCreateWithCStringNoCopy) *CFStringCreateWithCStringNoCopy;
     typeof(CFRelease) *CFRelease;
     typeof(kCFAllocatorNull) *kCFAllocatorNull;
-    typeof(kCFStringEncodingUTF8) *kCFStringEncodingUTF8;
 } cf_funcs;
 
 static struct {
@@ -48,24 +47,35 @@ static struct {
     typeof(objc_getClass) *objc_getClass;
 } objc_funcs;
 
-#define GET(funcs, handle, name) (funcs)->name = dlsym(handle, "_" #name)
+#define GET(funcs, handle, name) (funcs)->name = dlsym(handle, #name)
+
+static void *dlopen_noload(const char *path) {
+    void *h = dlopen(path, RTLD_LAZY | RTLD_NOLOAD);
+    if (!h)
+        return NULL;
+    dlclose(h);
+    return dlopen(path, RTLD_LAZY);
+}
 
 static bool cf_has_bundle(const char *name) {
     if (!cf_funcs.initialized) {
-        void *handle = dlopen("/System/Library/Frameworks/CoreFoundation.framework",
-                              RTLD_LAZY | RTLD_NOLOAD);
+        const char *cf =
+            "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation";
+        void *handle = dlopen_noload(cf);
+        if (IB_VERBOSE)
+            ib_log("CF handle: %p", handle);
         if (handle) {
             GET(&cf_funcs, handle, CFBundleGetBundleWithIdentifier);
             GET(&cf_funcs, handle, CFStringCreateWithCStringNoCopy);
             GET(&cf_funcs, handle, CFRelease);
             GET(&cf_funcs, handle, kCFAllocatorNull);
-            GET(&cf_funcs, handle, kCFStringEncodingUTF8);
         }
+        cf_funcs.initialized = true;
     }
     if (!cf_funcs.CFBundleGetBundleWithIdentifier)
         return false;
     CFStringRef str = cf_funcs.CFStringCreateWithCStringNoCopy(
-        NULL, name, *cf_funcs.kCFStringEncodingUTF8, *cf_funcs.kCFAllocatorNull);
+        NULL, name, kCFStringEncodingUTF8, *cf_funcs.kCFAllocatorNull);
     if (!str)
         return false;
     bool ret = !!cf_funcs.CFBundleGetBundleWithIdentifier(str);
@@ -75,10 +85,12 @@ static bool cf_has_bundle(const char *name) {
 
 static bool objc_has_class(const char *name) {
     if (!objc_funcs.initialized) {
-        void *handle = dlopen("/usr/lib/libobjc.A.dylib",
-                              RTLD_LAZY | RTLD_NOLOAD);
+        void *handle = dlopen_noload("/usr/lib/libobjc.A.dylib");
+        if (IB_VERBOSE)
+            ib_log("objc handle: %p", handle);
         if (handle)
             GET(&objc_funcs, handle, objc_getClass);
+        objc_funcs.initialized = true;
     }
     if (!objc_funcs.objc_getClass)
         return false;
@@ -86,8 +98,9 @@ static bool objc_has_class(const char *name) {
 }
 
 static void use_dylib(const char *name) {
-    ib_log("loading dylib %s", name);
-    // ..
+    if (IB_VERBOSE)
+        ib_log("loading dylib %s", name);
+    dlopen(name, RTLD_LAZY);
 }
 
 static void load_bundle_list(const void *buf, size_t size) {
@@ -130,6 +143,7 @@ static void load_bundle_list(const void *buf, size_t size) {
                 if (!pop(&buf, end, &opc, &name))
                     goto invalid;
             }
+            break;
         fail:
             do {
                 if (!pop(&buf, end, &opc, &name))

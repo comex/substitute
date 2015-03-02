@@ -155,14 +155,15 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
     posix_spawnattr_t my_attr = NULL;
 
     short flags = 0;
-    if (posix_spawnattr_getflags(attrp, &flags))
+    if (attrp && posix_spawnattr_getflags(attrp, &flags))
         goto crap;
 
     if (IB_VERBOSE) {
-        ib_log("hook_posix_spawn_generic: path=%s%s%s",
+        ib_log("hook_posix_spawn_generic: path=%s%s%s (ld=%d)",
                path,
                (flags & POSIX_SPAWN_SETEXEC) ? " (exec)" : "",
-               (flags & POSIX_SPAWN_START_SUSPENDED) ? " (suspend)" : "");
+               (flags & POSIX_SPAWN_START_SUSPENDED) ? " (suspend)" : "",
+               is_launchd);
         for (char *const *ap = argv; *ap; ap++)
             ib_log("   %s", *ap);
     }
@@ -175,12 +176,17 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
 
     /* which dylib should we add, if any? */
     const char *dylib_to_add;
-    if (!is_launchd)
-        dylib_to_add = bl_dylib;
-    else if (!strcmp(path, "/usr/libexec/xpcproxy"))
-        dylib_to_add = psh_dylib;
-    else
-        goto skip;
+    if (is_launchd) {
+        if (!strcmp(path, "/usr/libexec/xpcproxy"))
+            dylib_to_add = psh_dylib;
+        else
+            goto skip;
+    } else {
+        if (!strcmp(path, "/Library/Substitute/Helpers/substituted"))
+            goto skip;
+        else
+            dylib_to_add = bl_dylib;
+    }
 
     if (attrp) {
         posix_spawnattr_t attr = *attrp;
