@@ -1,0 +1,14 @@
+#!/bin/bash
+
+# for now, always reboot on install/uninstall
+
+# <- http://iphonedevwiki.net/index.php/Packaging#Telling_Cydia_to_respring.2Freboot_etc._after_install
+function finish() {
+	f="${1}"
+	[[ -z "${f}" || -z "${CYDIA}" ]] && return
+	cydia=(${CYDIA})
+	[[ ${cydia[1]} -eq 1 ]] || return
+	echo "finish:${f}" >&${cydia[0]}
+}
+
+finish reboot

@@ -20,8 +20,8 @@ mkdir -p $debroot/etc/rc.d
 ln -s /Library/Substitute/Helpers/inject-into-launchd $debroot/etc/rc.d/substitute
 mkdir -p $debroot/Library/LaunchDaemons
 cp darwin-bootstrap/com.ex.substituted.plist $debroot/Library/LaunchDaemons/
-cp -a DEBIAN $debroot/
-sed "s#{VERSION}#$version#g" DEBIAN/control > $debroot/DEBIAN/control
+cp -a darwin-bootstrap/DEBIAN $debroot/
+sed "s#{VERSION}#$version#g" darwin-bootstrap/DEBIAN/control > $debroot/DEBIAN/control
 #... add bootstrap stuff
 # yay, old forks and deprecated compression
 fakeroot dpkg-deb -Zlzma -b $debroot out/com.ex.substitute-$version.deb
