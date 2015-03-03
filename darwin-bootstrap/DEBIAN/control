@@ -8,4 +8,5 @@ Version: {VERSION}
 Description: Substrate substitute for code substitution
 Maintainer: comex <comexk+dm@gmail.com>
 Section: System
+Depends: firmware (>= 8.0)
 
