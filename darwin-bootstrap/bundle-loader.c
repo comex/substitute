@@ -154,7 +154,7 @@ static void load_bundle_list(const void *buf, size_t size) {
     }
     return;
 invalid:
-    ib_log("invalid bundle list data");
+    ib_log("invalid bundle list IPC data (substitute bug)");
 }
 
 static kern_return_t substituted_hello(mach_port_t service, int proto_version,

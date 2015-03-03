@@ -615,7 +615,11 @@ int substitute_dlopen_in_pid(int pid, const char *filename, int options,
                 inject_start_arm[],
                 inject_start_arm64[];
 
-    int target_page_size = cputype == CPU_TYPE_ARM64 ? 0x4000 : 0x1000;
+    int target_page_size =
+#if defined(__arm__) || defined(__arm64__)
+        cputype == CPU_TYPE_ARM64 ? 0x4000 :
+#endif
+        0x1000;
     kr = mach_vm_allocate(task, &target_stack, 2 * target_page_size, VM_FLAGS_ANYWHERE);
     if (kr) {
         asprintf(error, "couldn't allocate target stack");
