@@ -10,8 +10,7 @@ ALPHA VERSION:
     completely broken.  Especially sharp edges are the iOS bootstrap stuff and
     the disassemblers.
 
-    Please only try to install this on iOS 8 (TODO make this a dpkg
-    dependency).  Before installing this, *please* install
+    Please only try to install this on iOS 8.  Before installing this, *please* install
     [safestrat](https://github.com/comex/safestrat) so that if Substitute
     breaks booting, you can SSH in and uninstall it.  (Ensure that its entry in
     /etc/rc.d comes alphabetically before 'substitute'!  Although this
