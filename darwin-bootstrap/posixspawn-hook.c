@@ -31,6 +31,7 @@
 #include <errno.h>
 #include <arpa/inet.h>
 #include <libkern/OSByteOrder.h>
+#include <sys/sysctl.h>
 
 extern char ***_NSGetEnviron(void);
 
@@ -230,6 +231,19 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
             orig_dyld_insert = env;
         }
     }
+    
+#if !TARGET_OS_IPHONE
+    // Always disable substitute in safe mode on OSX
+    int safeBoot;
+    int mib_name[2] = { CTL_KERN, KERN_SAFEBOOT };
+    size_t length = sizeof(safeBoot);
+    if (!sysctl(mib_name, 2, &safeBoot, &length, NULL, 0)) {
+        safe_mode = safe_mode || safeBoot == 1;
+    } else {
+        // Couldn't find safe boot flag
+    }
+#endif
+    
     new = malloc(sizeof("DYLD_INSERT_LIBRARIES=") - 1 +
                  sizeof(psh_dylib) /* not - 1, because : */ +
                  strlen(orig_dyld_insert) + 1);
