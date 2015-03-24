@@ -273,6 +273,8 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
         if (newp != newp_orig)
             *newp++ = ':';
         newp = stpcpy(newp, dylib_to_add);
+    } else {
+        newp = stpcpy(newp, "\0");
     }
     if (IB_VERBOSE)
         ib_log("using %s", new);
