@@ -27,7 +27,7 @@ static bool pop(const void **buf, const void *end,
     *buf += sizeof(*op);
     *opc = op->opc;
     if ((size_t) (end - *buf) <= op->namelen ||
-        ((const char *) buf)[op->namelen] != '\0')
+        ((const char *) *buf)[op->namelen] != '\0')
         return false;
     *name = *buf;
     *buf += op->namelen + 1;
