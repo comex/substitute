@@ -160,6 +160,11 @@ invalid:
 static kern_return_t substituted_hello(mach_port_t service, int proto_version,
                                        const char *argv0, void **bundle_list_p,
                                        size_t *bundle_list_size_p) {
+                                           
+    if (argv0 == NULL) {
+        return KERN_INVALID_ARGUMENT;
+    }
+    
     struct {
         mach_msg_header_t hdr;
         union {
@@ -176,6 +181,7 @@ static kern_return_t substituted_hello(mach_port_t service, int proto_version,
     buf.hdr.msgh_reserved = 0;
     buf.hdr.msgh_id = SUBSTITUTED_MSG_HELLO;
     buf.u.req.proto_version = proto_version;
+    
     strlcpy(buf.u.req.argv0, argv0, sizeof(buf.u.req.argv0));
     size_t size = sizeof(buf.hdr) +
                   offsetof(struct substituted_msg_body_hello, argv0) +
