@@ -32,6 +32,7 @@
 #include <arpa/inet.h>
 #include <libkern/OSByteOrder.h>
 #include <sys/sysctl.h>
+#include <TargetConditionals.h>
 
 extern char ***_NSGetEnviron(void);
 
@@ -234,13 +235,13 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
     
 #if !TARGET_OS_IPHONE
     // Always disable substitute in safe mode on OSX
-    int safeBoot;
+    int safe_boot;
     int mib_name[2] = { CTL_KERN, KERN_SAFEBOOT };
     size_t length = sizeof(safeBoot);
-    if (!sysctl(mib_name, 2, &safeBoot, &length, NULL, 0)) {
-        safe_mode = safe_mode || safeBoot == 1;
+    if (!sysctl(mib_name, 2, &safe_boot, &length, NULL, 0)) {
+        safe_mode = safe_mode || safe_boot == 1;
     } else {
-        // Couldn't find safe boot flag
+        safe_mode = false;
     }
 #endif
     
