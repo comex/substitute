@@ -241,14 +241,15 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
         /* append if it isn't one of ours */
         bool is_substitute =
             (next - p == sizeof(bl_dylib) - 1 &&
-             !memcmp(next, bl_dylib, sizeof(bl_dylib) - 1)) ||
+             !memcmp(p, bl_dylib, sizeof(bl_dylib) - 1)) ||
             (next - p == sizeof(psh_dylib) - 1 &&
-             !memcmp(next, psh_dylib, sizeof(psh_dylib) - 1));
+             !memcmp(p, psh_dylib, sizeof(psh_dylib) - 1));
         if (!is_substitute) {
             if (newp != newp_orig)
                 *newp++ = ':';
             memcpy(newp, p, next - p);
             newp += next - p;
+            *newp = '\0';
         }
         if (!*next)
             break;

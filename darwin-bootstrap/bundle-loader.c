@@ -227,6 +227,8 @@ static void init() {
         return;
     }
     const char *argv0 = (*_NSGetArgv())[0];
+    if (!argv0)
+        argv0 = "???";
     void *bundle_list;
     size_t bundle_list_size;
     kr = substituted_hello(service, SUBSTITUTED_PROTO_VERSION, argv0,
