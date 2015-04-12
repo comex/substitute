@@ -306,7 +306,7 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
     bool need_unrestrict = looks_restricted(path);
 
     /* TODO skip this if Substrate is doing it anyway */
-    bool was_suspended = false;
+    bool was_suspended;
     
     if (need_unrestrict) {
         was_suspended = flags & POSIX_SPAWN_START_SUSPENDED;
