@@ -31,6 +31,8 @@
 #include <errno.h>
 #include <arpa/inet.h>
 #include <libkern/OSByteOrder.h>
+#include <sys/sysctl.h>
+#include <TargetConditionals.h>
 
 extern char ***_NSGetEnviron(void);
 
@@ -233,6 +235,19 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
             orig_dyld_insert = env;
         }
     }
+    
+#if !TARGET_OS_IPHONE
+    // Always disable substitute in safe mode on OSX
+    int safe_boot;
+    int mib_name[2] = { CTL_KERN, KERN_SAFEBOOT };
+    size_t length = sizeof(safeBoot);
+    if (!sysctl(mib_name, 2, &safe_boot, &length, NULL, 0)) {
+        safe_mode = safe_mode || safe_boot == 1;
+    } else {
+        safe_mode = false;
+    }
+#endif
+    
     new = malloc(sizeof("DYLD_INSERT_LIBRARIES=") - 1 +
                  sizeof(psh_dylib) /* not - 1, because : */ +
                  strlen(orig_dyld_insert) + 1);
@@ -263,6 +278,8 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
         if (newp != newp_orig)
             *newp++ = ':';
         newp = stpcpy(newp, dylib_to_add);
+    } else {
+        newp = stpcpy(newp, "\0");
     }
     if (IB_VERBOSE)
         ib_log("using %s", new);
@@ -294,6 +311,7 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
 
     /* TODO skip this if Substrate is doing it anyway */
     bool was_suspended;
+    
     if (need_unrestrict) {
         was_suspended = flags & POSIX_SPAWN_START_SUSPENDED;
         flags |= POSIX_SPAWN_START_SUSPENDED;

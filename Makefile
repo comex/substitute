@@ -186,7 +186,9 @@ out/safety-dance/SafetyDance.app/Info.plist: darwin-bootstrap/safety-dance/Info.
 	cp darwin-bootstrap/safety-dance/white.png out/safety-dance/SafetyDance.app/Default@2x.png
 safety-dance: out/safety-dance/SafetyDance.app/SafetyDance out/safety-dance/SafetyDance.app/Info.plist
 all: safety-dance
+endif
 
+# Common Bootstrap
 out/posixspawn-hook.dylib: darwin-bootstrap/posixspawn-hook.c out/libsubstitute.dylib
 	$(CC) -dynamiclib -o $@ $< -Lout -lsubstitute
 out/bundle-loader.dylib: darwin-bootstrap/bundle-loader.c darwin-bootstrap/substituted-messages.h out/libsubstitute.dylib
@@ -200,7 +202,6 @@ out/inject-into-launchd: darwin-bootstrap/inject-into-launchd.c darwin-bootstrap
 out/substituted: darwin-bootstrap/substituted*
 	$(CC) -o $@ darwin-bootstrap/substituted{.c,-plist-loader.m} -framework Foundation -framework CoreFoundation -lbsm -fobjc-arc
 all: out/posixspawn-hook.dylib out/bundle-loader.dylib out/unrestrict out/inject-into-launchd out/substituted
-endif
 
 
 clean:
