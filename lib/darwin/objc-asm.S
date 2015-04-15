@@ -33,7 +33,7 @@ _remap_start:
     jmp *%eax
 #elif defined(__arm__)
     push {r0-r4, lr} /* r4 for align */
-    mov r3, #(my_rpe - (1f + 2))
+    mov r3, #:lower16:(my_rpe - (1f + 2))
     add r3, pc
 1:
     ldr r0, [r3, #4]
