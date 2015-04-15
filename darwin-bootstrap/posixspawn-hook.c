@@ -64,6 +64,9 @@ static bool spawn_unrestrict(pid_t pid, bool should_resume, bool is_exec) {
         ib_log("posixspawn-hook: couldn't start unrestrict - oh well...");
         return false;
     }
+    if (IB_VERBOSE)
+        ib_log("unrestrict pid: %d; should_resume=%d is_exec=%d",
+               prog_pid, should_resume, is_exec);
     int xstat;
     /* reap intermediate to avoid zombie - if it doesn't work, not a big deal */
     if (waitpid(prog_pid, &xstat, 0) == -1)
@@ -304,8 +307,6 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
             }
             if (fcntl(255, F_SETFD, FD_CLOEXEC))
                 goto crap;
-            if (IB_VERBOSE)
-                ib_log("spawning unrestrict");
             if (!spawn_unrestrict(getpid(), !was_suspended, true))
                 goto skip;
         }
