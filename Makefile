@@ -98,8 +98,8 @@ $(eval $(call define_iar,arm64,arm64))
 IAR_BINS := out/inject-asm-raw-x86_64.bin out/inject-asm-raw-i386.bin out/inject-asm-raw-arm.bin out/inject-asm-raw-arm64.bin
 out/darwin-inject-asm.S: $(IAR_BINS) Makefile script/gen-inject-asm.sh
 	./script/gen-inject-asm.sh > $@ || rm -f $@
-generateds: generated/darwin-inject-asm.S
-generated/darwin-inject-asm.S: out/darwin-inject-asm.S
+generateds: out/darwin-inject-asm.S
+out/darwin-inject-asm.S: out/darwin-inject-asm.S
 	cp $< generated/
 
 generateds: generated/manual-mach.inc.h
