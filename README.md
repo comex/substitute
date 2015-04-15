@@ -19,11 +19,6 @@ ALPHA VERSION:
     Please reboot after installing and uninstalling.  Magic rebootless
     installation and uninstallation is planned, but not implemented yet!
 
-    Known issue: For some reason, unrestrict seems to not work until something
-    (amfid?) has loaded, which is a chicken and egg problem because amfid is
-    restricted; so restricted binaries might not load bundles.  This only
-    affects a few binaries: afcd, amfid, installd, mobile_house_arrest.
-
     Automatically entering a safe mode after SpringBoard crashes is not
     implemented yet (though you can see the UI in progress in
     ios-bootstrap/SafetyDance).  Manually disabling the system by holding

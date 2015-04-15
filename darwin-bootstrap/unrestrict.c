@@ -189,50 +189,65 @@ int main(int argc, char **argv) {
                should_resume, is_exec);
     }
 
-    int ec = 1;
+    int rv = 1;
 
+    int retries = 0;
+    int wait_us = 50;
     mach_port_t task;
-    kern_return_t kr = task_for_pid(mach_task_self(), (pid_t) pid, &task);
-    if (kr) {
-        ib_log("TFP fail: %d", kr);
-        goto fail;
-    }
-
-    if (is_exec[0] == '1') {
-        int retries = 0;
-        int wait_us = 1;
-        while (1) {
-            /* The process might not have transitioned yet.  We set up a dummy fd
-             * 255 in the parent process which was marked CLOEXEC, so test if that
-             * still exists.  AFAICT, Substrate's equivalent to this is not
-             * actually correct.
-             * TODO cleanup
-             */
-            char buf[PROC_PIDFDVNODEINFO_SIZE];
-            /* A bug in proc_pidfdinfo makes it never return -1.  Yuck. */
-            errno = 0;
-            proc_pidfdinfo(pid, 255, PROC_PIDFDVNODEINFO, buf, sizeof(buf));
-            if (errno == EBADF) {
-                break;
-            } else if (errno) {
-                ib_log("proc_pidfdinfo: %s", strerror(errno));
-                goto fail;
-            }
-
+    while (1) {
+        kern_return_t kr = task_for_pid(mach_task_self(), (pid_t) pid, &task);
+        if (kr) {
+            /* If we're still in the old task (specifically, exec_handle_sugid
+             * has not been called yet), task_for_pid will fail because
+             * xpcproxy changed uid since it started, and for some dumb reason
+             * debugging any such processes is prohibited by
+             * task_for_pid_posix_check. */
             if (retries++ == 20) {
-                ib_log("still in parent process after 20 retries");
+                ib_log("TFP still failing (%d) after 20 retries", kr);
                 goto fail;
             }
-            wait_us *= 2;
-            if (wait_us > 200000)
-                wait_us = 200000;
-            while (usleep(wait_us))
-                ;
+        } else {
+            if (is_exec[0] != '1') {
+                break;
+            } else {
+                /* The process might not have transitioned yet.  We set up a
+                 * dummy fd 255 in the parent process which was marked CLOEXEC,
+                 * so test if that still exists.  AFAICT, Substrate's
+                 * equivalent to this is not actually correct.
+                 * (I don't think the task_for_pid failure check is sufficient,
+                 * as P_SUGID is only set if the credential actually changed.)
+                 */
+                char buf[PROC_PIDFDVNODEINFO_SIZE];
+                /* A bug in proc_pidfdinfo makes it never return -1.  Yuck. */
+                errno = 0;
+                proc_pidfdinfo(pid, 255, PROC_PIDFDVNODEINFO, buf, sizeof(buf));
+                if (errno == EBADF) {
+                    break;
+                } else if (errno) {
+                    ib_log("proc_pidfdinfo: %s", strerror(errno));
+                    goto fail;
+                }
+
+                if (retries++ == 20) {
+                    ib_log("still in parent process after 20 retries");
+                    goto fail;
+                }
+            }
         }
+        /* ok, just retry */
+        wait_us *= 2;
+        if (wait_us > 200000)
+            wait_us = 200000;
+        while (usleep(wait_us))
+            ;
     }
+
+    if (IB_VERBOSE && retries > 0)
+        ib_log("note: ready after %d retries", retries);
 
     unrestrict(task);
 
+    rv = 0;
 fail:
     if (should_resume[0] == '1') {
         if ((kill(pid, SIGCONT))) {
@@ -241,5 +256,5 @@ fail:
         }
     }
 
-    return ec;
+    return rv;
 }
