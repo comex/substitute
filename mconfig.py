@@ -1,3 +1,4 @@
+# TODO: get rid of 'need'.  Use a function that memoizes the object instead.
 import re, argparse, sys, os, string, shlex
 from collections import OrderedDict, namedtuple
 import curses.ascii
@@ -24,6 +25,25 @@ def argv_to_shell(argv):
             quoteds.append('"' + quoted + '"')
     return ' '.join(quoteds)
 
+class DependencyNotFoundException(Exception):
+    pass
+
+# it must take no arguments, and throw DependencyNotFoundException on failure
+class memoize(object):
+    def __init__(self, f):
+        self.f = f
+    def __call__(self):
+        if hasattr(self, 'threw'):
+            raise self.threw
+        elif hasattr(self, 'result'):
+            return self.result
+        else:
+            try:
+                self.result = self.f()
+                return self.result
+            except DependencyNotFoundException as self.threw:
+                raise
+
 class Pending(object):
     def __str__(self):
         return 'Pending',
@@ -34,16 +54,12 @@ class Pending(object):
         return PendingAttribute(self, attr)
 
 class PendingOption(Pending, namedtuple('PendingOption', 'opt')):
-    def need(self):
-        self.opt.need()
     def resolve(self):
         return self.opt.value
     def __repr__(self):
         return 'PendingOption(%s)' % (self.opt.name,)
 
 class PendingAttribute(Pending, namedtuple('PendingAttribute', 'base attr')):
-    def need(self):
-        self.base.need()
     def resolve(self):
         return getattr(self.base, self.attr)
 
@@ -74,10 +90,7 @@ class SettingsGroup(object):
                     return obj.resolve()
                 except:
                     if not allow_pending:
-                        if isinstance(obj, PendingOption):
-                            raise Exception("setting %r is pending the command line option %r, probably because you didn't 'need' the setting" % (attr, obj.opt))
-                        else:
-                            raise Exception("setting %r is pending; you need to set it" % (attr,))
+                        raise Exception("setting %r is pending; you need to set it" % (attr,))
                     return obj
             return obj
     def __getattribute__(self, attr):
@@ -118,12 +131,6 @@ class SettingsGroup(object):
     def relative_lookup(self, name):
         name = re.sub('^\.\.', 'group_parent.', name)
         return eval('self.' + name)
-    def need(self, name):
-        if name not in self.vals:
-            raise KeyError('need setting %r that has not been set' % (name,))
-        obj = self.vals[name]
-        if hasattr(obj, 'need'):
-            obj.need()
 
     def add_setting_option(self, name, optname, optdesc, default, **kwargs):
         def f(value):
@@ -150,7 +157,7 @@ class OptSection(object):
         all_opt_sections.append(self)
 
 class Option(object):
-    def __init__(self, name, help, default, on_set, bool=False, show=False, section=None, metavar=None, type=str, **kwargs):
+    def __init__(self, name, help, default, on_set, bool=False, show=True, section=None, metavar=None, type=str, **kwargs):
         if name.startswith('--'):
             self.is_env = False
             assert set(kwargs).issubset({'nargs', 'choices', 'required', 'metavar'})
@@ -180,6 +187,10 @@ class Option(object):
     def __repr__(self):
         value = repr(self.value) if hasattr(self, 'value') else '<none yet>'
         return 'Option(name=%r, help=%r, value=%s, default=%r)' % (self.name, self.help, value, self.default)
+
+    def need(self):
+        self.show = True
+
     def set(self, value):
         if value is None:
             value = self.default
@@ -188,10 +199,6 @@ class Option(object):
         self.value = value
         if self.on_set is not None:
             self.on_set(value)
-    def need(self):
-        self.show = True
-        if hasattr(self.default, 'need'):
-            self.default.need()
 
 class Expansion(object):
     def __init__(self, fmt, base):
@@ -200,10 +207,6 @@ class Expansion(object):
         self.deps = list(map(base.relative_lookup, re.findall('\((.*?)\)', fmt)))
     def __repr__(self):
         return 'Expansion(%r)' % (self.fmt,)
-    def need(self):
-        for dep in self.deps:
-            if hasattr(dep, 'need'):
-                dep.need()
     def __call__(self):
         deps = self.deps[:]
         def get_dep(m):
@@ -232,9 +235,9 @@ def installation_dirs_group(sg):
         ('html', '--htmldir', '', '(doc)'),
         ('pdf', '--pdfdir', '', '(doc)'),
     ]:
-        sg.add_setting_option(name, optname, optdesc, default, section=section)
+        sg.add_setting_option(name, optname, optdesc, default, section=section, show=False)
     for ignored in ['--sharedstatedir', '--oldincludedir', '--infodir', '--dvidir', '--psdir']:
-        Option(ignored, 'Ignored autotools compatibility setting', '', None, section=section)
+        Option(ignored, 'Ignored autotools compatibility setting', '', None, section=section, show=False)
 
 def _make_argparse(include_unused, include_env):
     parser = argparse.ArgumentParser(
@@ -336,9 +339,6 @@ class Machine(object):
     def __repr__(self):
         return 'Machine(name=%r, triple=%s)' % (self.name, repr(self.triple) if hasattr(self, 'triple') else '<none yet>')
 
-    def need(self):
-        self.triple_option.need()
-
     def is_cross(self):
         # This is only really meaningful in GNU land, as it decides whether to
         # prepend the triple (hopefully other targets are sane enough not to
@@ -346,7 +346,7 @@ class Machine(object):
         # configuration checks, but...).  Declared here because it may be
         # useful to override.
         if not hasattr(self, '_is_cross'):
-            self._is_cross = self.triple != self.settings.build_machine.triple
+            self._is_cross = self.triple != self.settings.build_machine().triple
         return self._is_cross
 
 class UnixTool(object):
@@ -361,38 +361,34 @@ class UnixTool(object):
             env = '%s_FOR_%s' % (env, toolchain.name.upper())
         def on_set(val):
             if val is not None:
-                self.argv = shlex.split(val)
-        self.argv_opt = Option(env + '=', help='Default: %r' % (defaults,), default=None, on_set=on_set)
-    def need(self):
-        if not self.needed:
-            self.needed = True
-            self.argv_opt.need()
-            tests_required.append(self.locate)
+                self.opt_argv = shlex.split(val)
+        self.argv_opt = Option(env + '=', help='Default: %r' % (defaults,), default=None, on_set=on_set, show=False)
+        self.argv = memoize(self.argv)
+
     def __repr__(self):
         return 'UnixTool(name=%r, defaults=%r, env=%r)' % (self.name, self.defaults, self.env)
 
-    def locate(self):
-        self.do_locate()
-        if hasattr(self, 'argv'):
-            sys.stderr.write('Found %s: %s\n' % (self.name, argv_to_shell(self.argv)))
+    def argv(self):
+        argv = self.do_locate()
+        if argv is not None:
+            sys.stderr.write('Found %s: %s\n' % (self.name, argv_to_shell(argv)))
+            return argv
         else:
             sys.stderr.write('** Failed to locate %r\n' % (self,))
             if self.toolchain is not None and self.toolchain.machine.is_cross():
                 sys.stderr.write('  note: detected cross compilation, so searched for %s-%s\n' % (self.toolchain.machine.triple.triple, self.name))
-
-            return False
+            raise DependencyNotFoundException
 
     def do_locate(self):
         # First alternative: if the user specified it explicitly, don't question.
-        if hasattr(self, 'argv'):
-            return
+        if hasattr(self, 'opt_argv'):
+            return self.opt_argv
 
         # Second alternative: the toolchain might have special handling (e.g. OS X).
         if self.toolchain is not None:
             argv = self.toolchain.find_tool(self)
             if argv is not None:
-                self.argv = argv
-                return
+                return argv
 
         # Third alternative: search a path, either the toolchain's or the default
         paths = None
@@ -402,9 +398,9 @@ class UnixTool(object):
             paths = self.settings.tool_search_paths
         argv = self.locate_in_paths(paths)
         if argv is not None:
-            self.argv = argv
-            return
+            return argv
         # Give up...
+        return None
 
     def locate_in_paths(self, paths):
         prefix = ''
@@ -421,7 +417,6 @@ class UnixTool(object):
 
 class BasicUnixToolchain(object):
     def __init__(self, machine, settings):
-        machine.need()
         self.machine = machine
         self.tools = []
         tools = [
@@ -453,20 +448,22 @@ class BasicUnixToolchain(object):
     def get_tool_search_paths(self):
         return None # just use the default
 
-def run_tests():
-    tests_failed = 0
-    for test in tests_required:
-        ret = test()
-        if ret is False:
-            tests_failed += 1
-    if tests_failed > 0:
-        sys.stderr.write('(%s tests failed.)\n' % (tests_failed,))
+# A nicer - but optional - way of doing multiple tests that will print all the
+# errors in one go and exit cleanly
+def will_need(tests):
+    failures = 0
+    for test in tests:
+        try:
+            test()
+        except DependencyNotFoundException:
+            failures += 1
+    if failures > 0:
+        sys.stderr.write('(%d failures.)\n' % (failures,))
         sys.exit(1)
 
 # -- init code --
 
 did_parse_args = False
-tests_required = []
 
 all_options = []
 all_options_by_name = {}
@@ -478,8 +475,12 @@ settings_root.package_unix_name = Pending()
 installation_dirs_group(settings_root.new_child('idirs'))
 
 triple_options_section = OptSection('System types:')
-settings_root.build_machine = Machine('build', settings_root, 'the machine doing the build', '')
-settings_root.host_machine = Machine('host', settings_root, 'the machine that will run the compiled program', lambda: settings_root.build_machine.triple)
+settings_root.build_machine = memoize(lambda: Machine('build', settings_root, 'the machine doing the build', ''))
+@memoize
+def f():
+    settings_root.build_machine()
+    return Machine('host', settings_root, 'the machine that will run the compiled program', lambda: settings_root.build_machine().triple)
+settings_root.host_machine = f
 # ...'the machine that the program will itself compile programs for',
 
 settings_root.tool_search_paths = os.environ['PATH'].split(':')
