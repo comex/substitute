@@ -26,25 +26,33 @@ def argv_to_shell(argv):
 
 class PendingOption(namedtuple('PendingOption', 'opt')):
     def need(self):
-        self.opt.show = True
+        self.opt.need()
     def __str__(self):
         return 'PendingOption(%s)' % (self.opt.name,)
 
 class SettingsGroup(object):
-    def __init__(self, parent=None):
-        object.__setattr__(self, 'parent', parent)
+    def __init__(self, group_parent=None, inherit_parent=None, name=None):
+        object.__setattr__(self, 'group_parent', inherit_parent)
+        object.__setattr__(self, 'inherit_parent', inherit_parent)
         object.__setattr__(self, 'vals', OrderedDict())
+        if name is None:
+            name = '<0x%x>' % (id(self),)
+        object.__setattr__(self, 'name', name)
     @staticmethod
-    def get_meat(self, attr, exctype):
+    def get_meat(self, attr, exctype=KeyError, allow_pending=False):
         try:
             obj = object.__getattribute__(self, 'vals')[attr]
         except KeyError:
-            if self.parent is not None:
-                return SettingsGroup.get_meat(object.__getattribute__(self, 'parent'), attr, exctype)
+            inherit_parent = object.__getattribute__(self, 'inherit_parent')
+            if inherit_parent is not None:
+                ret = SettingsGroup.get_meat(inherit_parent, attr, exctype)
+                if isinstance(ret, SettingsGroup):
+                    ret = self[attr] = ret.new_inheritor(name='%s.%s' % (object.__getattribute__(self, 'name'), attr))
+                return ret
             raise exctype(attr)
         else:
-            if isinstance(obj, PendingOption):
-                raise Exception("setting %s is pending a command line option, probably because you didn't 'need' it")
+            if not allow_pending and isinstance(obj, PendingOption):
+                raise Exception("setting %r is pending a command line option, probably because you didn't 'need' it" % (attr,))
             return obj
     def __getattribute__(self, attr):
         try:
@@ -69,15 +77,21 @@ class SettingsGroup(object):
         return self.vals.items()
 
     def __str__(self):
-        s = 'SettingsGroup {\n'
-        for attr, val in self.vals.items():
-            s += '    %s: %s\n' % (attr, indentify(str(val)))
+        s = 'SettingsGroup %s {\n' % (self.name,)
+        o = self
+        while True:
+            for attr, val in o.vals.items():
+                s += '    %s: %s\n' % (attr, indentify(str(val)))
+            if o.inherit_parent is None:
+                break
+            o = o.inherit_parent
+            s += '  [inherited from %s:]\n' % (o.name,)
         s += '}'
         return s
 
-    def relative_lookup(name):
+    def relative_lookup(self, name):
         if name.startswith('..'):
-            return self.parent.relative_lookup(name)
+            return self.group_parent.relative_lookup(name)
         else:
             bits = name.split('.', 1)
             if len(bits) == 1:
@@ -94,8 +108,17 @@ class SettingsGroup(object):
     def add_setting_option(self, name, optname, optdesc, default, **kwargs):
         def f(value):
             self[name] = value
+        default = Expansion(default, self) if isinstance(default, str) else default
         opt = Option(optname, optdesc, default, f, **kwargs)
         self[name] = PendingOption(opt)
+
+    def new_inheritor(self, *args, **kwargs):
+        return SettingsGroup(inherit_parent=self, *args, **kwargs)
+
+    def new_child(self, name, *args, **kwargs):
+        sg = SettingsGroup(group_parent=self, name='%s.%s' % (self.name, name), *args, **kwargs)
+        self[name] = sg
+        return sg
 
 class OptSection(object):
     def __init__(self, desc):
@@ -110,7 +133,7 @@ class Option(object):
     def __init__(self, name, help, default, on_set, bool=False, show=False, section=None, **kwargs):
         self.name = name
         self.help = help
-        self.default = Expansion(default) if isinstance(default, str) else default
+        self.default = default
         self.on_set = on_set
         self.show = show
         self.bool = bool
@@ -125,42 +148,58 @@ class Option(object):
     def __repr__(self):
         return 'Option(name=%r, help=%r, value=%r, default=%r)' % (self.name, self.help, self.value, self.default)
     def set(self, value):
+        if value is None:
+            value = self.default
+            if callable(value):
+                value = value()
         self.value = value
         if self.on_set is not None:
             self.on_set(value)
+    def need(self):
+        self.show = True
+        if hasattr(self.default, 'need'):
+            self.default.need()
 
 class Expansion(object):
-    def __init__(self, fmt):
+    def __init__(self, fmt, base):
         self.fmt = fmt
-        self.deps = re.findall('\((.*?)\)', fmt)
+        def lookup(path):
+            target, arg = base.relative_lookup(path)
+            return SettingsGroup.get_meat(target, arg, allow_pending=True)
+        self.deps = list(map(lookup, re.findall('\((.*?)\)', fmt)))
     def __repr__(self):
         return 'Expansion(%r)' % (self.fmt,)
+    def need(self):
+        for dep in self.deps:
+            if hasattr(dep, 'need'):
+                dep.need()
+    def __call__(self):
+        deps = self.deps[:]
+        return re.sub('\((.*?)\)', lambda m: deps.pop(0), self.fmt)
 
-class InstallationDirsGroup(SettingsGroup):
-    def __init__(self):
-        section = OptSection('Fine tuning of the installation directories:')
-        SettingsGroup.__init__(self)
-        for name, optname, optdesc, default in [
-            ('prefix', 'prefix', '', '/usr/local'),
-            ('exec_prefix', 'exec-prefix', '', '(prefix)'),
-            ('bin', 'bindir', '', '(exec_prefix)/bin'),
-            ('sbin', 'sbindir', '', '(exec_prefix)/sbin'),
-            ('libexec', 'libexecdir', '', '(exec_prefix)/libexec'),
-            ('etc', 'sysconfdir', '', '(prefix)/etc'),
-            ('var', 'localstatedir', '', '(prefix)/var'),
-            ('lib', 'libdir', '', '(prefix)/lib'),
-            ('include', 'includedir', '', '(prefix)/include'),
-            ('datarootdir', 'datarootdir', '', '(prefix)/share'),
-            ('share', 'datadir', '', '(datarootdir)'),
-            ('locale', 'localedir', '', '(datarootdir)/locale'),
-            ('man', 'mandir', '', '(datarootdir)/man'),
-            ('doc', 'docdir', '', '(datarootdir)/doc/(..package_unix_name)'),
-            ('html', 'htmldir', '', '(doc)'),
-            ('pdf', 'pdfdir', '', '(doc)'),
-        ]:
-            self.add_setting_option(name, optname, optdesc, default, section=section)
-        for ignored in ['sharedstatedir', 'oldincludedir', 'infodir', 'dvidir', 'psdir']:
-            Option(ignored, 'Ignored autotools compatibility setting', '', None, section=section)
+def installation_dirs_group(sg):
+    section = OptSection('Fine tuning of the installation directories:')
+    for name, optname, optdesc, default in [
+        ('prefix', 'prefix', '', '/usr/local'),
+        ('exec_prefix', 'exec-prefix', '', '(prefix)'),
+        ('bin', 'bindir', '', '(exec_prefix)/bin'),
+        ('sbin', 'sbindir', '', '(exec_prefix)/sbin'),
+        ('libexec', 'libexecdir', '', '(exec_prefix)/libexec'),
+        ('etc', 'sysconfdir', '', '(prefix)/etc'),
+        ('var', 'localstatedir', '', '(prefix)/var'),
+        ('lib', 'libdir', '', '(prefix)/lib'),
+        ('include', 'includedir', '', '(prefix)/include'),
+        ('datarootdir', 'datarootdir', '', '(prefix)/share'),
+        ('share', 'datadir', '', '(datarootdir)'),
+        ('locale', 'localedir', '', '(datarootdir)/locale'),
+        ('man', 'mandir', '', '(datarootdir)/man'),
+        ('doc', 'docdir', '', '(datarootdir)/doc/(..package_unix_name)'),
+        ('html', 'htmldir', '', '(doc)'),
+        ('pdf', 'pdfdir', '', '(doc)'),
+    ]:
+        sg.add_setting_option(name, optname, optdesc, default, section=section)
+    for ignored in ['sharedstatedir', 'oldincludedir', 'infodir', 'dvidir', 'psdir']:
+        Option(ignored, 'Ignored autotools compatibility setting', '', None, section=section)
 
 def _make_argparse(include_all):
     parser = argparse.ArgumentParser(add_help=False, usage='configure [OPTION]... [VAR=VALUE]...')
@@ -199,21 +238,19 @@ def parse_args():
         parser.error('unrecognized arguments: %s' % (argv_to_shell(argv),))
 
     for opt in all_options:
-        opt.set(getattr(args, opt.name))
+        if opt.show:
+            opt.set(getattr(args, opt.name))
 
+
+#class 
 
 all_options = []
 all_options_by_name = {}
 all_opt_sections = []
 default_opt_section = OptSection('Uncategorized options:')
 
-settings_root = SettingsGroup()
-settings_root.idirs = InstallationDirsGroup()
+settings_root = SettingsGroup(name='root')
+installation_dirs_group(settings_root.new_child('idirs'))
 
 # --
-settings_root.package_unix_name = 'substitute'
-settings_root.idirs.need('pdf')
-
-parse_args()
-print settings_root
 
