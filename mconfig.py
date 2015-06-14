@@ -1,4 +1,4 @@
-import re, argparse, sys, os
+import re, argparse, sys, os, string
 from collections import OrderedDict, namedtuple
 import curses.ascii
 
@@ -24,7 +24,11 @@ def argv_to_shell(argv):
             quoteds.append('"' + quoted + '"')
     return ' '.join(quoteds)
 
-class PendingOption(namedtuple('PendingOption', 'opt')):
+class Pending(object):
+    def __str__(self):
+        return 'Pending',
+
+class PendingOption(Pending, namedtuple('PendingOption', 'opt')):
     def need(self):
         self.opt.need()
     def __str__(self):
@@ -32,7 +36,7 @@ class PendingOption(namedtuple('PendingOption', 'opt')):
 
 class SettingsGroup(object):
     def __init__(self, group_parent=None, inherit_parent=None, name=None):
-        object.__setattr__(self, 'group_parent', inherit_parent)
+        object.__setattr__(self, 'group_parent', group_parent)
         object.__setattr__(self, 'inherit_parent', inherit_parent)
         object.__setattr__(self, 'vals', OrderedDict())
         if name is None:
@@ -51,8 +55,11 @@ class SettingsGroup(object):
                 return ret
             raise exctype(attr)
         else:
-            if not allow_pending and isinstance(obj, PendingOption):
-                raise Exception("setting %r is pending a command line option, probably because you didn't 'need' it" % (attr,))
+            if not allow_pending and isinstance(obj, Pending):
+                if isinstance(obj, PendingOption):
+                    raise Exception("setting %r is pending the command line option %r, probably because you didn't 'need' the setting" % (attr, obj.opt))
+                else:
+                    raise Exception("setting %r is pending; you need to set it" % (attr,))
             return obj
     def __getattribute__(self, attr):
         try:
@@ -91,7 +98,7 @@ class SettingsGroup(object):
 
     def relative_lookup(self, name):
         if name.startswith('..'):
-            return self.group_parent.relative_lookup(name)
+            return self.group_parent.relative_lookup(name[2:])
         else:
             bits = name.split('.', 1)
             if len(bits) == 1:
@@ -130,16 +137,28 @@ class OptSection(object):
         all_opt_sections.append(self)
 
 class Option(object):
-    def __init__(self, name, help, default, on_set, bool=False, show=False, section=None, **kwargs):
+    def __init__(self, name, help, default, on_set, bool=False, show=False, section=None, metavar=None, type=str, **kwargs):
+        if name.startswith('--'):
+            self.is_env = False
+            assert set(kwargs).issubset({'nargs', 'choices', 'required', 'metavar'})
+        elif name.endswith('='):
+            self.is_env = True
+            assert len(kwargs) == 0
+            assert bool is False
+        else:
+            raise ValueError("name should be '--opt' or 'ENV='")
         self.name = name
         self.help = help
         self.default = default
         self.on_set = on_set
         self.show = show
+        self.type = type
+        if metavar is None:
+            metavar = '...'
+        self.metavar = metavar
         self.bool = bool
         self.section = section if section is not None else default_opt_section
         self.section.opts.append(self)
-        assert set(kwargs).issubset({'nargs', 'type', 'choices', 'required', 'metavar'})
         self.argparse_kw = kwargs.copy()
         all_options.append(self)
         if name in all_options_by_name:
@@ -163,68 +182,80 @@ class Option(object):
 class Expansion(object):
     def __init__(self, fmt, base):
         self.fmt = fmt
-        def lookup(path):
-            target, arg = base.relative_lookup(path)
-            return SettingsGroup.get_meat(target, arg, allow_pending=True)
-        self.deps = list(map(lookup, re.findall('\((.*?)\)', fmt)))
+        self.deps = list(map(base.relative_lookup, re.findall('\((.*?)\)', fmt)))
     def __repr__(self):
         return 'Expansion(%r)' % (self.fmt,)
     def need(self):
-        for dep in self.deps:
-            if hasattr(dep, 'need'):
-                dep.need()
+        for target, attr in self.deps:
+            target.need(attr)
     def __call__(self):
         deps = self.deps[:]
-        return re.sub('\((.*?)\)', lambda m: deps.pop(0), self.fmt)
+        def get_dep(m):
+            target, attr = deps.pop(0)
+            return target[attr]
+        return re.sub('\((.*?)\)', get_dep, self.fmt)
 
 def installation_dirs_group(sg):
     section = OptSection('Fine tuning of the installation directories:')
     for name, optname, optdesc, default in [
-        ('prefix', 'prefix', '', '/usr/local'),
-        ('exec_prefix', 'exec-prefix', '', '(prefix)'),
-        ('bin', 'bindir', '', '(exec_prefix)/bin'),
-        ('sbin', 'sbindir', '', '(exec_prefix)/sbin'),
-        ('libexec', 'libexecdir', '', '(exec_prefix)/libexec'),
-        ('etc', 'sysconfdir', '', '(prefix)/etc'),
-        ('var', 'localstatedir', '', '(prefix)/var'),
-        ('lib', 'libdir', '', '(prefix)/lib'),
-        ('include', 'includedir', '', '(prefix)/include'),
-        ('datarootdir', 'datarootdir', '', '(prefix)/share'),
-        ('share', 'datadir', '', '(datarootdir)'),
-        ('locale', 'localedir', '', '(datarootdir)/locale'),
-        ('man', 'mandir', '', '(datarootdir)/man'),
-        ('doc', 'docdir', '', '(datarootdir)/doc/(..package_unix_name)'),
-        ('html', 'htmldir', '', '(doc)'),
-        ('pdf', 'pdfdir', '', '(doc)'),
+        ('prefix', '--prefix', '', '/usr/local'),
+        ('exec_prefix', '--exec-prefix', '', '(prefix)'),
+        ('bin', '--bindir', '', '(exec_prefix)/bin'),
+        ('sbin', '--sbindir', '', '(exec_prefix)/sbin'),
+        ('libexec', '--libexecdir', '', '(exec_prefix)/libexec'),
+        ('etc', '--sysconfdir', '', '(prefix)/etc'),
+        ('var', '--localstatedir', '', '(prefix)/var'),
+        ('lib', '--libdir', '', '(prefix)/lib'),
+        ('include', '--includedir', '', '(prefix)/include'),
+        ('datarootdir', '--datarootdir', '', '(prefix)/share'),
+        ('share', '--datadir', '', '(datarootdir)'),
+        ('locale', '--localedir', '', '(datarootdir)/locale'),
+        ('man', '--mandir', '', '(datarootdir)/man'),
+        ('doc', '--docdir', '', '(datarootdir)/doc/(..package_unix_name)'),
+        ('html', '--htmldir', '', '(doc)'),
+        ('pdf', '--pdfdir', '', '(doc)'),
     ]:
         sg.add_setting_option(name, optname, optdesc, default, section=section)
-    for ignored in ['sharedstatedir', 'oldincludedir', 'infodir', 'dvidir', 'psdir']:
+    for ignored in ['--sharedstatedir', '--oldincludedir', '--infodir', '--dvidir', '--psdir']:
         Option(ignored, 'Ignored autotools compatibility setting', '', None, section=section)
 
-def _make_argparse(include_all):
-    parser = argparse.ArgumentParser(add_help=False, usage='configure [OPTION]... [VAR=VALUE]...')
+def _make_argparse(include_unused, include_env):
+    parser = argparse.ArgumentParser(
+        add_help=False,
+        usage='configure [OPTION]... [VAR=VALUE]...',
+        prefix_chars=('-' + string.ascii_letters if include_env else '-'),
+    )
     parser.add_argument('--help', action='store_true', help='Show this help', dest='__help')
-    parser.add_argument('--help-all', action='help', help='Show this help, including unused options')
+    parser.add_argument('--help-all', action='store_true', help='Show this help, including unused options', dest='__help_all')
     for sect in all_opt_sections:
-        if not include_all and not any(opt.show for opt in sect.opts):
+        def include(opt):
+            return (include_unused or opt.show) and (include_env or not opt.is_env)
+        if not any(map(include, sect.opts)):
             continue
         ag = parser.add_argument_group(description=sect.desc)
         for opt in sect.opts:
-            if not include_all and not opt.show: continue
-            ag.add_argument('--' + opt.name,
+            if not include(opt):
+                continue
+            ag.add_argument(opt.name,
                             action='store_true' if opt.bool else 'store',
-                            dest=opt.name,
+                            dest=opt.name[2:],
                             help=opt.help,
+                            type=opt.type,
+                            metavar=opt.metavar,
                             **opt.argparse_kw)
     return parser
 
+def _print_help(include_unused=False):
+    parser = _make_argparse(include_unused, include_env=True)
+    parser.print_help()
+
 def parse_args():
     default_opt_section.move_to_end()
-    parser = _make_argparse(include_all=True)
-    args, argv = parser.parse_known_args()
-    if args.__help:
-        parser = _make_argparse(include_all=False)
-        parser.print_help()
+    parser = _make_argparse(include_unused=True, include_env=False)
+    sys_argv = sys.argv[1:]
+    args, argv = parser.parse_known_args(sys_argv)
+    if args.__help or args.__help_all:
+        _print_help(include_unused=args.__help_all)
         sys.exit(0)
     def do_env_arg(arg):
         m = re.match('([^ ]+)=(.*)', arg)
@@ -233,14 +264,18 @@ def parse_args():
             return False
         return True
     argv = list(filter(do_env_arg, argv))
-    if argv:
-        parser = _make_argparse(include_all=False)
-        parser.error('unrecognized arguments: %s' % (argv_to_shell(argv),))
+    if argv or sys_argv:
+        print ('unrecognized arguments: %s' % (argv_to_shell(argv),))
+        _print_help()
+        sys.exit(0)
 
     for opt in all_options:
-        if opt.show:
-            opt.set(getattr(args, opt.name))
-
+        if opt.is_env:
+            name = opt.name[:-1]
+            opt.set(opt.type(os.environ[name]) if name in os.environ else None)
+        else:
+            opt.set(getattr(args, opt.name[2:]))
+        #print args._unrecognized_args
 
 #class 
 
@@ -250,6 +285,7 @@ all_opt_sections = []
 default_opt_section = OptSection('Uncategorized options:')
 
 settings_root = SettingsGroup(name='root')
+settings_root.package_unix_name = Pending()
 installation_dirs_group(settings_root.new_child('idirs'))
 
 # --
