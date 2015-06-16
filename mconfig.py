@@ -1,4 +1,3 @@
-# TODO: get rid of 'need'.  Use a function that memoizes the object instead.
 import re, argparse, sys, os, string, shlex, subprocess, glob
 from collections import OrderedDict, namedtuple
 import curses.ascii
