@@ -25,6 +25,31 @@ def argv_to_shell(argv):
             quoteds.append('"' + quoted + '"')
     return ' '.join(quoteds)
 
+
+def init_config_log():
+    global config_log
+    config_log = open('config.log', 'w')
+    config_log.write(argv_to_shell(sys.argv) + '\n')
+
+# a wrapper for subprocess that logs results
+# returns (stdout, stderr, status) [even if Popen fails]
+def run_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs):
+    config_log.write('Running command %s...\n' % (argv_to_shell(cmd),))
+    try:
+        p = subprocess.Popen(cmd, stdout=stdout, stderr=stderr, **kwargs)
+    except OSError:
+        config_log.write('  OSError\n')
+        return '', '', 127
+    so, se = p.communicate()
+    if p.returncode != 0:
+        config_log.write('  failed with status %d\n' % (p.returncode,))
+    config_log.write('-----------\n')
+    config_log.write('  stdout:\n')
+    config_log.write(so.rstrip())
+    config_log.write('\n  stderr:\n')
+    config_log.write(se.rstrip())
+    return so, se, p.returncode
+
 class DependencyNotFoundException(Exception):
     pass
 
@@ -296,11 +321,15 @@ def parse_args():
         sys.exit(0)
 
     for opt in all_options:
-        if opt.is_env:
-            name = opt.name[:-1]
-            opt.set(opt.type(os.environ[name]) if name in os.environ else None)
-        else:
-            opt.set(getattr(args, opt.name[2:]))
+        try:
+            if opt.is_env:
+                name = opt.name[:-1]
+                opt.set(opt.type(os.environ[name]) if name in os.environ else None)
+            else:
+                opt.set(getattr(args, opt.name[2:]))
+        except DependencyNotFoundException as e:
+            def f(): raise e
+            post_parse_args_will_need.append(f)
         #print args._unrecognized_args
 
     global did_parse_args
@@ -436,36 +465,46 @@ class UnixToolchain(object):
 class XcrunToolchain(object):
     def __init__(self, machine, settings):
         name = '--%sxcode-sdk' % (machine.name if machine.name != 'host' else '')
-        self.sdk_opt = Option(name, help='Use Xcode SDK - `xcodebuild -showsdks` lists', on_set=self.on_set)
+        self.sdk_opt = Option(name, help='Use Xcode SDK - `xcodebuild -showsdks` lists; typical values: macosx, iphoneos, iphonesimulator, watchos, watchsimulator', on_set=self.on_set)
         self.got_sdk = False
 
     def on_set(self, val):
         if val is None:
             return
-        # we don't need this value, but it might be helpful and serves as a check
-        try:
-            sdk_install_path = subprocess.check_output(['/usr/bin/xcrun', '--sdk', val, '--show-sdk-path'], stderr=subprocess.STDOUT)
-        except subprocess.CalledProcessError:
-            def f():
-                sys.stderr.write('* Xcode SDK %r not found\n' % (val,))
-                raise DependencyNotFoundException
-            post_parse_args_will_need.append(f)
-            return
-        except OSError:
-            sys.stderr.write('* Failed to run /usr/bin/xcrun')
-            return
-        sys.stderr.write('Xcode SDK path: %s\n' % (sdk_install_path,))
+        # this is used for arch and also serves as a check
+        sdk_install_path, _, code = run_command(['/usr/bin/xcrun', '--sdk', val, '--show-sdk-path'])
+        if code == 127:
+            sys.stderr.write('* Failed to run /usr/bin/xcrun\n')
+            raise DependencyNotFoundException
+        elif code:
+            sys.stderr.write('* Xcode SDK %r not found\n' % (val,))
+            raise DependencyNotFoundException
+        sdk_install_path = sdk_install_path.rstrip()
+        sys.stderr.write('Xcode SDK path: %r\n' % (sdk_install_path,))
+
+        # try to divine appropriate architectures
+        lipo_info, _, code = run_command(['/usr/bin/xcrun', '--sdk', val, 'lipo', '-info', os.path.join(sdk_install_path, 'usr/lib/dyld')])
+        if code:
+            sys.stderr.write('* Failed to use lipo -info to guess architectures\n')
+            raise DependencyNotFoundException
+
+        bits = lipo_info.rstrip().rsplit(': ', 1)
+        if len(bits) < 2:
+            raise Exception('unexpected lipo output: %r' % (lipo_info,))
+        lipo_archs = bits[-1].split()
+        print lipo_archs
+
         self.got_sdk = True
 
     def find_tool(self, tool, failure_notes):
         if not self.got_sdk:
             return None
-        argv = ['/usr/bin/xcrun', tool]
-        p = subprocess.Popen(argv + ['--asdf'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        sod, sed = p.communicate()
-        if p.returncode != 0 and sed.startswith('xcrun: error: unable to find utility'):
-            failure_notes.append(sed)
-            return None
+        argv = ['/usr/bin/xcrun', tool.name]
+        sod, sed, code = run_command(argv + ['--asdf'])
+        if code != 0:
+            if sed.startswith('xcrun: error: unable to find utility'):
+                failure_notes.append(sed)
+                return None
         return argv
 
 # Just a collection of common tools.
@@ -504,12 +543,14 @@ def will_need(tests):
         except DependencyNotFoundException:
             failures += 1
     if failures > 0:
-        sys.stderr.write('(%d failures.)\n' % (failures,))
+        sys.stderr.write('(%d failure%s.)\n' % (failures, 's' if len(failures) != 1 else ''))
         sys.exit(1)
 
 # -- init code --
 
 did_parse_args = False
+
+init_config_log()
 
 all_options = []
 all_options_by_name = {}
