@@ -1,10 +1,14 @@
 # TODO: get rid of 'need'.  Use a function that memoizes the object instead.
-import re, argparse, sys, os, string, shlex, subprocess
+import re, argparse, sys, os, string, shlex, subprocess, glob
 from collections import OrderedDict, namedtuple
 import curses.ascii
 
 def indentify(s, indent='    '):
     return s.replace('\n', '\n' + indent)
+
+def log(x):
+    sys.stdout.write(x)
+    config_log.write(x)
 
 def argv_to_shell(argv):
     quoteds = []
@@ -386,7 +390,7 @@ class Machine(object):
     def toolchains(self): # memoized
         tcs = []
         if os.path.exists('/usr/bin/xcrun'):
-            tcs.append(XcrunToolchain(self, self.settings))
+            tcs.append(XcodeToolchain(self, self.settings))
         tcs.append(UnixToolchain(self, self.settings))
         return tcs
 
@@ -422,19 +426,19 @@ class UnixTool(object):
     def argv(self): # memoized
         # If the user specified it explicitly, don't question.
         if hasattr(self, 'argv_from_opt'):
-            sys.stderr.write('Using %s from command line: %s\n' % (self.name, argv_to_shell(self.argv_from_opt)))
+            log('Using %s from command line: %s\n' % (self.name, argv_to_shell(self.argv_from_opt)))
             return self.argv_from_opt
 
         failure_notes = []
         for tc in self.toolchains:
             argv = tc.find_tool(self, failure_notes)
             if argv is not None:
-                sys.stderr.write('Found %s: %s\n' % (self.name, argv_to_shell(argv)))
+                log('Found %s: %s\n' % (self.name, argv_to_shell(argv)))
                 return argv
 
-        sys.stderr.write('** Failed to locate %s\n' % (self.name,))
+        log('** Failed to locate %s\n' % (self.name,))
         for n in failure_notes:
-            sys.stderr.write('  note: %s\n' % identify(n, '  '))
+            log('  note: %s\n' % indentify(n, '  '))
         raise DependencyNotFoundException
 
     def locate_in_paths(self, prefix, paths):
@@ -455,49 +459,112 @@ class UnixToolchain(object):
     def find_tool(self, tool, failure_notes):
         prefix = ''
         if self.machine.is_cross():
-            prefix = self.toolchain.machine.triple.triple + '-'
+            prefix = self.machine.triple.triple + '-'
             failure_notes.append('detected cross compilation, so searched for %s-%s' % (self.machine.triple.triple, tool.name))
         return tool.locate_in_paths(prefix, self.settings.tool_search_paths)
 
     def get_tool_search_paths(self):
         return None # just use the default
 
-class XcrunToolchain(object):
+# Reads a binary or XML plist (on OS X)
+def read_plist(gunk):
+    import plistlib
+    if sys.version_info >= (3, 0):
+        return plistlib.loads(gunk) # it can do it out of the box
+    else:
+        if gunk.startswith('bplist'):
+            p = subprocess.Popen('plutil -convert xml1 - -o -'.split(), stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+            gunk, _ = p.communicate(gunk)
+            assert p.returncode == 0
+
+        return plistlib.readPlistFromString(gunk)
+
+class XcodeToolchain(object):
     def __init__(self, machine, settings):
-        name = '--%sxcode-sdk' % (machine.name if machine.name != 'host' else '')
-        self.sdk_opt = Option(name, help='Use Xcode SDK - `xcodebuild -showsdks` lists; typical values: macosx, iphoneos, iphonesimulator, watchos, watchsimulator', on_set=self.on_set)
+        self.machine = machine
+        prefix = machine.name if machine.name != 'host' else ''
+        name = '--%sxcode-sdk' % (prefix,)
+        self.sdk_opt = Option(name, help='Use Xcode SDK - `xcodebuild -showsdks` lists; typical values: macosx, iphoneos, iphonesimulator, watchos, watchsimulator', on_set=self.on_set_sdk)
         self.got_sdk = False
+        name = '--%sxcode-archs' % (prefix,)
+        self.sdk_opt = Option(name, help='Comma-separated list of -arch settings for use with an Xcode toolchain', on_set=self.on_set_arch)
+        self.got_arch = False
 
-    def on_set(self, val):
-        if val is None:
-            return
+    def on_set_sdk(self, val):
+        using_default = val is None
+        self.using_default_sdk = using_default
+        if using_default:
+            if self.machine != settings_root.build_machine():
+                # assume some other kind of cross compilation
+                return
+            val = 'macosx'
         # this is used for arch and also serves as a check
-        sdk_install_path, _, code = run_command(['/usr/bin/xcrun', '--sdk', val, '--show-sdk-path'])
+        sdk_platform_path, _, code = run_command(['/usr/bin/xcrun', '--sdk', val, '--show-sdk-platform-path'])
         if code == 127:
-            sys.stderr.write('* Failed to run /usr/bin/xcrun\n')
-            raise DependencyNotFoundException
+            log('* Failed to run /usr/bin/xcrun\n')
+            if not using_default:
+                raise DependencyNotFoundException
+            return
         elif code:
-            sys.stderr.write('* Xcode SDK %r not found\n' % (val,))
-            raise DependencyNotFoundException
-        sdk_install_path = sdk_install_path.rstrip()
-        sys.stderr.write('Xcode SDK path: %r\n' % (sdk_install_path,))
-
-        # try to divine appropriate architectures
-        lipo_info, _, code = run_command(['/usr/bin/xcrun', '--sdk', val, 'lipo', '-info', os.path.join(sdk_install_path, 'usr/lib/dyld')])
-        if code:
-            sys.stderr.write('* Failed to use lipo -info to guess architectures\n')
-            raise DependencyNotFoundException
-
-        bits = lipo_info.rstrip().rsplit(': ', 1)
-        if len(bits) < 2:
-            raise Exception('unexpected lipo output: %r' % (lipo_info,))
-        lipo_archs = bits[-1].split()
-        print lipo_archs
+            log('* Xcode SDK %r not found\n' % (val,))
+            if not using_default:
+                raise DependencyNotFoundException
+            return
+        self.sdk_platform_path = sdk_platform_path.rstrip()
+        log('Xcode SDK platform path: %r\n' % (self.sdk_platform_path,))
 
         self.got_sdk = True
 
-    def find_tool(self, tool, failure_notes):
+    def on_set_arch(self, val):
         if not self.got_sdk:
+            return
+        self.archs = self.get_archs(val)
+        log('Using architectures: %s\n' % (repr(self.archs) if self.archs != [] else '(native)'))
+        self.got_arch = True
+
+    def get_archs(self, val):
+        if val is not None:
+            return re.sub('\s', '', val).split(',')
+        # try to divine appropriate architectures
+        # this may fail with future versions of Xcode, but at least we tried
+        if self.sdk_platform_path.endswith('MacOSX.platform'):
+            # Assume you just wanted to build natively
+            return []
+        xcspecs = glob.glob('%s/Developer/Library/Xcode/Specifications/*Architectures.xcspec' % (self.sdk_platform_path,)) + \
+                  glob.glob('%s/Developer/Library/Xcode/PrivatePlugIns/*/Contents/Resources/Device.xcspec' % (self.sdk_platform_path,))
+        for spec in xcspecs:
+            def f():
+                try:
+                    pl = read_plist(open(spec, 'rb').read())
+                except:
+                    raise
+                    return
+                if not isinstance(pl, list):
+                    return
+                for item in pl:
+                    if not isinstance(item, dict):
+                        return
+                    if item.get('ArchitectureSetting') != 'ARCHS_STANDARD':
+                        return
+                    archs = item.get('RealArchitectures')
+                    if not isinstance(archs, list) and not all(isinstance(arch, basestring) for arch in archs):
+                        return
+                    return archs
+            archs = f()
+            if archs is not None:
+                return archs
+            log('(Failed to divine architectures from %r for some reason...)\n' % (spec,))
+
+        # give up
+        log("%s default Xcode SDK because I can't figure out a reasonable list of architectures; pass %s=arch1,arch2 to override\n" % (
+            "Not using" if self.using_default_sdk else "Can't use",
+            self.arch_opt.name,
+        ))
+        if self.using_default_sdk:
+            raise DependencyNotFoundException
+
+    def find_tool(self, tool, failure_notes):
+        if not self.got_arch:
             return None
         argv = ['/usr/bin/xcrun', tool.name]
         sod, sed, code = run_command(argv + ['--asdf'])
@@ -543,14 +610,15 @@ def will_need(tests):
         except DependencyNotFoundException:
             failures += 1
     if failures > 0:
-        sys.stderr.write('(%d failure%s.)\n' % (failures, 's' if len(failures) != 1 else ''))
+        log('(%d failure%s.)\n' % (failures, 's' if failures != 1 else ''))
         sys.exit(1)
 
 # -- init code --
 
-did_parse_args = False
 
 init_config_log()
+
+did_parse_args = False
 
 all_options = []
 all_options_by_name = {}
