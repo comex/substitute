@@ -136,7 +136,7 @@ class SettingsGroup(object):
         def f(value):
             self[name] = value
         default = Expansion(default, self) if isinstance(default, str) else default
-        opt = Option(optname, optdesc, default, f, **kwargs)
+        opt = Option(optname, optdesc, f, default, **kwargs)
         self[name] = PendingOption(opt)
 
     def new_inheritor(self, *args, **kwargs):
@@ -157,7 +157,7 @@ class OptSection(object):
         all_opt_sections.append(self)
 
 class Option(object):
-    def __init__(self, name, help, default, on_set, bool=False, show=True, section=None, metavar=None, type=str, **kwargs):
+    def __init__(self, name, help, on_set, default=None, bool=False, show=True, section=None, metavar=None, type=str, **kwargs):
         if name.startswith('--'):
             self.is_env = False
             assert set(kwargs).issubset({'nargs', 'choices', 'required', 'metavar'})
@@ -237,7 +237,7 @@ def installation_dirs_group(sg):
     ]:
         sg.add_setting_option(name, optname, optdesc, default, section=section, show=False)
     for ignored in ['--sharedstatedir', '--oldincludedir', '--infodir', '--dvidir', '--psdir']:
-        Option(ignored, 'Ignored autotools compatibility setting', '', None, section=section, show=False)
+        Option(ignored, 'Ignored autotools compatibility setting', None, section=section, show=False)
 
 def _make_argparse(include_unused, include_env):
     parser = argparse.ArgumentParser(
@@ -350,62 +350,43 @@ class Machine(object):
         return self._is_cross
 
 class UnixTool(object):
-    def __init__(self, name, defaults, env, settings, toolchain=None, dont_suffix_env=False):
+    def __init__(self, name, defaults, env, settings, toolchains, dont_suffix_env=False):
         self.name = name
         self.defaults = defaults
         self.env = env
-        self.toolchain = toolchain
+        self.toolchains = toolchains
         self.needed = False
         self.settings = settings
         if toolchain.machine.name != 'host' and not dont_suffix_env:
-            env = '%s_FOR_%s' % (env, toolchain.name.upper())
+            env = '%s_FOR_%s' % (env, toolchain.machine.name.upper())
         def on_set(val):
             if val is not None:
                 self.opt_argv = shlex.split(val)
-        self.argv_opt = Option(env + '=', help='Default: %r' % (defaults,), default=None, on_set=on_set, show=False)
+        self.argv_opt = Option(env + '=', help='Default: %r' % (defaults,), on_set=on_set, show=False)
         self.argv = memoize(self.argv)
 
     def __repr__(self):
         return 'UnixTool(name=%r, defaults=%r, env=%r)' % (self.name, self.defaults, self.env)
 
-    def argv(self):
-        argv = self.do_locate()
-        if argv is not None:
-            sys.stderr.write('Found %s: %s\n' % (self.name, argv_to_shell(argv)))
-            return argv
-        else:
-            sys.stderr.write('** Failed to locate %r\n' % (self,))
-            if self.toolchain is not None and self.toolchain.machine.is_cross():
-                sys.stderr.write('  note: detected cross compilation, so searched for %s-%s\n' % (self.toolchain.machine.triple.triple, self.name))
-            raise DependencyNotFoundException
-
-    def do_locate(self):
-        # First alternative: if the user specified it explicitly, don't question.
+    def argv(self): # memoized
+        # If the user specified it explicitly, don't question.
         if hasattr(self, 'opt_argv'):
+            sys.stderr.write('Using %s from command line: %s\n' % (self.name, argv_to_shell(argv)))
             return self.opt_argv
 
-        # Second alternative: the toolchain might have special handling (e.g. OS X).
-        if self.toolchain is not None:
-            argv = self.toolchain.find_tool(self)
+        failure_notes = []
+        for tc in self.toolchains:
+            argv = tc.find_tool(self, failure_notes)
             if argv is not None:
+                sys.stderr.write('Found %s: %s\n' % (self.name, argv_to_shell(argv)))
                 return argv
 
-        # Third alternative: search a path, either the toolchain's or the default
-        paths = None
-        if self.toolchain is not None:
-            paths = self.toolchain.get_tool_search_paths()
-        if paths is None:
-            paths = self.settings.tool_search_paths
-        argv = self.locate_in_paths(paths)
-        if argv is not None:
-            return argv
-        # Give up...
-        return None
+        sys.stderr.write('** Failed to locate %s\n' % (self.name,))
+        for fn in failure_notes:
+            sys.stderr.write(fn)
+        raise DependencyNotFoundException
 
-    def locate_in_paths(self, paths):
-        prefix = ''
-        if self.toolchain is not None and self.toolchain.machine.is_cross():
-            prefix = self.toolchain.machine.triple.triple + '-'
+    def locate_in_paths(self, prefix, paths):
         for path in paths:
             for default in self.defaults:
                 default = prefix + default
@@ -415,10 +396,56 @@ class UnixTool(object):
         return None
 
 
-class BasicUnixToolchain(object):
+class UnixToolchain(object):
     def __init__(self, machine, settings):
         self.machine = machine
-        self.tools = []
+        self.settings = settings
+
+    def find_tool(self, tool, failure_notes):
+        prefix = ''
+        if self.machine.is_cross():
+            prefix = self.toolchain.machine.triple.triple + '-'
+            failure_notes.append('  note: detected cross compilation, so searched for %s-%s\n' % (self.machine.triple.triple, tool.name))
+        return tool.locate_in_paths(prefix, self.settings.tool_search_paths)
+
+    def get_tool_search_paths(self):
+        return None # just use the default
+
+class XcrunToolchain(object):
+    def __init__(self, machine, settings):
+        name = '--%sxcode-sdk' % (machine.name if machine.name != 'host' else '')
+        self.sdk_opt = Option(name, help='Use Xcode SDK - `xcodebuild -showsdks` lists', on_set=self.on_set)
+        self.got_sdk = False
+
+    def on_set(self, val):
+        if val is None:
+            return
+        # we don't need this value, but it might be helpful and serves as a check
+        try:
+            sdk_install_path = subprocess.check_output(['/usr/bin/xcrun', '--sdk', val, '--show-sdk-path'])
+        except subprocess.CalledProcessError:
+            sys.stderr.write('* Xcode SDK %r not found')
+            return
+        except OSError:
+            sys.stderr.write('* Failed to run /usr/bin/xcrun')
+            return
+        sys.stderr.write('Xcode SDK path: %s\n' % (sdk_install_path,))
+        self.got_sdk = True
+
+    def find_tool(self, tool):
+        if not self.got_sdk:
+            return None
+        argv = ['/usr/bin/xcrun', tool]
+        p = subprocess.Popen(argv + ['--asdf'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        sod, sed = p.communicate()
+        if p.returncode == 0 or not sed.startswith('xcrun: error: unable to find utility'):
+            sys.stderr.write('* /usr/bin/xcrun')
+            return None
+        return argv
+
+# Just a collection of common tools.
+class CTools(object):
+    def __init__(self, toolchains):
         tools = [
             # TODO figure out ld
             ('cc',   ['cc', 'gcc', 'clang'],    'CC'),
@@ -438,15 +465,25 @@ class BasicUnixToolchain(object):
                 name, defaults, env = spec[0], [spec[0]], spec[0].upper()
             else:
                 name, defaults, env = spec
-            tool = UnixTool(name, defaults, env, settings, toolchain=self)
+            tool = UnixTool(name, defaults, env, settings, toolchains=toolchains)
             setattr(self, name, tool)
-            self.tools.append(tool)
 
-    def find_tool(self, tool):
-        return None
 
-    def get_tool_search_paths(self):
-        return None # just use the default
+# Get a list of appropriate toolchains for the specified machine.
+def detect_toolchains(machine, settings):
+    tcs = []
+    if os.path.exists('/usr/bin/xcrun'):
+        tcs.append(XcrunToolchain(machine, machine))
+    tcs.append(UnixToolchain(machine, machine))
+    return tcs
+
+# this could be improved by having the lower entries regenerate from the upper.
+# ... if this is actually useful
+def make_machine_sg(settings, machine):
+    sg = SettingsGroup(settings, machine.name=name)
+    sg.machine = machine
+    sg.toolchains = detect_toolchains(machine, settings)
+    sg.c = CTools(sg.toolchains)
 
 # A nicer - but optional - way of doing multiple tests that will print all the
 # errors in one go and exit cleanly
@@ -475,12 +512,8 @@ settings_root.package_unix_name = Pending()
 installation_dirs_group(settings_root.new_child('idirs'))
 
 triple_options_section = OptSection('System types:')
-settings_root.build_machine = memoize(lambda: Machine('build', settings_root, 'the machine doing the build', ''))
-@memoize
-def f():
-    settings_root.build_machine()
-    return Machine('host', settings_root, 'the machine that will run the compiled program', lambda: settings_root.build_machine().triple)
-settings_root.host_machine = f
+settings_root.build = memoize(lambda: make_machine_sg(settings_root, Machine('build', 'the machine doing the build', '')))
+settings_root.host = memoize(lambda: settings_root.build_machine() and make_machine_sg(settings_root, Machine('host', settings_root, 'the machine that will run the compiled program', lambda: settings_root.build_machine().triple)))
 # ...'the machine that the program will itself compile programs for',
 
 settings_root.tool_search_paths = os.environ['PATH'].split(':')
