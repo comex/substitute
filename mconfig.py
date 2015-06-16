@@ -1,5 +1,5 @@
 # TODO: get rid of 'need'.  Use a function that memoizes the object instead.
-import re, argparse, sys, os, string, shlex
+import re, argparse, sys, os, string, shlex, subprocess
 from collections import OrderedDict, namedtuple
 import curses.ascii
 
@@ -305,6 +305,7 @@ def parse_args():
 
     global did_parse_args
     did_parse_args = True
+    will_need(post_parse_args_will_need)
 
 # -- toolchains --
 class Triple(namedtuple('Triple', 'triple arch forgot1 os forgot2')):
@@ -332,6 +333,9 @@ class Machine(object):
         self.triple_option = Option('--' + name, help=triple_help, default=triple_default, on_set=on_set, type=Triple, section=triple_options_section)
         self.triple = PendingOption(self.triple_option)
 
+        self.toolchains = memoize(self.toolchains)
+        self.c_tools = memoize(self.c_tools)
+
     def __eq__(self, other):
         return self.triple == other.triple
     def __ne__(self, other):
@@ -349,30 +353,48 @@ class Machine(object):
             self._is_cross = self.triple != self.settings.build_machine().triple
         return self._is_cross
 
+    # Get a list of appropriate toolchains.
+    def toolchains(self): # memoized
+        tcs = []
+        if os.path.exists('/usr/bin/xcrun'):
+            tcs.append(XcrunToolchain(self, self.settings))
+        tcs.append(UnixToolchain(self, self.settings))
+        return tcs
+
+    #memoize
+    def c_tools(self):
+        return CTools(self, self.toolchains())
+
 class UnixTool(object):
-    def __init__(self, name, defaults, env, settings, toolchains, dont_suffix_env=False):
+    def __init__(self, name, defaults, env, machine, toolchains, dont_suffix_env=False):
         self.name = name
         self.defaults = defaults
         self.env = env
         self.toolchains = toolchains
         self.needed = False
-        self.settings = settings
-        if toolchain.machine.name != 'host' and not dont_suffix_env:
-            env = '%s_FOR_%s' % (env, toolchain.machine.name.upper())
+        if machine.name != 'host' and not dont_suffix_env:
+            env = '%s_FOR_%s' % (env, machine.name.upper())
         def on_set(val):
             if val is not None:
-                self.opt_argv = shlex.split(val)
+                self.argv_from_opt = shlex.split(val)
         self.argv_opt = Option(env + '=', help='Default: %r' % (defaults,), on_set=on_set, show=False)
         self.argv = memoize(self.argv)
 
     def __repr__(self):
         return 'UnixTool(name=%r, defaults=%r, env=%r)' % (self.name, self.defaults, self.env)
 
+    def optional(self):
+        self.argv_opt.need()
+
+    def required(self):
+        self.optional()
+        post_parse_args_will_need.append(lambda: self.argv())
+
     def argv(self): # memoized
         # If the user specified it explicitly, don't question.
-        if hasattr(self, 'opt_argv'):
-            sys.stderr.write('Using %s from command line: %s\n' % (self.name, argv_to_shell(argv)))
-            return self.opt_argv
+        if hasattr(self, 'argv_from_opt'):
+            sys.stderr.write('Using %s from command line: %s\n' % (self.name, argv_to_shell(self.argv_from_opt)))
+            return self.argv_from_opt
 
         failure_notes = []
         for tc in self.toolchains:
@@ -382,8 +404,8 @@ class UnixTool(object):
                 return argv
 
         sys.stderr.write('** Failed to locate %s\n' % (self.name,))
-        for fn in failure_notes:
-            sys.stderr.write(fn)
+        for n in failure_notes:
+            sys.stderr.write('  note: %s\n' % identify(n, '  '))
         raise DependencyNotFoundException
 
     def locate_in_paths(self, prefix, paths):
@@ -405,7 +427,7 @@ class UnixToolchain(object):
         prefix = ''
         if self.machine.is_cross():
             prefix = self.toolchain.machine.triple.triple + '-'
-            failure_notes.append('  note: detected cross compilation, so searched for %s-%s\n' % (self.machine.triple.triple, tool.name))
+            failure_notes.append('detected cross compilation, so searched for %s-%s' % (self.machine.triple.triple, tool.name))
         return tool.locate_in_paths(prefix, self.settings.tool_search_paths)
 
     def get_tool_search_paths(self):
@@ -422,9 +444,12 @@ class XcrunToolchain(object):
             return
         # we don't need this value, but it might be helpful and serves as a check
         try:
-            sdk_install_path = subprocess.check_output(['/usr/bin/xcrun', '--sdk', val, '--show-sdk-path'])
+            sdk_install_path = subprocess.check_output(['/usr/bin/xcrun', '--sdk', val, '--show-sdk-path'], stderr=subprocess.STDOUT)
         except subprocess.CalledProcessError:
-            sys.stderr.write('* Xcode SDK %r not found')
+            def f():
+                sys.stderr.write('* Xcode SDK %r not found\n' % (val,))
+                raise DependencyNotFoundException
+            post_parse_args_will_need.append(f)
             return
         except OSError:
             sys.stderr.write('* Failed to run /usr/bin/xcrun')
@@ -432,20 +457,20 @@ class XcrunToolchain(object):
         sys.stderr.write('Xcode SDK path: %s\n' % (sdk_install_path,))
         self.got_sdk = True
 
-    def find_tool(self, tool):
+    def find_tool(self, tool, failure_notes):
         if not self.got_sdk:
             return None
         argv = ['/usr/bin/xcrun', tool]
         p = subprocess.Popen(argv + ['--asdf'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         sod, sed = p.communicate()
-        if p.returncode == 0 or not sed.startswith('xcrun: error: unable to find utility'):
-            sys.stderr.write('* /usr/bin/xcrun')
+        if p.returncode != 0 and sed.startswith('xcrun: error: unable to find utility'):
+            failure_notes.append(sed)
             return None
         return argv
 
 # Just a collection of common tools.
 class CTools(object):
-    def __init__(self, toolchains):
+    def __init__(self, machine, toolchains):
         tools = [
             # TODO figure out ld
             ('cc',   ['cc', 'gcc', 'clang'],    'CC'),
@@ -465,25 +490,9 @@ class CTools(object):
                 name, defaults, env = spec[0], [spec[0]], spec[0].upper()
             else:
                 name, defaults, env = spec
-            tool = UnixTool(name, defaults, env, settings, toolchains=toolchains)
+            tool = UnixTool(name, defaults, env, machine, toolchains)
             setattr(self, name, tool)
 
-
-# Get a list of appropriate toolchains for the specified machine.
-def detect_toolchains(machine, settings):
-    tcs = []
-    if os.path.exists('/usr/bin/xcrun'):
-        tcs.append(XcrunToolchain(machine, machine))
-    tcs.append(UnixToolchain(machine, machine))
-    return tcs
-
-# this could be improved by having the lower entries regenerate from the upper.
-# ... if this is actually useful
-def make_machine_sg(settings, machine):
-    sg = SettingsGroup(settings, machine.name=name)
-    sg.machine = machine
-    sg.toolchains = detect_toolchains(machine, settings)
-    sg.c = CTools(sg.toolchains)
 
 # A nicer - but optional - way of doing multiple tests that will print all the
 # errors in one go and exit cleanly
@@ -506,14 +515,15 @@ all_options = []
 all_options_by_name = {}
 all_opt_sections = []
 default_opt_section = OptSection('Uncategorized options:')
+post_parse_args_will_need = []
 
 settings_root = SettingsGroup(name='root')
 settings_root.package_unix_name = Pending()
 installation_dirs_group(settings_root.new_child('idirs'))
 
 triple_options_section = OptSection('System types:')
-settings_root.build = memoize(lambda: make_machine_sg(settings_root, Machine('build', 'the machine doing the build', '')))
-settings_root.host = memoize(lambda: settings_root.build_machine() and make_machine_sg(settings_root, Machine('host', settings_root, 'the machine that will run the compiled program', lambda: settings_root.build_machine().triple)))
+settings_root.build_machine = memoize(lambda: Machine('build', settings_root, 'the machine doing the build', ''))
+settings_root.host_machine = memoize(lambda: settings_root.build_machine() and Machine('host', settings_root, 'the machine that will run the compiled program', lambda: settings_root.build_machine().triple))
 # ...'the machine that the program will itself compile programs for',
 
 settings_root.tool_search_paths = os.environ['PATH'].split(':')
