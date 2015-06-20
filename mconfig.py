@@ -73,12 +73,14 @@ class memoize(object):
                 raise
 
 class Pending(object):
-    def __str__(self):
-        return 'Pending',
+    def __repr__(self):
+        return 'Pending(%x%s)' % (id(self), ('; value=%r' % (self.value,)) if hasattr(self, 'value') else '')
     def resolve(self):
         return self.value
     # xxx py3
     def __getattr__(self, attr):
+        if attr is 'value':
+            raise AttributeError
         return PendingAttribute(self, attr)
 
 class PendingOption(Pending, namedtuple('PendingOption', 'opt')):
@@ -90,6 +92,8 @@ class PendingOption(Pending, namedtuple('PendingOption', 'opt')):
 class PendingAttribute(Pending, namedtuple('PendingAttribute', 'base attr')):
     def resolve(self):
         return getattr(self.base, self.attr)
+    def __repr__(self):
+        return 'PendingAttribute(attr=%s, base=%r)' % (self.attr, self.base)
 
 class SettingsGroup(object):
     def __init__(self, group_parent=None, inherit_parent=None, name=None):
@@ -163,7 +167,9 @@ class SettingsGroup(object):
     def add_setting_option(self, name, optname, optdesc, default, **kwargs):
         def f(value):
             self[name] = value
-        default = Expansion(default, self) if isinstance(default, str) else default
+        if isinstance(default, str):
+            old = default
+            default = lambda: expand(old, self)
         opt = Option(optname, optdesc, f, default, **kwargs)
         self[name] = PendingOption(opt)
 
@@ -228,20 +234,14 @@ class Option(object):
         if self.on_set is not None:
             self.on_set(value)
 
-class Expansion(object):
-    def __init__(self, fmt, base):
-        assert isinstance(fmt, str)
-        self.fmt = fmt
-        self.deps = list(map(base.relative_lookup, re.findall('\((.*?)\)', fmt)))
-    def __repr__(self):
-        return 'Expansion(%r)' % (self.fmt,)
-    def __call__(self):
-        deps = self.deps[:]
-        def get_dep(m):
-            dep = deps.pop(0)
-            if isinstance(dep, Pending):
-                dep = dep.resolve()
-        return re.sub('\((.*?)\)', get_dep, self.fmt)
+def expand(fmt, base):
+    def get_dep(m):
+        dep = base.relative_lookup(m.group(1))
+        if isinstance(dep, Pending):
+            dep = dep.resolve()
+            print dep
+        return dep
+    return re.sub('\((.*?)\)', get_dep, fmt)
 
 def installation_dirs_group(sg):
     section = OptSection('Fine tuning of the installation directories:')
@@ -298,6 +298,7 @@ def _print_help(include_unused=False):
     parser.print_help()
 
 def parse_args():
+    will_need(pre_parse_args_will_need)
     default_opt_section.move_to_end()
     parser = _make_argparse(include_unused=True, include_env=False)
     args, argv = parser.parse_known_args()
@@ -340,7 +341,7 @@ def parse_args():
     will_need(post_parse_args_will_need)
 
 # -- toolchains --
-class Triple(namedtuple('Triple', 'triple arch forgot1 os forgot2')):
+class Triple(namedtuple('Triple', 'triple arch vendor os abi')):
     def __new__(self, triple):
         if isinstance(triple, Triple):
             return triple
@@ -349,10 +350,10 @@ class Triple(namedtuple('Triple', 'triple arch forgot1 os forgot2')):
             numbits = len(bits)
             if numbits > 4:
                 raise Exception('strange triple %r' % (triple,))
-            if numbits != 4:
+            if numbits in (2, 3) and bits[1] not in ('unknown', 'none', 'pc'):
+                # assume the vendor was left out
                 bits.insert(1, None)
             return super(Triple, self).__new__(self, triple, *((bits.pop(0) if bits else None) for i in range(4)))
-    #def __repr__(self):
     def __str__(self):
         return self.triple
 
@@ -385,6 +386,10 @@ class Machine(object):
             self._is_cross = self.triple != self.settings.build_machine().triple
         return self._is_cross
 
+    def is_darwin(self):
+        return (self.triple.os is not None and 'darwin' in self.triple.os) or \
+            (self.triple.triple == '' and os.path.exists('/System/Library/Frameworks'))
+
     # Get a list of appropriate toolchains.
     def toolchains(self): # memoized
         tcs = []
@@ -395,9 +400,9 @@ class Machine(object):
 
     #memoize
     def c_tools(self):
-        return CTools(self, self.toolchains())
+        return CTools(self.settings, self, self.toolchains())
 
-class UnixTool(object):
+class CLITool(object):
     def __init__(self, name, defaults, env, machine, toolchains, dont_suffix_env=False):
         self.name = name
         self.defaults = defaults
@@ -413,7 +418,7 @@ class UnixTool(object):
         self.argv = memoize(self.argv)
 
     def __repr__(self):
-        return 'UnixTool(name=%r, defaults=%r, env=%r)' % (self.name, self.defaults, self.env)
+        return 'CLITool(name=%r, defaults=%r, env=%r)' % (self.name, self.defaults, self.env)
 
     def optional(self):
         self.argv_opt.need()
@@ -461,9 +466,6 @@ class UnixToolchain(object):
             prefix = self.machine.triple.triple + '-'
             failure_notes.append('detected cross compilation, so searched for %s-%s' % (self.machine.triple.triple, tool.name))
         return tool.locate_in_paths(prefix, self.settings.tool_search_paths)
-
-    def get_tool_search_paths(self):
-        return None # just use the default
 
 # Reads a binary or XML plist (on OS X)
 def read_plist(gunk):
@@ -573,11 +575,10 @@ class XcodeToolchain(object):
                 return None
         return argv
 
-# Just a collection of common tools.
+# Just a collection of common tools, plus flag options
 class CTools(object):
-    def __init__(self, machine, toolchains):
+    def __init__(self, settings, machine, toolchains):
         tools = [
-            # TODO figure out ld
             ('cc',   ['cc', 'gcc', 'clang'],    'CC'),
             ('cxx',  ['c++', 'g++', 'clang++'], 'CXX'),
             ('ar',),
@@ -595,8 +596,14 @@ class CTools(object):
                 name, defaults, env = spec[0], [spec[0]], spec[0].upper()
             else:
                 name, defaults, env = spec
-            tool = UnixTool(name, defaults, env, machine, toolchains)
+            tool = CLITool(name, defaults, env, machine, toolchains)
             setattr(self, name, tool)
+
+        section = OptSection('Compiler/linker flags:')
+        self.cflags_opt = settings.add_setting_option('cflags', 'CFLAGS=', 'Flags for $CC', [], section=section, type=shlex.split)
+        self.cxxflags_opt = settings.add_setting_option('cxxflags', 'CXXFLAGS=', 'Flags for $CXX', [], section=section, type=shlex.split)
+        self.ldflags_opt = settings.add_setting_option('ldflags', 'LDFLAGS=', 'Flags for $CC/$CXX when linking', [], section=section, type=shlex.split)
+        self.cppflags_opt = settings.add_setting_option('cppflags', 'CPPFLAGS=', 'Flags for $CC/$CXX when not linking (supposed to be used for preprocessor flags)', [], section=section, type=shlex.split)
 
 
 # A nicer - but optional - way of doing multiple tests that will print all the
@@ -612,6 +619,215 @@ def will_need(tests):
         log('(%d failure%s.)\n' % (failures, 's' if failures != 1 else ''))
         sys.exit(1)
 
+class Emitter(object):
+    def pre_output(self):
+        assert not hasattr(self, 'did_output')
+        self.did_output = True
+    def set_default_rule(self, rule):
+        self.default_rule = rule
+
+# In the future it may be desirable to use make variables and nontrivial ninja rules for efficiency.
+
+class MakefileEmitter(Emitter):
+    def __init__(self, settings):
+        self.settings = settings
+        self.makefile_bits = []
+
+    def add_all_and_clean(self):
+        if hasattr(self, 'default_rule'):
+            if self.default_rule != 'all':
+                self.add_command(['all'], [self.default_rule], [], phony=True)
+        else:
+            log('Warning: %r: no default rule\n' % (self,))
+        self.makefile_bits.append('clean:\n\trm -rf %s\n' % (self.filename_rel_and_escape(self.settings.out)))
+
+    @staticmethod
+    def filename_escape(fn):
+        if re.search('[\n\0]', fn):
+            raise ValueError("your awful filename %r can't be encoded in make (probably)" % (fn,))
+        return re.sub(r'([ :\$\\])', r'\\\1', fn)
+    def filename_rel_and_escape(self, fn):
+        fn = os.path.relpath(fn, os.path.dirname(self.settings.emit_fn))
+        return self.filename_escape(fn)
+    # depfile = ('makefile', filename) or ('msvc',)
+    def add_command(self, outs, ins, argvs, phony=False, depfile=None):
+        bit = ''
+        outs = ' '.join(map(self.filename_rel_and_escape, outs))
+        ins = ' '.join(map(self.filename_rel_and_escape, ins))
+        if phony:
+            bit += '.PHONY: %s\n' % (outs,)
+        bit += '%s:%s%s\n' % (outs, ' ' if ins else '', ins)
+        for argv in argvs:
+            bit += '\t' + argv_to_shell(argv) + '\n'
+        if depfile is not None:
+            if depfile[0] != 'makefile':
+                raise ValueError("don't support depfile of type %r" % (depfile[0],))
+            bit += '-include %s\n' % (self.filename_rel_and_escape(depfile[1]),)
+        if 'all' in outs:
+            self.makefile_bits.insert(0, bit)
+        else:
+            self.makefile_bits.append(bit)
+
+    def output(self):
+        self.pre_output()
+        self.add_all_and_clean()
+        return '\n'.join(self.makefile_bits)
+
+    def default_outfile(self):
+        return 'Makefile'
+
+class NinjaEmitter(Emitter):
+    def __init__(self, settings):
+        self.settings = settings
+        self.ninja_bits = []
+        self.ruleno = 0
+    @staticmethod
+    def filename_escape(fn):
+        if re.search('[\n\0]', fn):
+            raise ValueError("your awful filename %r can't be encoded in ninja (probably)" % (fn,))
+        return re.sub(r'([ :\$])', r'$\1', fn)
+    def add_command(self, outs, ins, argvs, phony=False, depfile=None):
+        bit = ''
+        if phony:
+            if len(argvs) == 0:
+                self.ninja_bits.append('build %s: phony %s\n' % (' '.join(map(self.filename_escape, outs)), ' '.join(map(self.filename_escape, ins))))
+                return
+            outs2 = ['__phony_' + out for out in outs]
+            bit += 'build %s: phony %s\n' % (' '.join(map(self.filename_escape, outs)), ' '.join(map(self.filename_escape, outs2)))
+            outs = outs2
+        rule_name = 'rule_%d' % (self.ruleno,)
+        self.ruleno += 1
+        bit += 'rule %s\n' % (rule_name,)
+        bit += '  command = %s\n' % (' && $\n    '.join(map(argv_to_shell, argvs)))
+        if depfile:
+            if depfile[0] not in ('makefile', 'msvc'):
+                raise ValueError("don't support depfile of type %r" % (depfile[0],))
+            bit += '  deps = %s\n' % ({'makefile': 'gcc', 'msvc': 'msvc'}[depfile[0]],)
+            bit += '  depfile = %s\n' % (self.filename_escape(depfile[1]),)
+        bit += 'build %s: %s' % (' '.join(map(self.filename_escape, outs),), rule_name)
+        if ins:
+            bit += ' | %s' % (' '.join(map(self.filename_escape, ins),))
+        bit += '\n'
+        self.ninja_bits.append(bit)
+
+    def add_default(self):
+        if hasattr(self, 'default_rule'):
+            self.ninja_bits.append('default %s\n' % (self.default_rule,))
+        else:
+            log('Warning: %r: no default rule\n' % (self,))
+
+    def output(self):
+        self.pre_output()
+        self.add_default()
+        return '\n'.join(self.ninja_bits)
+
+    def default_outfile(self):
+        return 'build.ninja'
+
+
+def add_emitter_option():
+    def on_set_generate(val):
+        if val not in emitters:
+            raise DependencyNotFoundException('Unknown build script type: %s (options: %s)' % (val, ' '.join(emitters.keys())))
+        settings_root.emitter = emitters[val](settings_root)
+    Option(
+        '--generate',
+        'The type of build script to generate.  Options: %s (default makefile)' % (', '.join(emitters.keys()),),
+        on_set_generate, default='makefile', section=output_section)
+    settings_root.add_setting_option('emit_fn', '--outfile', 'Output file.  Default: depends on type', section=output_section, default=lambda: settings_root.emitter.default_outfile())
+
+# TODO
+def emit():
+    output = settings_root.emitter.output()
+    fn = settings_root.emit_fn
+    log('Writing %s\n' % (fn,))
+    fp = open(fn, 'w')
+    fp.write(output)
+    fp.close()
+
+# see cc_to_use_cb
+def default_cc_to_use(filename):
+    root, ext = os.path.splitext(filename)
+    return ext in ('cc', 'cpp', 'cxx', 'mm')
+
+# emitter:      the emitter to add rules to
+# machine:      machine
+# settings:     settings object; will inspect {c,cxx,cpp,ld}flags
+# sources:      list of source files
+# headers:      *optional* list of header files that will be used in the future to
+#               generate IDE projects - unused for makefile/ninja due to
+#               depfiles
+# objs:         list of .o files or other things to add to the link
+# link_out:     optional linker output
+# link_type:    'exec', 'dylib', 'staticlib', 'obj'; default exec
+# info_cb:      (filename) -> a dict with any of these keys:
+#                 'is_cxx': True ($CXX) or False ($CC); ignored in IDE native mode
+#                 'cc':  override cc altogther; ignored in IDE native mode
+#                 'cflags': *override* cflags; never ignored
+#                 'obj_fn': ...
+#                 'extra_deps': dependencies
+# force_cli:    don't use IDEs' native C/C++ compilation mechanism
+# expand:       call expand on filenames
+def build_c_objs(emitter, machine, settings, sources, headers=[], info_cb=None, force_cli=False, expand=True):
+    if expand:
+        headers = [expand(header, settings) for header in headers]
+    tools = machine.c_tools()
+    any_was_cxx = False
+    obj_fns = []
+    _expand = globals()['expand']
+    for fn in sources:
+        if expand:
+            fn = _expand(fn, settings)
+        info = {} if info_cb is None else info_cb(fn)
+        obj_fn = info['obj_fn'] if 'obj_fn' in info else guess_obj_fn(fn, settings)
+        is_cxx = info.get('is_cxx', False)
+        cflags = info['cflags'] if 'cflags' in info else (settings.cxxflags if is_cxx else settings.cflags)
+        cc = info['cc'] if 'cc' in info else (tools.cxx if is_cxx else tools.cc).argv()
+        extra_deps = info.get('extra_deps', [])
+        any_was_cxx = any_was_cxx or is_cxx
+        dep_fn = os.path.splitext(obj_fn)[0] + '.d'
+
+        mkdir_cmd = ['mkdir', '-p', os.path.dirname(obj_fn)]
+        cmd = cc + cflags + ['-c', '-o', obj_fn, '-MMD', '-MF', dep_fn, fn]
+
+        emitter.add_command([obj_fn], [fn] + extra_deps, [mkdir_cmd, cmd], depfile=('makefile', dep_fn))
+        obj_fns.append(obj_fn)
+
+    return obj_fns, any_was_cxx
+
+def link_c_objs(emitter, machine, settings, link_type, link_out, objs, link_with_cxx=None, force_cli=False, expand=True, extra_deps=[]):
+    if expand:
+        _expand = globals()['expand']
+        link_out = _expand(link_out, settings)
+        objs = [_expand(obj, settings) for obj in objs]
+    tools = machine.c_tools()
+    assert link_type in ('exec', 'dylib', 'staticlib', 'obj')
+    if link_type in ('exec', 'dylib'):
+        assert link_with_cxx in (False, True)
+        cc_for_link = (tools.cxx if link_with_cxx else tools.cc).argv()
+        if link_type == 'dylib':
+            typeflag = ['-dynamiclib'] if machine.is_darwin() else ['-shared']
+        else:
+            typeflag = []
+        cmd = cc_for_link + typeflag + settings.ldflags + ['-o', link_out] + objs
+    elif link_type == 'staticlib':
+        cmd = tools.ar() + ['rcs'] + objs
+    elif link_type == 'obj':
+        cmd = tools.cc() + ['-Wl,-r', '-nostdlib', '-o', link_out] + objs
+    mkdir_cmd = ['mkdir', '-p', os.path.dirname(link_out)]
+    emitter.add_command([link_out], objs + extra_deps, [mkdir_cmd, cmd])
+
+def build_and_link_c_objs(emitter, machine, settings, link_type, link_out, sources, headers=[], objs=[], info_cb=None, force_cli=False, expand=True, extra_deps=[]):
+    more_objs, link_with_cxx = build_c_objs(emitter, machine, settings, sources, headers, info_cb, force_cli, expand)
+    link_c_objs(emitter, machine, settings, link_type, link_out, objs + more_objs, link_with_cxx, force_cli, expand, extra_deps)
+
+def guess_obj_fn(fn, settings):
+    rel = os.path.relpath(fn, settings.src)
+    if not rel.startswith('../'):
+        rel = os.path.splitext(rel)[0] + '.o'
+        return os.path.join(settings.out, rel)
+    raise ValueError("can't guess .o filename for %r, as it's not in settings.src" % (fn,))
+
 # -- init code --
 
 
@@ -623,18 +839,31 @@ all_options = []
 all_options_by_name = {}
 all_opt_sections = []
 default_opt_section = OptSection('Uncategorized options:')
+pre_parse_args_will_need = []
 post_parse_args_will_need = []
 
 settings_root = SettingsGroup(name='root')
 settings_root.package_unix_name = Pending()
 installation_dirs_group(settings_root.new_child('idirs'))
 
+output_section = OptSection('Output options:')
+
 triple_options_section = OptSection('System types:')
-settings_root.build_machine = memoize(lambda: Machine('build', settings_root, 'the machine doing the build', ''))
+settings_root.build_machine = memoize(lambda: Machine('build', settings_root, 'the machine doing the build', lambda: Triple('')))
 settings_root.host_machine = memoize(lambda: settings_root.build_machine() and Machine('host', settings_root, 'the machine that will run the compiled program', lambda: settings_root.build_machine().triple))
 # ...'the machine that the program will itself compile programs for',
 
 settings_root.tool_search_paths = os.environ['PATH'].split(':')
+
+settings_root.src = os.path.dirname(sys.argv[0])
+settings_root.out = os.path.join(os.getcwd(), 'out')
+
+emitters = {
+    'makefile': MakefileEmitter,
+    'ninja': NinjaEmitter,
+}
+
+pre_parse_args_will_need.append(add_emitter_option)
 
 # --
 

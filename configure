@@ -1,0 +1,26 @@
+#!/usr/bin/env python2.7
+import mconfig
+settings = mconfig.settings_root
+settings.package_unix_name.value = 'substitute'
+
+c = settings.host_machine().c_tools()
+
+c.cc.required()
+
+mconfig.parse_args()
+settings.cflags = ['-I%s/lib' % (settings.src,)] + settings.cflags
+
+emitter = settings.emitter
+mconfig.build_and_link_c_objs(emitter, settings.host_machine(), settings,
+    'dylib',
+    '(out)/libsubstitute.dylib',
+    [
+        '(src)/lib/darwin/find-syms.c',
+        '(src)/lib/darwin/inject.c',
+        '(src)/lib/darwin/interpose.c',
+    ]
+)
+# todo use wrapper
+emitter.add_command(['all'], [settings.out + '/libsubstitute.dylib'], [], phony=True)
+emitter.set_default_rule('all')
+mconfig.emit()
