@@ -1,4 +1,4 @@
-import re, argparse, sys, os, string, shlex, subprocess, glob
+import re, argparse, sys, os, string, shlex, subprocess, glob, parser
 from collections import OrderedDict, namedtuple
 import curses.ascii
 
@@ -160,10 +160,6 @@ class SettingsGroup(object):
         s += '}'
         return s
 
-    def relative_lookup(self, name):
-        name = re.sub('^\.\.', 'group_parent.', name)
-        return eval('self.' + name)
-
     def add_setting_option(self, name, optname, optdesc, default, **kwargs):
         def f(value):
             self[name] = value
@@ -234,14 +230,61 @@ class Option(object):
         if self.on_set is not None:
             self.on_set(value)
 
-def expand(fmt, base):
-    def get_dep(m):
-        dep = base.relative_lookup(m.group(1))
-        if isinstance(dep, Pending):
-            dep = dep.resolve()
-            print dep
-        return dep
-    return re.sub('\((.*?)\)', get_dep, fmt)
+def parse_expander(fmt):
+    bits = []
+    z = 0
+    while True:
+        y = fmt.find('(', z)
+        if y == -1:
+            bits.append(fmt[z:])
+            break
+        bits.append(fmt[z:y])
+        should_shlex_result = False
+        if fmt[y+1:y+2] == '*':
+            should_shlex_result = True
+            y += 1
+        try:
+            parser.expr(fmt[y+1:])
+        except SyntaxError as e:
+            offset = e.offset
+            if offset == 0 or fmt[y+1+offset-1] != ')':
+                raise
+            bits.append((compile(fmt[y+1:y+1+offset-1], '<string>', 'eval'), should_shlex_result))
+            z = y+1+offset
+    return bits
+
+def eval_expand_bit(bit, settings):
+    dep = eval(bit, settings.vals, settings.__dict__)
+    if isinstance(dep, Pending):
+        dep = dep.resolve()
+    return dep
+
+def expand(fmt, settings):
+    bits = parse_expander(fmt)
+    return ''.join((bit if isinstance(bit, basestring) else eval_expand_bit(bit[0], settings)) for bit in bits)
+
+def expand_argv(argv, settings):
+    if isinstance(argv, basestring):
+        bits = parse_expander(argv)
+        shell = ''.join(bit if isinstance(bit, basestring) else '(!)' for bit in bits)
+        codes = [bit for bit in bits if not isinstance(bit, basestring)]
+        argv = shlex.split(shell)
+        out_argv = []
+        for arg in argv:
+            first = True
+            out_argv.append('')
+            for bit in arg.split('(!)'):
+                if not first:
+                    code, should_shlex_result = codes.pop(0)
+                    res = eval_expand_bit(code, settings)
+                    res = shlex.split(res) if should_shlex_result else [res]
+                    out_argv[-1] += res[0]
+                    out_argv.extend(res[1:])
+                first = False
+                out_argv[-1] += bit
+        return out_argv
+    else:
+        return [expand(arg, settings) for arg in argv]
 
 def installation_dirs_group(sg):
     section = OptSection('Fine tuning of the installation directories:')
@@ -259,7 +302,7 @@ def installation_dirs_group(sg):
         ('share', '--datadir', '', '(datarootdir)'),
         ('locale', '--localedir', '', '(datarootdir)/locale'),
         ('man', '--mandir', '', '(datarootdir)/man'),
-        ('doc', '--docdir', '', '(datarootdir)/doc/(..package_unix_name)'),
+        ('doc', '--docdir', '', '(datarootdir)/doc/(group_parent.package_unix_name)'),
         ('html', '--htmldir', '', '(doc)'),
         ('pdf', '--pdfdir', '', '(doc)'),
     ]:
@@ -625,6 +668,18 @@ class Emitter(object):
         self.did_output = True
     def set_default_rule(self, rule):
         self.default_rule = rule
+    def add_command(self, settings, outs, ins, argvs, *args, **kwargs):
+        outs = [expand(x, settings) for x in outs]
+        ins = [expand(x, settings) for x in ins]
+        argvs = [expand_argv(x, settings) for x in argvs]
+        return self.add_command_raw(outs, ins, argvs, *args, **kwargs)
+    def emit(self, fn):
+        output = self.output()
+        log('Writing %s\n' % (fn,))
+        fp = open(fn, 'w')
+        fp.write(output)
+        fp.close()
+
 
 # In the future it may be desirable to use make variables and nontrivial ninja rules for efficiency.
 
@@ -636,7 +691,7 @@ class MakefileEmitter(Emitter):
     def add_all_and_clean(self):
         if hasattr(self, 'default_rule'):
             if self.default_rule != 'all':
-                self.add_command(['all'], [self.default_rule], [], phony=True)
+                self.add_command_raw(['all'], [self.default_rule], [], phony=True)
         else:
             log('Warning: %r: no default rule\n' % (self,))
         self.makefile_bits.append('clean:\n\trm -rf %s\n' % (self.filename_rel_and_escape(self.settings.out)))
@@ -650,7 +705,7 @@ class MakefileEmitter(Emitter):
         fn = os.path.relpath(fn, os.path.dirname(self.settings.emit_fn))
         return self.filename_escape(fn)
     # depfile = ('makefile', filename) or ('msvc',)
-    def add_command(self, outs, ins, argvs, phony=False, depfile=None):
+    def add_command_raw(self, outs, ins, argvs, phony=False, depfile=None):
         bit = ''
         outs = ' '.join(map(self.filename_rel_and_escape, outs))
         ins = ' '.join(map(self.filename_rel_and_escape, ins))
@@ -686,7 +741,7 @@ class NinjaEmitter(Emitter):
         if re.search('[\n\0]', fn):
             raise ValueError("your awful filename %r can't be encoded in ninja (probably)" % (fn,))
         return re.sub(r'([ :\$])', r'$\1', fn)
-    def add_command(self, outs, ins, argvs, phony=False, depfile=None):
+    def add_command_raw(self, outs, ins, argvs, phony=False, depfile=None):
         bit = ''
         if phony:
             if len(argvs) == 0:
@@ -736,14 +791,8 @@ def add_emitter_option():
         on_set_generate, default='makefile', section=output_section)
     settings_root.add_setting_option('emit_fn', '--outfile', 'Output file.  Default: depends on type', section=output_section, default=lambda: settings_root.emitter.default_outfile())
 
-# TODO
-def emit():
-    output = settings_root.emitter.output()
-    fn = settings_root.emit_fn
-    log('Writing %s\n' % (fn,))
-    fp = open(fn, 'w')
-    fp.write(output)
-    fp.close()
+def finish_and_emit():
+    settings_root.emitter.emit(settings_root.emit_fn)
 
 # see cc_to_use_cb
 def default_cc_to_use(filename):
@@ -790,7 +839,7 @@ def build_c_objs(emitter, machine, settings, sources, headers=[], info_cb=None, 
         mkdir_cmd = ['mkdir', '-p', os.path.dirname(obj_fn)]
         cmd = cc + cflags + ['-c', '-o', obj_fn, '-MMD', '-MF', dep_fn, fn]
 
-        emitter.add_command([obj_fn], [fn] + extra_deps, [mkdir_cmd, cmd], depfile=('makefile', dep_fn))
+        emitter.add_command_raw([obj_fn], [fn] + extra_deps, [mkdir_cmd, cmd], depfile=('makefile', dep_fn))
         obj_fns.append(obj_fn)
 
     return obj_fns, any_was_cxx
@@ -815,7 +864,7 @@ def link_c_objs(emitter, machine, settings, link_type, link_out, objs, link_with
     elif link_type == 'obj':
         cmd = tools.cc() + ['-Wl,-r', '-nostdlib', '-o', link_out] + objs
     mkdir_cmd = ['mkdir', '-p', os.path.dirname(link_out)]
-    emitter.add_command([link_out], objs + extra_deps, [mkdir_cmd, cmd])
+    emitter.add_command_raw([link_out], objs + extra_deps, [mkdir_cmd, cmd])
 
 def build_and_link_c_objs(emitter, machine, settings, link_type, link_out, sources, headers=[], objs=[], info_cb=None, force_cli=False, expand=True, extra_deps=[]):
     more_objs, link_with_cxx = build_c_objs(emitter, machine, settings, sources, headers, info_cb, force_cli, expand)

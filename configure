@@ -20,7 +20,9 @@ mconfig.build_and_link_c_objs(emitter, settings.host_machine(), settings,
         '(src)/lib/darwin/interpose.c',
     ]
 )
-# todo use wrapper
-emitter.add_command(['all'], [settings.out + '/libsubstitute.dylib'], [], phony=True)
+
+settings.test = 'foo baz'
+emitter.add_command(settings, ['all'], ['(out)/libsubstitute.dylib'], [], phony=True)
 emitter.set_default_rule('all')
-mconfig.emit()
+
+mconfig.finish_and_emit()
