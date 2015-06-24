@@ -113,7 +113,7 @@ class SettingsGroup(object):
             if inherit_parent is not None:
                 ret = SettingsGroup.get_meat(inherit_parent, attr, exctype)
                 if isinstance(ret, SettingsGroup):
-                    ret = self[attr] = ret.new_inheritor(name='%s.%s' % (object.__getattribute__(self, 'name'), attr))
+                    ret = self[attr] = ret.specialize(name='%s.%s' % (object.__getattribute__(self, 'name'), attr))
                 return ret
             raise exctype(attr)
         else:
@@ -141,6 +141,11 @@ class SettingsGroup(object):
         return self.__getattribute__(attr)
     def __setitem__(self, attr, val):
         self.vals[attr] = val
+    def get(self, attr, default=None):
+        try:
+            return self[attr]
+        except AttributeError:
+            return default
 
     def __iter__(self):
         return self.vals.__iter__()
@@ -169,8 +174,11 @@ class SettingsGroup(object):
         opt = Option(optname, optdesc, f, default, **kwargs)
         self[name] = PendingOption(opt)
 
-    def new_inheritor(self, *args, **kwargs):
-        return SettingsGroup(inherit_parent=self, *args, **kwargs)
+    def specialize(self, name=None, **kwargs):
+        sg = SettingsGroup(inherit_parent=self, name=name)
+        for key, val in kwargs.items():
+            sg[key] = val
+        return sg
 
     def new_child(self, name, *args, **kwargs):
         sg = SettingsGroup(group_parent=self, name='%s.%s' % (self.name, name), *args, **kwargs)
@@ -794,8 +802,7 @@ def add_emitter_option():
 def finish_and_emit():
     settings_root.emitter.emit(settings_root.emit_fn)
 
-# see cc_to_use_cb
-def default_cc_to_use(filename):
+def default_is_cxx(filename):
     root, ext = os.path.splitext(filename)
     return ext in ('cc', 'cpp', 'cxx', 'mm')
 
@@ -809,15 +816,15 @@ def default_cc_to_use(filename):
 # objs:         list of .o files or other things to add to the link
 # link_out:     optional linker output
 # link_type:    'exec', 'dylib', 'staticlib', 'obj'; default exec
-# info_cb:      (filename) -> a dict with any of these keys:
-#                 'is_cxx': True ($CXX) or False ($CC); ignored in IDE native mode
-#                 'cc':  override cc altogther; ignored in IDE native mode
-#                 'cflags': *override* cflags; never ignored
-#                 'obj_fn': ...
-#                 'extra_deps': dependencies
+# settings_cb:  (filename) -> None or a settings object to override the default
+#               the following keys are accepted:
+#                 override_cxx: True ($CXX) or False ($CC); ignored in IDE native mode
+#                 override_cc:  override cc altogther; ignored in IDE native mode
+#                 override_obj_fn: the .o file
+#                 extra_deps: dependencies
 # force_cli:    don't use IDEs' native C/C++ compilation mechanism
 # expand:       call expand on filenames
-def build_c_objs(emitter, machine, settings, sources, headers=[], info_cb=None, force_cli=False, expand=True):
+def build_c_objs(emitter, machine, settings, sources, headers=[], settings_cb=None, force_cli=False, expand=True):
     if expand:
         headers = [expand(header, settings) for header in headers]
     tools = machine.c_tools()
@@ -827,12 +834,18 @@ def build_c_objs(emitter, machine, settings, sources, headers=[], info_cb=None, 
     for fn in sources:
         if expand:
             fn = _expand(fn, settings)
-        info = {} if info_cb is None else info_cb(fn)
-        obj_fn = info['obj_fn'] if 'obj_fn' in info else guess_obj_fn(fn, settings)
-        is_cxx = info.get('is_cxx', False)
-        cflags = info['cflags'] if 'cflags' in info else (settings.cxxflags if is_cxx else settings.cflags)
-        cc = info['cc'] if 'cc' in info else (tools.cxx if is_cxx else tools.cc).argv()
-        extra_deps = info.get('extra_deps', [])
+        my_settings = settings
+        if settings_cb is not None:
+            s = settings_cb(fn)
+            if s is not None:
+                my_settings = s
+        obj_fn = my_settings.get('override_obj_fn') or guess_obj_fn(fn, settings)
+        is_cxx = my_settings.get('override_is_cxx')
+        if is_cxx is None:
+            is_cxx = default_is_cxx(fn)
+        cflags = my_settings.cxxflags if is_cxx else my_settings.cflags
+        cc = my_settings.get('override_cc') or (tools.cxx if is_cxx else tools.cc).argv()
+        extra_deps = my_settings.get('extra_deps', [])
         any_was_cxx = any_was_cxx or is_cxx
         dep_fn = os.path.splitext(obj_fn)[0] + '.d'
 
@@ -866,8 +879,8 @@ def link_c_objs(emitter, machine, settings, link_type, link_out, objs, link_with
     mkdir_cmd = ['mkdir', '-p', os.path.dirname(link_out)]
     emitter.add_command_raw([link_out], objs + extra_deps, [mkdir_cmd, cmd])
 
-def build_and_link_c_objs(emitter, machine, settings, link_type, link_out, sources, headers=[], objs=[], info_cb=None, force_cli=False, expand=True, extra_deps=[]):
-    more_objs, link_with_cxx = build_c_objs(emitter, machine, settings, sources, headers, info_cb, force_cli, expand)
+def build_and_link_c_objs(emitter, machine, settings, link_type, link_out, sources, headers=[], objs=[], settings_cb=None, force_cli=False, expand=True, extra_deps=[]):
+    more_objs, link_with_cxx = build_c_objs(emitter, machine, settings, sources, headers, settings_cb, force_cli, expand)
     link_c_objs(emitter, machine, settings, link_type, link_out, objs + more_objs, link_with_cxx, force_cli, expand, extra_deps)
 
 def guess_obj_fn(fn, settings):

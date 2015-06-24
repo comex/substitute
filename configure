@@ -18,10 +18,13 @@ mconfig.build_and_link_c_objs(emitter, settings.host_machine(), settings,
         '(src)/lib/darwin/find-syms.c',
         '(src)/lib/darwin/inject.c',
         '(src)/lib/darwin/interpose.c',
-    ]
+    ],
+    #settings_cb=lambda fn: settings.specialize(override_is_cxx=True)
+
+
 )
 
-settings.test = 'foo baz'
+#settings.test = 'foo baz'
 emitter.add_command(settings, ['all'], ['(out)/libsubstitute.dylib'], [], phony=True)
 emitter.set_default_rule('all')
 
