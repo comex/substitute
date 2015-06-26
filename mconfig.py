@@ -2,6 +2,13 @@ import re, argparse, sys, os, string, shlex, subprocess, glob, parser, hashlib, 
 from collections import OrderedDict, namedtuple
 import curses.ascii
 
+# Py3 stuff...
+is_py3 = sys.hexversion >= 0x3000000
+if is_py3:
+    basestring = str
+def dirname(fn):
+    return os.path.dirname(fn) or '.'
+
 def indentify(s, indent='    '):
     return s.replace('\n', '\n' + indent)
 
@@ -46,7 +53,7 @@ def run_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs):
     except OSError:
         config_log.write('  OSError\n')
         return '', '', 127
-    so, se = p.communicate()
+    so, se = [o.decode('utf-8') for o in p.communicate()]
     if p.returncode != 0:
         config_log.write('  failed with status %d\n' % (p.returncode,))
     config_log.write('-----------\n')
@@ -73,7 +80,8 @@ class memoize(object):
             try:
                 self.result = self.f()
                 return self.result
-            except DependencyNotFoundException as self.threw:
+            except DependencyNotFoundException as threw:
+                self.threw = threw
                 raise
 
 class Pending(object):
@@ -82,10 +90,13 @@ class Pending(object):
     def resolve(self):
         return self.value
     # xxx py3
-    def __getattr__(self, attr):
-        if attr is 'value':
-            raise AttributeError
-        return PendingAttribute(self, attr)
+    def __getattribute__(self, attr):
+        try:
+            return object.__getattribute__(self, attr)
+        except AttributeError:
+            if attr is 'value':
+                raise AttributeError
+            return PendingAttribute(self, attr)
 
 class PendingOption(Pending, namedtuple('PendingOption', 'opt')):
     def resolve(self):
@@ -591,7 +602,7 @@ class XcodeToolchain(object):
             log("%s default Xcode SDK for %r because %s; pass %s=arch1,arch2 to override\n" % (
                 "Can't use" if some_explicit_xcode_request else "Not using",
                 self.machine.name,
-                ("triple architecture %r doesn't seem to be valid" % (tarch,)) if tarch is not None else "I couldn't guess a list of architectures from the SDK",
+                ("triple architecture %r doesn't seem to be valid" % (tarch,)) if tarch else "I couldn't guess a list of architectures from the SDK",
                 self.arch_opt.name,
             ))
             if some_explicit_xcode_request:
@@ -728,9 +739,16 @@ def list_mconfig_scripts(settings):
     res = []
     for mod in sys.modules.values():
         if hasattr(mod, '__file__') and within_dirtree(real_src, os.path.realpath(mod.__file__)):
-            fn = mod.__file__
-            if (fn.endswith('.pyc') or fn.endswith('.pyo')) and os.path.exists(fn[:-1]):
-                fn = fn[:-1]
+            if is_py3:
+                fn = mod.__loader__.path
+            else:
+                fn = mod.__file__
+                if fn.endswith('.pyc') or fn.endswith('.pyo'):
+                    if os.path.exists(fn[:-1]):
+                        fn = fn[:-1]
+                    else:
+                        # who knows?
+                        continue
             res.append(fn)
     return res
 
@@ -760,7 +778,7 @@ class Emitter(object):
         if 'expand' in kwargs:
             del kwargs['expand']
         if settings.enable_rule_hashing:
-            sha = hashlib.sha1(json.dumps((outs, ins, argvs))).hexdigest()
+            sha = hashlib.sha1(json.dumps((outs, ins, argvs)).encode('utf-8')).hexdigest()
             if sha not in prev_rule_hashes:
                 clean_files(outs, settings)
             cur_rule_hashes.add(sha)
@@ -781,7 +799,7 @@ class MakefileEmitter(Emitter):
         self.makefile_bits = [self.banner]
         self.main_mk = settings.get('main_mk')
         if self.main_mk is None:
-            self.main_mk = lambda: os.path.join(os.path.dirname(settings.emit_fn), 'main.mk')
+            self.main_mk = lambda: os.path.join(dirname(settings.emit_fn), 'main.mk')
 
     def add_all_and_clean(self):
         if hasattr(self, 'default_rule'):
@@ -797,7 +815,7 @@ class MakefileEmitter(Emitter):
             raise ValueError("your awful filename %r can't be encoded in make (probably)" % (fn,))
         return re.sub(r'([ :\$\\])', r'\\\1', fn)
     def filename_rel_and_escape(self, fn):
-        fn = os.path.relpath(fn, os.path.dirname(self.settings.emit_fn))
+        fn = os.path.relpath(fn, dirname(self.settings.emit_fn))
         return self.filename_escape(fn)
     # depfile = ('makefile', filename) or ('msvc',)
     def add_command_raw(self, outs, ins, argvs, phony=False, depfile=None):
@@ -909,7 +927,7 @@ def add_emitter_option():
     settings_root.add_setting_option('emit_fn', '--outfile', 'Output file.  Default: depends on type', section=output_section, default=lambda: settings_root.emitter.default_outfile())
 
 def config_status():
-    return '#!/bin/sh\n' + argv_to_shell(sys.argv) + '\n'
+    return '#!/bin/sh\n' + argv_to_shell([sys.executable] + sys.argv) + '\n'
 
 def finish_and_emit():
     settings_root.emitter.emit()
@@ -985,7 +1003,7 @@ def build_c_objs(emitter, machine, settings, sources, headers=[], settings_cb=No
         any_was_cxx = any_was_cxx or is_cxx
         dep_fn = os.path.splitext(obj_fn)[0] + '.d'
 
-        mkdir_cmd = ['mkdir', '-p', os.path.dirname(obj_fn)]
+        mkdir_cmd = ['mkdir', '-p', dirname(obj_fn)]
         cmd = cc + dbg + cflags + ['-c', '-o', obj_fn, '-MMD', '-MF', dep_fn, fn]
 
         emitter.add_command(my_settings, [obj_fn], [fn] + extra_deps, [mkdir_cmd, cmd], depfile=('makefile', dep_fn), expand=False)
@@ -1017,7 +1035,7 @@ def link_c_objs(emitter, machine, settings, link_type, link_out, objs, link_with
         cmds = [tools.ar.argv() + ['rcs'] + objs]
     elif link_type == 'obj':
         cmds = [tools.cc.argv() + ['-Wl,-r', '-nostdlib', '-o', link_out] + objs]
-    cmds.insert(0, ['mkdir', '-p', os.path.dirname(link_out)])
+    cmds.insert(0, ['mkdir', '-p', dirname(link_out)])
     emitter.add_command(settings, [link_out], objs + extra_deps, cmds, expand=False)
 
 def build_and_link_c_objs(emitter, machine, settings, link_type, link_out, sources, headers=[], objs=[], settings_cb=None, force_cli=False, expand=True, extra_deps=[], extra_ldflags=[]):
@@ -1027,7 +1045,7 @@ def build_and_link_c_objs(emitter, machine, settings, link_type, link_out, sourc
 
 def guess_obj_fn(fn, settings):
     rel = os.path.relpath(fn, settings.src)
-    if not rel.startswith('../'):
+    if not rel.startswith('..'+os.path.sep):
         rel = os.path.splitext(rel)[0] + '.o'
         return os.path.join(settings.out, rel)
     raise ValueError("can't guess .o filename for %r, as it's not in settings.src" % (fn,))
@@ -1059,7 +1077,7 @@ settings_root.host_machine = memoize(lambda: settings_root.build_machine() and M
 
 settings_root.tool_search_paths = os.environ['PATH'].split(':')
 
-settings_root.src = os.path.dirname(sys.argv[0])
+settings_root.src = dirname(sys.argv[0])
 settings_root.out = os.path.join(os.getcwd(), 'out')
 
 settings_root.debug_info = False
