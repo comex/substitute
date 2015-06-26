@@ -728,13 +728,21 @@ def list_mconfig_scripts(settings):
     res = []
     for mod in sys.modules.values():
         if hasattr(mod, '__file__') and within_dirtree(real_src, os.path.realpath(mod.__file__)):
-            res.append(mod.__file__)
+            fn = mod.__file__
+            if (fn.endswith('.pyc') or fn.endswith('.pyo')) and os.path.exists(fn[:-1]):
+                fn = fn[:-1]
+            res.append(fn)
     return res
 
-def write_file_loudly(fn, data):
+def write_file_loudly(fn, data, perm=None):
     log('Writing %s\n' % (fn,))
     with open(fn, 'w') as fp:
         fp.write(data)
+    if perm is not None:
+        try:
+            os.chmod(fn, perm)
+        except Exception as e:
+            log('chmod: %r' % (e,))
 
 class Emitter(object):
     def __init__(self, settings):
@@ -818,14 +826,15 @@ class MakefileEmitter(Emitter):
     def emit(self):
         makefile = self.settings.emit_fn
         main_mk = self.main_mk()
-        self.add_command_raw([makefile], list_mconfig_scripts(self.settings), [['./config.status']])
+        cs_argvs = [['echo', 'Running config.status...'], ['./config.status']]
+        self.add_command_raw([makefile], list_mconfig_scripts(self.settings), cs_argvs)
         Emitter.emit(self, main_mk)
         # Write the stub
         # TODO is there something better than shell?
         # TODO avoid deleting partial output?
         stub = '''
 %(banner)s
-_ := $(shell "$(MAKE_COMMAND)" -f %(main_mk_arg)s %(makefile_arg)s)
+_ := $(shell "$(MAKE_COMMAND)" -s -f %(main_mk_arg)s %(makefile_arg)s >&2)
 include %(main_mk)s
 '''.lstrip() \
         % {
@@ -899,10 +908,14 @@ def add_emitter_option():
         on_set_generate, default='makefile', section=output_section)
     settings_root.add_setting_option('emit_fn', '--outfile', 'Output file.  Default: depends on type', section=output_section, default=lambda: settings_root.emitter.default_outfile())
 
+def config_status():
+    return '#!/bin/sh\n' + argv_to_shell(sys.argv) + '\n'
+
 def finish_and_emit():
     settings_root.emitter.emit()
     if settings_root.enable_rule_hashing:
         emit_rule_hashes()
+    write_file_loudly('config.status', config_status(), 0o755)
 
 def check_rule_hashes():
     if not settings_root.enable_rule_hashing:
