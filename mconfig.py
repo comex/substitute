@@ -1,4 +1,4 @@
-import re, argparse, sys, os, string, shlex, subprocess, glob, parser
+import re, argparse, sys, os, string, shlex, subprocess, glob, parser, hashlib, json
 from collections import OrderedDict, namedtuple
 import curses.ascii
 
@@ -8,6 +8,9 @@ def indentify(s, indent='    '):
 def log(x):
     sys.stdout.write(x)
     config_log.write(x)
+
+def to_upper_and_underscore(s):
+    return s.upper().replace('-', '_')
 
 def argv_to_shell(argv):
     quoteds = []
@@ -51,6 +54,7 @@ def run_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs):
     config_log.write(so.rstrip())
     config_log.write('\n  stderr:\n')
     config_log.write(se.rstrip())
+    config_log.write('\n-----------\n')
     return so, se, p.returncode
 
 class DependencyNotFoundException(Exception):
@@ -414,6 +418,8 @@ class Machine(object):
         self.settings = settings
         def on_set(val):
             self.triple = val
+        if isinstance(triple_default, basestring):
+            triple_help += '; default: %r' % (triple_default,)
         self.triple_option = Option('--' + name, help=triple_help, default=triple_default, on_set=on_set, type=Triple, section=triple_options_section)
         self.triple = PendingOption(self.triple_option)
 
@@ -454,18 +460,18 @@ class Machine(object):
         return CTools(self.settings, self, self.toolchains())
 
 class CLITool(object):
-    def __init__(self, name, defaults, env, machine, toolchains, dont_suffix_env=False):
+    def __init__(self, name, defaults, env, machine, toolchains, dont_suffix_env=False, section=None):
         self.name = name
         self.defaults = defaults
         self.env = env
         self.toolchains = toolchains
         self.needed = False
         if machine.name != 'host' and not dont_suffix_env:
-            env = '%s_FOR_%s' % (env, machine.name.upper())
+            env = '%s_FOR_%s' % (env, to_upper_and_underscore(machine.name))
         def on_set(val):
             if val is not None:
                 self.argv_from_opt = shlex.split(val)
-        self.argv_opt = Option(env + '=', help='Default: %r' % (defaults,), on_set=on_set, show=False)
+        self.argv_opt = Option(env + '=', help='Default: %r' % (defaults,), on_set=on_set, show=False, section=section)
         self.argv = memoize(self.argv)
 
     def __repr__(self):
@@ -534,49 +540,66 @@ def read_plist(gunk):
 class XcodeToolchain(object):
     def __init__(self, machine, settings):
         self.machine = machine
-        prefix = machine.name if machine.name != 'host' else ''
+        prefix = (machine.name + '-') if machine.name != 'host' else ''
+        section = OptSection('Xcode SDK options (%s):' % (machine.name,))
         name = '--%sxcode-sdk' % (prefix,)
-        self.sdk_opt = Option(name, help='Use Xcode SDK - `xcodebuild -showsdks` lists; typical values: macosx, iphoneos, iphonesimulator, watchos, watchsimulator', on_set=self.on_set_sdk)
-        self.got_sdk = False
+        self.sdk_opt = Option(name, help='Use Xcode SDK - `xcodebuild -showsdks` lists; typical values: macosx, iphoneos, iphonesimulator, watchos, watchsimulator', on_set=None, section=section)
         name = '--%sxcode-archs' % (prefix,)
-        self.sdk_opt = Option(name, help='Comma-separated list of -arch settings for use with an Xcode toolchain', on_set=self.on_set_arch)
-        self.got_arch = False
+        self.arch_opt = Option(name, help='Comma-separated list of -arch settings for use with an Xcode toolchain', on_set=self.on_set_arch, section=section)
+        self.ok = False
 
-    def on_set_sdk(self, val):
-        using_default = val is None
-        self.using_default_sdk = using_default
-        if using_default:
-            if self.machine != settings_root.build_machine():
-                # assume some other kind of cross compilation
-                return
-            val = 'macosx'
+    def on_set_arch(self, arch):
+        self.sdk = self.sdk_opt.value
+        some_explicit_xcode_request = bool(self.sdk or arch)
+        tarch = arch
+        if not arch and self.machine.triple.arch is not None: 
+            tarch = self.machine.triple.arch
+            if tarch == 'arm':
+                log("Warning: treating 'arm' in triple %r as '-arch armv7'; you can specify a triple like 'armv7-apple-darwin10', or override with %r" % (self.machine.triple.triple, self.arch_opt.name))
+                tarch = 'armv7'
+            elif tarch == 'armv8': # XXX is this right?
+                tarch = 'arm64'
+        if not self.sdk:
+            is_armish = tarch is not None and tarch.startswith('arm')
+            self.sdk = 'iphoneos' if is_armish else 'macosx'
         # this is used for arch and also serves as a check
-        sdk_platform_path, _, code = run_command(['/usr/bin/xcrun', '--sdk', val, '--show-sdk-platform-path'])
+        sdk_platform_path, _, code = run_command(['/usr/bin/xcrun', '--sdk', self.sdk, '--show-sdk-platform-path'])
         if code == 127:
             log('* Failed to run /usr/bin/xcrun\n')
-            if not using_default:
+            if some_explicit_xcode_request:
                 raise DependencyNotFoundException
             return
         elif code:
-            log('* Xcode SDK %r not found\n' % (val,))
-            if not using_default:
+            log('* Xcode SDK %r not found\n' % (self.sdk,))
+            if some_explicit_xcode_request:
                 raise DependencyNotFoundException
             return
         self.sdk_platform_path = sdk_platform_path.rstrip()
         log('Xcode SDK platform path: %r\n' % (self.sdk_platform_path,))
 
-        self.got_sdk = True
-
-    def on_set_arch(self, val):
-        if not self.got_sdk:
+        self.archs = self.get_archs(arch, tarch)
+        if self.archs is None:
+            log("%s default Xcode SDK for %r because %s; pass %s=arch1,arch2 to override\n" % (
+                "Can't use" if some_explicit_xcode_request else "Not using",
+                self.machine.name,
+                ("triple architecture %r doesn't seem to be valid" % (tarch,)) if tarch is not None else "I couldn't guess a list of architectures from the SDK",
+                self.arch_opt.name,
+            ))
+            if some_explicit_xcode_request:
+                raise DependencyNotFoundException
             return
-        self.archs = self.get_archs(val)
-        log('Using architectures: %s\n' % (repr(self.archs) if self.archs != [] else '(native)'))
-        self.got_arch = True
+        log('Using architectures for %r: %s\n' % (self.machine.name, repr(self.archs) if self.archs != [] else '(native)'))
+        self.ok = True
 
-    def get_archs(self, val):
-        if val is not None:
+    def get_archs(self, arch, tarch):
+        if arch:
             return re.sub('\s', '', val).split(',')
+        if tarch:
+            # we need to validate it
+            sod, sed, code = run_command(['/usr/bin/xcrun', '--sdk', self.sdk, 'ld', '-arch', tarch])
+            if 'unsupported arch' in sed:
+                return None
+        triple = self.machine.triple
         # try to divine appropriate architectures
         # this may fail with future versions of Xcode, but at least we tried
         if self.sdk_platform_path.endswith('MacOSX.platform'):
@@ -608,17 +631,15 @@ class XcodeToolchain(object):
             log('(Failed to divine architectures from %r for some reason...)\n' % (spec,))
 
         # give up
-        log("%s default Xcode SDK because I can't figure out a reasonable list of architectures; pass %s=arch1,arch2 to override\n" % (
-            "Not using" if self.using_default_sdk else "Can't use",
-            self.arch_opt.name,
-        ))
-        if self.using_default_sdk:
-            raise DependencyNotFoundException
+        return None
+
+    def arch_flags(self):
+        return [flag for arch in self.archs for flag in ('-arch', arch)]
 
     def find_tool(self, tool, failure_notes):
-        if not self.got_arch:
+        if not self.ok:
             return None
-        argv = ['/usr/bin/xcrun', tool.name]
+        argv = ['/usr/bin/xcrun', '--sdk', self.sdk, tool.name] + self.arch_flags()
         sod, sed, code = run_command(argv + ['--asdf'])
         if code != 0:
             if sed.startswith('xcrun: error: unable to find utility'):
@@ -629,6 +650,9 @@ class XcodeToolchain(object):
 # Just a collection of common tools, plus flag options
 class CTools(object):
     def __init__(self, settings, machine, toolchains):
+        flags_section = OptSection('Compiler/linker flags (%s):' % (machine.name,))
+        tools_section = OptSection('Tool overrides (%s):' % (machine.name,))
+
         tools = [
             ('cc',   ['cc', 'gcc', 'clang'],    'CC'),
             ('cxx',  ['c++', 'g++', 'clang++'], 'CXX'),
@@ -641,20 +665,24 @@ class CTools(object):
             ('objcopy', ['objcopy', 'gobjcopy'], 'OBJCOPY'),
             # OS X
             ('lipo',),
+            ('dsymutil',),
         ]
         for spec in tools:
             if len(spec) == 1:
                 name, defaults, env = spec[0], [spec[0]], spec[0].upper()
             else:
                 name, defaults, env = spec
-            tool = CLITool(name, defaults, env, machine, toolchains)
+            tool = CLITool(name, defaults, env, machine, toolchains, section=tools_section)
             setattr(self, name, tool)
 
-        section = OptSection('Compiler/linker flags:')
-        self.cflags_opt = settings.add_setting_option('cflags', 'CFLAGS=', 'Flags for $CC', [], section=section, type=shlex.split)
-        self.cxxflags_opt = settings.add_setting_option('cxxflags', 'CXXFLAGS=', 'Flags for $CXX', [], section=section, type=shlex.split)
-        self.ldflags_opt = settings.add_setting_option('ldflags', 'LDFLAGS=', 'Flags for $CC/$CXX when linking', [], section=section, type=shlex.split)
-        self.cppflags_opt = settings.add_setting_option('cppflags', 'CPPFLAGS=', 'Flags for $CC/$CXX when not linking (supposed to be used for preprocessor flags)', [], section=section, type=shlex.split)
+        suff = ''
+        if machine.name != 'host':
+            suff = '_FOR_' + to_upper_and_underscore(machine.name)
+        suff += '='
+        self.cflags_opt = settings.add_setting_option('cflags', 'CFLAGS'+suff, 'Flags for $CC', [], section=flags_section, type=shlex.split)
+        self.cxxflags_opt = settings.add_setting_option('cxxflags', 'CXXFLAGS'+suff, 'Flags for $CXX', [], section=flags_section, type=shlex.split)
+        self.ldflags_opt = settings.add_setting_option('ldflags', 'LDFLAGS'+suff, 'Flags for $CC/$CXX when linking', [], section=flags_section, type=shlex.split)
+        self.cppflags_opt = settings.add_setting_option('cppflags', 'CPPFLAGS'+suff, 'Flags for $CC/$CXX when not linking (supposed to be used for preprocessor flags)', [], section=flags_section, type=shlex.split)
 
 
 # A nicer - but optional - way of doing multiple tests that will print all the
@@ -670,18 +698,56 @@ def will_need(tests):
         log('(%d failure%s.)\n' % (failures, 's' if failures != 1 else ''))
         sys.exit(1)
 
+def within_dirtree(tree, fn):
+    return not os.path.relpath(fn, tree).startswith('..'+os.path.sep)
+
+real_out = memoize(lambda: os.path.realpath(settings_root.out))
+def clean_files(fns, settings):
+    ro = real_out()
+    for fn in fns:
+        if not os.path.exists(fn) or os.path.isdir(fn):
+            continue
+        if not settings.allow_autoclean_outside_out and within_dirtree(ro, os.path.realpath(fn)):
+            log('* Would clean %r as previous build leftover, but it isn\'t in settings.out (%r) so keeping it for safety.\n' % (fn, ro))
+            continue
+        config_log.write('Removing %r\n' % (fn,))
+        os.remove(fn)
+
+def list_mconfig_scripts(settings):
+    real_src = os.path.realpath(settings.src)
+    res = []
+    for mod in sys.modules.values():
+        if hasattr(mod, '__file__') and within_dirtree(real_src, os.path.realpath(mod.__file__)):
+            res.append(mod.__file__)
+    return res
+
 class Emitter(object):
+    def __init__(self, settings):
+        self.add_deps_on_config_scripts = settings.add_deps_on_config_scripts
+        self.settings = settings
     def pre_output(self):
         assert not hasattr(self, 'did_output')
         self.did_output = True
     def set_default_rule(self, rule):
         self.default_rule = rule
     def add_command(self, settings, outs, ins, argvs, *args, **kwargs):
-        outs = [expand(x, settings) for x in outs]
-        ins = [expand(x, settings) for x in ins]
-        argvs = [expand_argv(x, settings) for x in argvs]
+        if kwargs.get('expand', True):
+            outs = [expand(x, settings) for x in outs]
+            ins = [expand(x, settings) for x in ins]
+            argvs = [expand_argv(x, settings) for x in argvs]
+        if 'expand' in kwargs:
+            del kwargs['expand']
+        if self.add_deps_on_config_scripts:
+            ins.append('int-mconfig-scripts-phony')
+        if settings.enable_rule_hashing:
+            sha = hashlib.sha1(json.dumps((outs, ins, argvs))).hexdigest()
+            if sha not in prev_rule_hashes:
+                clean_files(outs, settings)
+            cur_rule_hashes.add(sha)
         return self.add_command_raw(outs, ins, argvs, *args, **kwargs)
     def emit(self, fn):
+        if self.add_deps_on_config_scripts:
+            self.add_command(self.settings, ['int-mconfig-scripts-phony'], list_mconfig_scripts(self.settings), [], phony=True)
         output = self.output()
         log('Writing %s\n' % (fn,))
         fp = open(fn, 'w')
@@ -693,7 +759,7 @@ class Emitter(object):
 
 class MakefileEmitter(Emitter):
     def __init__(self, settings):
-        self.settings = settings
+        Emitter.__init__(self, settings)
         self.makefile_bits = []
 
     def add_all_and_clean(self):
@@ -741,7 +807,7 @@ class MakefileEmitter(Emitter):
 
 class NinjaEmitter(Emitter):
     def __init__(self, settings):
-        self.settings = settings
+        Emitter.__init__(self, settings)
         self.ninja_bits = []
         self.ruleno = 0
     @staticmethod
@@ -801,6 +867,27 @@ def add_emitter_option():
 
 def finish_and_emit():
     settings_root.emitter.emit(settings_root.emit_fn)
+    if settings_root.enable_rule_hashing:
+        emit_rule_hashes()
+
+def check_rule_hashes():
+    if not settings_root.enable_rule_hashing:
+        return
+    global prev_rule_hashes, cur_rule_hashes
+    cur_rule_hashes = set()
+    rule_path = os.path.join(settings_root.out, 'mconfig-hashes.txt')
+    try:
+        fp = open(rule_path)
+    except IOError:
+        prev_rule_hashes = set()
+        return
+    prev_rule_hashes = set(json.load(fp))
+    fp.close()
+
+def emit_rule_hashes():
+    rule_path = os.path.join(settings_root.out, 'mconfig-hashes.txt')
+    with open(rule_path, 'w') as fp:
+        json.dump(list(cur_rule_hashes), fp)
 
 def default_is_cxx(filename):
     root, ext = os.path.splitext(filename)
@@ -843,6 +930,7 @@ def build_c_objs(emitter, machine, settings, sources, headers=[], settings_cb=No
         is_cxx = my_settings.get('override_is_cxx')
         if is_cxx is None:
             is_cxx = default_is_cxx(fn)
+        dbg = ['-g'] if my_settings.debug_info else []
         cflags = my_settings.cxxflags if is_cxx else my_settings.cflags
         cc = my_settings.get('override_cc') or (tools.cxx if is_cxx else tools.cc).argv()
         extra_deps = my_settings.get('extra_deps', [])
@@ -850,9 +938,9 @@ def build_c_objs(emitter, machine, settings, sources, headers=[], settings_cb=No
         dep_fn = os.path.splitext(obj_fn)[0] + '.d'
 
         mkdir_cmd = ['mkdir', '-p', os.path.dirname(obj_fn)]
-        cmd = cc + cflags + ['-c', '-o', obj_fn, '-MMD', '-MF', dep_fn, fn]
+        cmd = cc + dbg + cflags + ['-c', '-o', obj_fn, '-MMD', '-MF', dep_fn, fn]
 
-        emitter.add_command_raw([obj_fn], [fn] + extra_deps, [mkdir_cmd, cmd], depfile=('makefile', dep_fn))
+        emitter.add_command(my_settings, [obj_fn], [fn] + extra_deps, [mkdir_cmd, cmd], depfile=('makefile', dep_fn), expand=False)
         obj_fns.append(obj_fn)
 
     return obj_fns, any_was_cxx
@@ -871,13 +959,15 @@ def link_c_objs(emitter, machine, settings, link_type, link_out, objs, link_with
             typeflag = ['-dynamiclib'] if machine.is_darwin() else ['-shared']
         else:
             typeflag = []
-        cmd = cc_for_link + typeflag + settings.ldflags + ['-o', link_out] + objs
+        cmds = [cc_for_link + typeflag + settings.ldflags + ['-o', link_out] + objs]
+        if machine.is_darwin() and settings.debug_info:
+            cmds.append(tools.dsymutil.argv() + [link_out])
     elif link_type == 'staticlib':
-        cmd = tools.ar() + ['rcs'] + objs
+        cmds = [tools.ar.argv() + ['rcs'] + objs]
     elif link_type == 'obj':
-        cmd = tools.cc() + ['-Wl,-r', '-nostdlib', '-o', link_out] + objs
-    mkdir_cmd = ['mkdir', '-p', os.path.dirname(link_out)]
-    emitter.add_command_raw([link_out], objs + extra_deps, [mkdir_cmd, cmd])
+        cmds = [tools.cc.argv() + ['-Wl,-r', '-nostdlib', '-o', link_out] + objs]
+    cmds.append(['mkdir', '-p', os.path.dirname(link_out)])
+    emitter.add_command(settings, [link_out], objs + extra_deps, cmds, expand=False)
 
 def build_and_link_c_objs(emitter, machine, settings, link_type, link_out, sources, headers=[], objs=[], settings_cb=None, force_cli=False, expand=True, extra_deps=[]):
     more_objs, link_with_cxx = build_c_objs(emitter, machine, settings, sources, headers, settings_cb, force_cli, expand)
@@ -919,6 +1009,13 @@ settings_root.tool_search_paths = os.environ['PATH'].split(':')
 
 settings_root.src = os.path.dirname(sys.argv[0])
 settings_root.out = os.path.join(os.getcwd(), 'out')
+
+settings_root.debug_info = False
+
+settings_root.enable_rule_hashing = True
+settings_root.allow_autoclean_outside_out = False
+post_parse_args_will_need.append(check_rule_hashes)
+settings_root.add_deps_on_config_scripts = True
 
 emitters = {
     'makefile': MakefileEmitter,

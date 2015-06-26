@@ -7,22 +7,63 @@ c = settings.host_machine().c_tools()
 
 c.cc.required()
 
+asm_archs = [
+    ('x86_64', []),
+    ('i386', []),
+    ('arm', ['-marm']),
+    ('arm64', []), # XXX
+]
+
+machs = []
+for name, cflags in asm_archs:
+    mach = mconfig.Machine('asm-' + name, settings, 'for cross-compiling the inject baton', name + '-apple-darwin10')
+    machs.append(mach)
+    mach.c_tools().cc.required()
+
+
 mconfig.parse_args()
 settings.cflags = ['-I%s/lib' % (settings.src,)] + settings.cflags
+settings.debug_info = True
 
 emitter = settings.emitter
-mconfig.build_and_link_c_objs(emitter, settings.host_machine(), settings,
+
+balco = lambda *args, **kwargs: mconfig.build_and_link_c_objs(emitter, settings.host_machine(), settings, *args, **kwargs)
+
+# Note: the order of darwin-inject-asm.o is significant.  Per man page, ld is
+# guaranteed to link objects in order, which is necessary because
+# darwin-inject-asm.S does not itself ensure there is at least 0x4000 bytes of
+# executable stuff after inject_page_start (so that arm can remap into arm64).
+# By putting it at the beginning, we can just reuse the space for the rest of
+# the library rather than having to pad with zeroes.
+# (This only matters on 32-bit ARM, and the text segment is currently 0xa000
+# bytes there, more than enough.)
+
+balco(
     'dylib',
     '(out)/libsubstitute.dylib',
     [
+        '(src)/generated/darwin-inject-asm.S',
         '(src)/lib/darwin/find-syms.c',
         '(src)/lib/darwin/inject.c',
         '(src)/lib/darwin/interpose.c',
+        '(src)/lib/darwin/objc-asm.S',
+        '(src)/lib/darwin/objc.c',
+        '(src)/lib/darwin/read.c',
+        '(src)/lib/darwin/substrate-compat.c',
+        '(src)/lib/darwin/execmem.c',
+        '(src)/lib/cbit/vec.c',
+        '(src)/lib/jump-dis.c',
+        '(src)/lib/transform-dis.c',
+        '(src)/lib/hook-functions.c',
+        '(src)/lib/strerror.c',
     ],
     #settings_cb=lambda fn: settings.specialize(override_is_cxx=True)
-
-
 )
+
+#for name, arch_flag, opts in [
+#]:
+#compile_c_objs(emitter, settings.host_machine(), 
+    
 
 #settings.test = 'foo baz'
 emitter.add_command(settings, ['all'], ['(out)/libsubstitute.dylib'], [], phony=True)
