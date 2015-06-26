@@ -6,6 +6,7 @@ settings.package_unix_name.value = 'substitute'
 c = settings.host_machine().c_tools()
 
 c.cc.required()
+c.dsymutil.required()
 
 asm_archs = [
     ('x86_64', []),

@@ -234,6 +234,9 @@ class Option(object):
         self.show = True
 
     def set(self, value):
+        if not self.show:
+            # If you didn't mention the option in help, you don't get no stinking value.  This is for ignored options only.
+            return
         if value is None:
             value = self.default
             if callable(value): # Pending
@@ -417,7 +420,7 @@ class Machine(object):
         self.name = name
         self.settings = settings
         def on_set(val):
-            self.triple = val
+            self.triple = Triple(val)
         if isinstance(triple_default, basestring):
             triple_help += '; default: %r' % (triple_default,)
         self.triple_option = Option('--' + name, help=triple_help, default=triple_default, on_set=on_set, type=Triple, section=triple_options_section)
@@ -466,6 +469,7 @@ class CLITool(object):
         self.env = env
         self.toolchains = toolchains
         self.needed = False
+        self.machine = machine
         if machine.name != 'host' and not dont_suffix_env:
             env = '%s_FOR_%s' % (env, to_upper_and_underscore(machine.name))
         def on_set(val):
@@ -484,7 +488,9 @@ class CLITool(object):
         self.optional()
         post_parse_args_will_need.append(lambda: self.argv())
 
-    def argv(self): # memoized
+    def argv(self): # mem
+        if not self.argv_opt.show:
+            raise Exception("You asked for argv but didn't call required() or optional() before parsing args: %r" % (self,))
         # If the user specified it explicitly, don't question.
         if hasattr(self, 'argv_from_opt'):
             log('Using %s from command line: %s\n' % (self.name, argv_to_shell(self.argv_from_opt)))
@@ -494,7 +500,10 @@ class CLITool(object):
         for tc in self.toolchains:
             argv = tc.find_tool(self, failure_notes)
             if argv is not None:
-                log('Found %s: %s\n' % (self.name, argv_to_shell(argv)))
+                log('Found %s%s: %s\n' % (
+                    self.name,
+                    (' for %r' % (self.machine.name,) if self.machine is not None else ''),
+                    argv_to_shell(argv)))
                 return argv
 
         log('** Failed to locate %s\n' % (self.name,))
@@ -555,7 +564,7 @@ class XcodeToolchain(object):
         if not arch and self.machine.triple.arch is not None: 
             tarch = self.machine.triple.arch
             if tarch == 'arm':
-                log("Warning: treating 'arm' in triple %r as '-arch armv7'; you can specify a triple like 'armv7-apple-darwin10', or override with %r" % (self.machine.triple.triple, self.arch_opt.name))
+                #log("Warning: treating 'arm' in triple %r as '-arch armv7'; you can specify a triple like 'armv7-apple-darwin10', or override with %r\n" % (self.machine.triple.triple, self.arch_opt.name))
                 tarch = 'armv7'
             elif tarch == 'armv8': # XXX is this right?
                 tarch = 'arm64'
@@ -599,6 +608,7 @@ class XcodeToolchain(object):
             sod, sed, code = run_command(['/usr/bin/xcrun', '--sdk', self.sdk, 'ld', '-arch', tarch])
             if 'unsupported arch' in sed:
                 return None
+            return [tarch]
         triple = self.machine.triple
         # try to divine appropriate architectures
         # this may fail with future versions of Xcode, but at least we tried
