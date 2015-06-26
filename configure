@@ -30,6 +30,11 @@ emitter = settings.emitter
 
 balco = lambda *args, **kwargs: mconfig.build_and_link_c_objs(emitter, settings.host_machine(), settings, *args, **kwargs)
 
+def cb(fn):
+    if fn.endswith('/objc.c'):
+        return settings.specialize(obj_ldflag_sets=[('-lobjc',)])
+    return settings
+
 # Note: the order of darwin-inject-asm.o is significant.  Per man page, ld is
 # guaranteed to link objects in order, which is necessary because
 # darwin-inject-asm.S does not itself ensure there is at least 0x4000 bytes of
@@ -58,7 +63,7 @@ balco(
         '(src)/lib/hook-functions.c',
         '(src)/lib/strerror.c',
     ],
-    #settings_cb=lambda fn: settings.specialize(override_is_cxx=True)
+    settings_cb=cb
 )
 
 #for name, arch_flag, opts in [
