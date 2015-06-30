@@ -1,4 +1,4 @@
-import re, argparse, sys, os, string, shlex, subprocess, glob, parser, hashlib, json
+import re, argparse, sys, os, string, shlex, subprocess, glob, parser, hashlib, json, errno
 from collections import OrderedDict, namedtuple
 import curses.ascii
 
@@ -8,6 +8,14 @@ if is_py3:
     basestring = str
 def dirname(fn):
     return os.path.dirname(fn) or '.'
+
+def makedirs(path):
+    try:
+        os.makedirs(path)
+    except OSError as e:
+        if e.errno == errno.EEXIST and os.path.isdir(path):
+            return
+        raise
 
 def indentify(s, indent='    '):
     return s.replace('\n', '\n' + indent)
@@ -770,6 +778,9 @@ class Emitter(object):
         self.did_output = True
     def set_default_rule(self, rule):
         self.default_rule = rule
+    def filename_rel_and_escape(self, fn):
+        fn = os.path.relpath(fn, dirname(self.settings.emit_fn))
+        return self.filename_escape(fn)
     def add_command(self, settings, outs, ins, argvs, *args, **kwargs):
         if kwargs.get('expand', True):
             outs = [expand(x, settings) for x in outs]
@@ -814,9 +825,6 @@ class MakefileEmitter(Emitter):
         if re.search('[\n\0]', fn):
             raise ValueError("your awful filename %r can't be encoded in make (probably)" % (fn,))
         return re.sub(r'([ :\$\\])', r'\\\1', fn)
-    def filename_rel_and_escape(self, fn):
-        fn = os.path.relpath(fn, dirname(self.settings.emit_fn))
-        return self.filename_escape(fn)
     # depfile = ('makefile', filename) or ('msvc',)
     def add_command_raw(self, outs, ins, argvs, phony=False, depfile=None):
         bit = ''
@@ -843,25 +851,28 @@ class MakefileEmitter(Emitter):
 
     def emit(self):
         makefile = self.settings.emit_fn
-        main_mk = self.main_mk()
-        cs_argvs = [['echo', 'Running config.status...'], ['./config.status']]
-        self.add_command_raw([makefile], list_mconfig_scripts(self.settings), cs_argvs)
-        Emitter.emit(self, main_mk)
-        # Write the stub
-        # TODO is there something better than shell?
-        # TODO avoid deleting partial output?
-        stub = '''
-%(banner)s
-_ := $(shell "$(MAKE_COMMAND)" -s -f %(main_mk_arg)s %(makefile_arg)s >&2)
-include %(main_mk)s
-'''.lstrip() \
-        % {
-            'makefile_arg': argv_to_shell([makefile]),
-            'main_mk_arg': argv_to_shell([main_mk]),
-            'main_mk': self.filename_rel_and_escape(main_mk),
-            'banner': self.banner,
-        }
-        write_file_loudly(makefile, stub)
+        if self.settings.auto_rerun_config:
+            main_mk = self.main_mk()
+            cs_argvs = [['echo', 'Running config.status...'], ['./config.status']]
+            self.add_command_raw([makefile], list_mconfig_scripts(self.settings), cs_argvs)
+            Emitter.emit(self, main_mk)
+            # Write the stub
+            # TODO is there something better than shell?
+            # TODO avoid deleting partial output?
+            stub = '''
+    %(banner)s
+    _ := $(shell "$(MAKE_COMMAND)" -s -f %(main_mk_arg)s %(makefile_arg)s >&2)
+    include %(main_mk)s
+    '''.lstrip() \
+            % {
+                'makefile_arg': argv_to_shell([makefile]),
+                'main_mk_arg': argv_to_shell([main_mk]),
+                'main_mk': self.filename_rel_and_escape(main_mk),
+                'banner': self.banner,
+            }
+            write_file_loudly(makefile, stub)
+        else:
+            Emitter.emit(self)
 
     def default_outfile(self):
         return 'Makefile'
@@ -876,14 +887,24 @@ class NinjaEmitter(Emitter):
         if re.search('[\n\0]', fn):
             raise ValueError("your awful filename %r can't be encoded in ninja (probably)" % (fn,))
         return re.sub(r'([ :\$])', r'$\1', fn)
-    def add_command_raw(self, outs, ins, argvs, phony=False, depfile=None):
+
+    def add_command(self, settings, outs, ins, argvs, *args, **kwargs):
+        if self.settings.auto_rerun_config:
+            kwargs['order_only_ins'] = kwargs.get('order_only_ins', []) + ['build.ninja']
+        Emitter.add_command(self, settings, outs, ins, argvs, *args, **kwargs)
+
+    def add_command_raw(self, outs, ins, argvs, phony=False, depfile=None, order_only_ins=[]):
         bit = ''
         if phony:
             if len(argvs) == 0:
-                self.ninja_bits.append('build %s: phony %s\n' % (' '.join(map(self.filename_escape, outs)), ' '.join(map(self.filename_escape, ins))))
+                self.ninja_bits.append('build %s: phony %s%s\n' % (
+                    ' '.join(map(self.filename_rel_and_escape, outs)),
+                    ' '.join(map(self.filename_rel_and_escape, ins)),
+                    '' if not order_only_ins else (' || ' + ' '.join(map(self.filename_rel_and_escape, order_only_ins))),
+                ))
                 return
             outs2 = ['__phony_' + out for out in outs]
-            bit += 'build %s: phony %s\n' % (' '.join(map(self.filename_escape, outs)), ' '.join(map(self.filename_escape, outs2)))
+            bit += 'build %s: phony %s\n' % (' '.join(map(self.filename_rel_and_escape, outs)), ' '.join(map(self.filename_rel_and_escape, outs2)))
             outs = outs2
         rule_name = 'rule_%d' % (self.ruleno,)
         self.ruleno += 1
@@ -893,12 +914,19 @@ class NinjaEmitter(Emitter):
             if depfile[0] not in ('makefile', 'msvc'):
                 raise ValueError("don't support depfile of type %r" % (depfile[0],))
             bit += '  deps = %s\n' % ({'makefile': 'gcc', 'msvc': 'msvc'}[depfile[0]],)
-            bit += '  depfile = %s\n' % (self.filename_escape(depfile[1]),)
-        bit += 'build %s: %s' % (' '.join(map(self.filename_escape, outs),), rule_name)
+            bit += '  depfile = %s\n' % (self.filename_rel_and_escape(depfile[1]),)
+        bit += 'build %s: %s' % (' '.join(map(self.filename_rel_and_escape, outs),), rule_name)
         if ins:
-            bit += ' | %s' % (' '.join(map(self.filename_escape, ins),))
+            bit += ' | %s' % (' '.join(map(self.filename_rel_and_escape, ins),))
         bit += '\n'
         self.ninja_bits.append(bit)
+
+    def add_configstatus_rule(self):
+        # Unlike with make, we don't need to do this separately, before the
+        # other rules are read, because ninja automatically rereads rules when
+        # build.ninja has changed.
+        cs_argvs = [['echo', 'Running config.status...'], ['./config.status']]
+        self.add_command_raw(['build.ninja'], list_mconfig_scripts(self.settings), cs_argvs)
 
     def add_default(self):
         if hasattr(self, 'default_rule'):
@@ -908,6 +936,8 @@ class NinjaEmitter(Emitter):
 
     def output(self):
         self.pre_output()
+        if self.settings.auto_rerun_config:
+            self.add_configstatus_rule()
         self.add_default()
         return '\n'.join(self.ninja_bits)
 
@@ -950,6 +980,7 @@ def check_rule_hashes():
     fp.close()
 
 def emit_rule_hashes():
+    makedirs(settings_root.out)
     rule_path = os.path.join(settings_root.out, 'mconfig-hashes.txt')
     with open(rule_path, 'w') as fp:
         json.dump(list(cur_rule_hashes), fp)
@@ -1085,7 +1116,7 @@ settings_root.debug_info = False
 settings_root.enable_rule_hashing = True
 settings_root.allow_autoclean_outside_out = False
 post_parse_args_will_need.append(check_rule_hashes)
-settings_root.add_deps_on_config_scripts = True
+settings_root.auto_rerun_config = True
 
 emitters = {
     'makefile': MakefileEmitter,
