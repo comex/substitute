@@ -13,10 +13,12 @@ cat <<END
 .globl _inject_page_start
 _inject_page_start:
 END
-for i in x86_64 i386 arm arm64; do
+outfile="$1"
+shift
+(for fn in "$@"; do
     echo ".align 2"
     echo ".globl _inject_start_$i"
     echo "_inject_start_$i:"
     printf  ".byte "
-    xxd -i < out/inject-asm-raw-$i.bin | xargs echo
-done
+    xxd -i < "$fn" | xargs echo
+done) > "$outfile"

@@ -136,7 +136,7 @@ class SettingsGroup(object):
             if inherit_parent is not None:
                 ret = SettingsGroup.get_meat(inherit_parent, attr, exctype)
                 if isinstance(ret, SettingsGroup):
-                    ret = self[attr] = ret.specialize(name='%s.%s' % (object.__getattribute__(self, 'name'), attr))
+                    ret = self[attr] = ret.specialize(name='%s.%s' % (object.__getattribute__(self, 'name'), attr), group_parent=self)
                 return ret
             raise exctype(attr)
         else:
@@ -161,13 +161,13 @@ class SettingsGroup(object):
         else:
             object.__setattribute__(self, attr, val)
     def __getitem__(self, attr):
-        return self.__getattribute__(attr)
+        return SettingsGroup.get_meat(self, attr, KeyError)
     def __setitem__(self, attr, val):
         self.vals[attr] = val
     def get(self, attr, default=None):
         try:
             return self[attr]
-        except AttributeError:
+        except KeyError:
             return default
 
     def __iter__(self):
@@ -197,13 +197,14 @@ class SettingsGroup(object):
         opt = Option(optname, optdesc, f, default, **kwargs)
         self[name] = PendingOption(opt)
 
-    def specialize(self, name=None, **kwargs):
-        sg = SettingsGroup(inherit_parent=self, name=name)
+    def specialize(self, name=None, group_parent=None, **kwargs):
+        sg = SettingsGroup(inherit_parent=self, group_parent=group_parent, name=name)
         for key, val in kwargs.items():
             sg[key] = val
         return sg
 
     def new_child(self, name, *args, **kwargs):
+        assert name not in self
         sg = SettingsGroup(group_parent=self, name='%s.%s' % (self.name, name), *args, **kwargs)
         self[name] = sg
         return sg
@@ -287,17 +288,17 @@ def parse_expander(fmt):
             z = y+1+offset
     return bits
 
-def eval_expand_bit(bit, settings):
-    dep = eval(bit, settings.vals, settings.__dict__)
+def eval_expand_bit(bit, settings, extra_vars={}):
+    dep = eval(bit, {}, settings.specialize(**extra_vars))
     if isinstance(dep, Pending):
         dep = dep.resolve()
     return dep
 
-def expand(fmt, settings):
+def expand(fmt, settings, extra_vars={}):
     bits = parse_expander(fmt)
-    return ''.join((bit if isinstance(bit, basestring) else eval_expand_bit(bit[0], settings)) for bit in bits)
+    return ''.join((bit if isinstance(bit, basestring) else eval_expand_bit(bit[0], settings, extra_vars)) for bit in bits)
 
-def expand_argv(argv, settings):
+def expand_argv(argv, settings, extra_vars={}):
     if isinstance(argv, basestring):
         bits = parse_expander(argv)
         shell = ''.join(bit if isinstance(bit, basestring) else '(!)' for bit in bits)
@@ -310,7 +311,7 @@ def expand_argv(argv, settings):
             for bit in arg.split('(!)'):
                 if not first:
                     code, should_shlex_result = codes.pop(0)
-                    res = eval_expand_bit(code, settings)
+                    res = eval_expand_bit(code, settings, extra_vars)
                     res = shlex.split(res) if should_shlex_result else [res]
                     out_argv[-1] += res[0]
                     out_argv.extend(res[1:])
@@ -318,7 +319,7 @@ def expand_argv(argv, settings):
                 out_argv[-1] += bit
         return out_argv
     else:
-        return [expand(arg, settings) for arg in argv]
+        return [expand(arg, settings, extra_vars) for arg in argv]
 
 def installation_dirs_group(sg):
     section = OptSection('Fine tuning of the installation directories:')
@@ -361,13 +362,16 @@ def _make_argparse(include_unused, include_env):
         for opt in sect.opts:
             if not include(opt):
                 continue
+            kw = opt.argparse_kw
+            if not opt.bool:
+                kw = kw.copy()
+                kw['type'] = opt.type
+                kw['metavar'] = opt.metavar
             ag.add_argument(opt.name,
                             action='store_true' if opt.bool else 'store',
                             dest=opt.name[2:],
                             help=opt.help,
-                            type=opt.type,
-                            metavar=opt.metavar,
-                            **opt.argparse_kw)
+                            **kw)
     return parser
 
 def _print_help(include_unused=False):
@@ -438,6 +442,7 @@ class Machine(object):
     def __init__(self, name, settings, triple_help, triple_default):
         self.name = name
         self.settings = settings
+        settings.new_child(name)
         def on_set(val):
             self.triple = Triple(val)
         if isinstance(triple_default, basestring):
@@ -679,6 +684,7 @@ class XcodeToolchain(object):
 # Just a collection of common tools, plus flag options
 class CTools(object):
     def __init__(self, settings, machine, toolchains):
+        group = settings[machine.name]
         flags_section = OptSection('Compiler/linker flags (%s):' % (machine.name,))
         tools_section = OptSection('Tool overrides (%s):' % (machine.name,))
 
@@ -708,10 +714,11 @@ class CTools(object):
         if machine.name != 'host':
             suff = '_FOR_' + to_upper_and_underscore(machine.name)
         suff += '='
-        self.cflags_opt = settings.add_setting_option('cflags', 'CFLAGS'+suff, 'Flags for $CC', [], section=flags_section, type=shlex.split)
-        self.cxxflags_opt = settings.add_setting_option('cxxflags', 'CXXFLAGS'+suff, 'Flags for $CXX', [], section=flags_section, type=shlex.split)
-        self.ldflags_opt = settings.add_setting_option('ldflags', 'LDFLAGS'+suff, 'Flags for $CC/$CXX when linking', [], section=flags_section, type=shlex.split)
-        self.cppflags_opt = settings.add_setting_option('cppflags', 'CPPFLAGS'+suff, 'Flags for $CC/$CXX when not linking (supposed to be used for preprocessor flags)', [], section=flags_section, type=shlex.split)
+        self.cflags_opt = group.add_setting_option('cflags', 'CFLAGS'+suff, 'Flags for $CC', [], section=flags_section, type=shlex.split)
+        self.cxxflags_opt = group.add_setting_option('cxxflags', 'CXXFLAGS'+suff, 'Flags for $CXX', [], section=flags_section, type=shlex.split)
+        self.ldflags_opt = group.add_setting_option('ldflags', 'LDFLAGS'+suff, 'Flags for $CC/$CXX when linking', [], section=flags_section, type=shlex.split)
+        self.cppflags_opt = group.add_setting_option('cppflags', 'CPPFLAGS'+suff, 'Flags for $CC/$CXX when not linking (supposed to be used for preprocessor flags)', [], section=flags_section, type=shlex.split)
+        group.debug_info = False
 
 
 # A nicer - but optional - way of doing multiple tests that will print all the
@@ -736,11 +743,27 @@ def clean_files(fns, settings):
     for fn in fns:
         if not os.path.exists(fn) or os.path.isdir(fn):
             continue
-        if not settings.allow_autoclean_outside_out and not within_dirtree(ro, os.path.realpath(fn)):
+        real_fn = os.path.realpath(fn)
+        if not settings.allow_autoclean_outside_out and not within_dirtree(ro, real_fn) and real_fn not in safe_to_clean:
             log("* Would clean %r as previous build leftover, but it isn't in settings.out (%r) so keeping it for safety.\n" % (fn, ro))
             continue
-        config_log.write('Removing %r\n' % (fn,))
-        os.remove(fn)
+        log('Removing %r\n' % (fn,))
+        os.remove(real_fn)
+def plan_clean_target(fns, settings):
+    ro = real_out()
+    actions = []
+    for fn in fns:
+        real_fn = os.path.realpath(fn)
+        if not settings.allow_autoclean_outside_out and not within_dirtree(ro, real_fn) and real_fn not in safe_to_clean:
+            actions.append(('log', "* Would clean %r, but it isn't in settings.out (%r) so keeping it for safety." % (fn, ro)))
+            continue
+        actions.append(('remove', fn))
+    return actions
+
+safe_to_clean = set()
+def mark_safe_to_clean(fn, settings=None):
+    fn = expand(fn, settings)
+    safe_to_clean.add(os.path.realpath(fn))
 
 def list_mconfig_scripts(settings):
     real_src = os.path.realpath(settings.src)
@@ -773,6 +796,7 @@ def write_file_loudly(fn, data, perm=None):
 class Emitter(object):
     def __init__(self, settings):
         self.settings = settings
+        self.all_outs = set()
     def pre_output(self):
         assert not hasattr(self, 'did_output')
         self.did_output = True
@@ -781,19 +805,22 @@ class Emitter(object):
     def filename_rel_and_escape(self, fn):
         fn = os.path.relpath(fn, dirname(self.settings.emit_fn))
         return self.filename_escape(fn)
-    def add_command(self, settings, outs, ins, argvs, *args, **kwargs):
+    def add_command(self, settings, outs, ins, argvs, phony=False, *args, **kwargs):
         if kwargs.get('expand', True):
-            outs = [expand(x, settings) for x in outs]
-            ins = [expand(x, settings) for x in ins]
-            argvs = [expand_argv(x, settings) for x in argvs]
+            ev = {'raw_outs': outs, 'raw_ins': ins, 'raw_argvs': argvs}
+            outs = ev['outs'] = [expand(x, settings, ev) for x in outs]
+            ins = ev['ins'] = [expand(x, settings, ev) for x in ins]
+            argvs = [expand_argv(x, settings, ev) for x in argvs]
         if 'expand' in kwargs:
             del kwargs['expand']
-        if settings.enable_rule_hashing:
-            sha = hashlib.sha1(json.dumps((outs, ins, argvs)).encode('utf-8')).hexdigest()
-            if sha not in prev_rule_hashes:
-                clean_files(outs, settings)
-            cur_rule_hashes.add(sha)
-        return self.add_command_raw(outs, ins, argvs, *args, **kwargs)
+        if not phony:
+            self.all_outs.update(outs)
+            if settings.enable_rule_hashing:
+                sha = hashlib.sha1(json.dumps((outs, ins, argvs)).encode('utf-8')).hexdigest()
+                if sha not in prev_rule_hashes:
+                    clean_files(outs, settings)
+                cur_rule_hashes.add(sha)
+        return self.add_command_raw(outs, ins, argvs, phony, *args, **kwargs)
     def emit(self, fn=None):
         if fn is None:
             fn = self.settings.emit_fn
@@ -812,13 +839,21 @@ class MakefileEmitter(Emitter):
         if self.main_mk is None:
             self.main_mk = lambda: os.path.join(dirname(settings.emit_fn), 'main.mk')
 
-    def add_all_and_clean(self):
+    def add_all(self):
         if hasattr(self, 'default_rule'):
             if self.default_rule != 'all':
                 self.add_command_raw(['all'], [self.default_rule], [], phony=True)
         else:
             log('Warning: %r: no default rule\n' % (self,))
-        self.makefile_bits.append('clean:\n\trm -rf %s\n' % (self.filename_rel_and_escape(self.settings.out)))
+
+    def add_clean(self):
+        argvs = []
+        for a, b in plan_clean_target(sorted(self.all_outs), self.settings):
+            if a == 'log':
+                argvs.append(['@echo', b])
+            elif a == 'remove':
+                argvs.append(['rm', '-f', b])
+        self.add_command_raw(['clean'], [], argvs, phony=True)
 
     @staticmethod
     def filename_escape(fn):
@@ -846,7 +881,8 @@ class MakefileEmitter(Emitter):
 
     def output(self):
         self.pre_output()
-        self.add_all_and_clean()
+        self.add_all()
+        self.add_clean()
         return '\n'.join(self.makefile_bits)
 
     def emit(self):
@@ -860,10 +896,10 @@ class MakefileEmitter(Emitter):
             # TODO is there something better than shell?
             # TODO avoid deleting partial output?
             stub = '''
-    %(banner)s
-    _ := $(shell "$(MAKE_COMMAND)" -s -f %(main_mk_arg)s %(makefile_arg)s >&2)
-    include %(main_mk)s
-    '''.lstrip() \
+%(banner)s
+_ := $(shell "$(MAKE_COMMAND)" -s -f %(main_mk_arg)s %(makefile_arg)s >&2)
+include %(main_mk)s
+'''.lstrip() \
             % {
                 'makefile_arg': argv_to_shell([makefile]),
                 'main_mk_arg': argv_to_shell([main_mk]),
@@ -985,6 +1021,14 @@ def emit_rule_hashes():
     with open(rule_path, 'w') as fp:
         json.dump(list(cur_rule_hashes), fp)
 
+def get_else_and(container, key, def_func, transform_func=lambda x: x):
+    try:
+        val = container[key]
+    except KeyError:
+        return def_func()
+    else:
+        return transform_func(val)
+
 def default_is_cxx(filename):
     root, ext = os.path.splitext(filename)
     return ext in ('cc', 'cpp', 'cxx', 'mm')
@@ -1014,23 +1058,25 @@ def build_c_objs(emitter, machine, settings, sources, headers=[], settings_cb=No
     any_was_cxx = False
     obj_fns = []
     ldflag_sets = set()
-    _expand = globals()['expand']
-    for fn in sources:
-        if expand:
-            fn = _expand(fn, settings)
+    if expand:
+        _expand = lambda x: globals()['expand'](x, settings)
+        _expand_argv = lambda x: expand_argv(x, settings)
+    else:
+        _expand = _expand_argv = lambda x: x
+    for fn in map(_expand, sources):
         my_settings = settings
         if settings_cb is not None:
             s = settings_cb(fn)
             if s is not None:
                 my_settings = s
-        obj_fn = my_settings.get('override_obj_fn') or guess_obj_fn(fn, settings)
-        is_cxx = my_settings.get('override_is_cxx')
-        if is_cxx is None:
-            is_cxx = default_is_cxx(fn)
-        dbg = ['-g'] if my_settings.debug_info else []
-        cflags = my_settings.cxxflags if is_cxx else my_settings.cflags
-        cc = my_settings.get('override_cc') or (tools.cxx if is_cxx else tools.cc).argv()
-        extra_deps = my_settings.get('extra_deps', [])
+        obj_fn = get_else_and(my_settings, 'override_obj_fn', lambda: guess_obj_fn(fn, settings), _expand)
+        is_cxx = get_else_and(my_settings, 'override_is_cxx', lambda: default_is_cxx(fn))
+        includes = list(map(_expand, my_settings.get('c_includes', [])))
+        mach_settings = my_settings[machine.name]
+        dbg = ['-g'] if mach_settings.debug_info else []
+        cflags = _expand_argv(get_else_and(my_settings, 'override_cflags', lambda: (mach_settings.cxxflags if is_cxx else mach_settings.cflags)))
+        cc = _expand_argv(get_else_and(my_settings, 'override_cc', lambda: (tools.cxx if is_cxx else tools.cc).argv()))
+        extra_deps = list(map(_expand, my_settings.get('extra_deps', [])))
         any_was_cxx = any_was_cxx or is_cxx
         dep_fn = os.path.splitext(obj_fn)[0] + '.d'
 
@@ -1045,11 +1091,14 @@ def build_c_objs(emitter, machine, settings, sources, headers=[], settings_cb=No
 
     return obj_fns, any_was_cxx, ldflag_sets
 
-def link_c_objs(emitter, machine, settings, link_type, link_out, objs, link_with_cxx=None, force_cli=False, expand=True, extra_deps=[], extra_ldflags=[]):
+def link_c_objs(emitter, machine, settings, link_type, link_out, objs, link_with_cxx=None, force_cli=False, expand=True, extra_deps=[], ldflags_from_sets=[]):
     if expand:
-        _expand = globals()['expand']
-        link_out = _expand(link_out, settings)
-        objs = [_expand(obj, settings) for obj in objs]
+        _expand = lambda x: globals()['expand'](x, settings)
+        _expand_argv = lambda x: expand_argv(x, settings)
+        link_out = _expand(link_out)
+        objs = list(map(_expand, objs))
+    else:
+        _expand = _expand_argv = lambda x: x
     tools = machine.c_tools()
     assert link_type in ('exec', 'dylib', 'staticlib', 'obj')
     if link_type in ('exec', 'dylib'):
@@ -1059,8 +1108,10 @@ def link_c_objs(emitter, machine, settings, link_type, link_out, objs, link_with
             typeflag = ['-dynamiclib'] if machine.is_darwin() else ['-shared']
         else:
             typeflag = []
-        cmds = [cc_for_link + typeflag + settings.ldflags + extra_ldflags + ['-o', link_out] + objs]
-        if machine.is_darwin() and settings.debug_info:
+        mach_settings = settings[machine.name]
+        ldflags = get_else_and(settings, 'override_ldflags', lambda: mach_settings.ldflags, _expand_argv)
+        cmds = [cc_for_link + typeflag + ['-o', link_out] + objs + ldflags_from_sets + ldflags]
+        if machine.is_darwin() and mach_settings.debug_info:
             cmds.append(tools.dsymutil.argv() + [link_out])
     elif link_type == 'staticlib':
         cmds = [tools.ar.argv() + ['rcs'] + objs]
@@ -1071,8 +1122,8 @@ def link_c_objs(emitter, machine, settings, link_type, link_out, objs, link_with
 
 def build_and_link_c_objs(emitter, machine, settings, link_type, link_out, sources, headers=[], objs=[], settings_cb=None, force_cli=False, expand=True, extra_deps=[], extra_ldflags=[]):
     more_objs, link_with_cxx, ldflag_sets = build_c_objs(emitter, machine, settings, sources, headers, settings_cb, force_cli, expand)
-    extra_ldflags = [flag for lset in ldflag_sets for flag in lset] + extra_ldflags
-    link_c_objs(emitter, machine, settings, link_type, link_out, objs + more_objs, link_with_cxx, force_cli, expand, extra_deps, extra_ldflags)
+    ldflags_from_sets = [flag for lset in ldflag_sets for flag in lset]
+    link_c_objs(emitter, machine, settings, link_type, link_out, objs + more_objs, link_with_cxx, force_cli, expand, extra_deps, ldflags_from_sets)
 
 def guess_obj_fn(fn, settings):
     rel = os.path.relpath(fn, settings.src)
@@ -1110,8 +1161,6 @@ settings_root.tool_search_paths = os.environ['PATH'].split(':')
 
 settings_root.src = dirname(sys.argv[0])
 settings_root.out = os.path.join(os.getcwd(), 'out')
-
-settings_root.debug_info = False
 
 settings_root.enable_rule_hashing = True
 settings_root.allow_autoclean_outside_out = False

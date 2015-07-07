@@ -6,9 +6,12 @@ settings = mconfig.settings_root
 settings.package_unix_name.value = 'substitute'
 
 c = settings.host_machine().c_tools()
-
 c.cc.required()
 c.dsymutil.required()
+
+
+settings.add_setting_option('imaon2', '--with-imaon2', 'path to imaon2 (optional)', '')
+settings.add_setting_option('gen_dia', '--enable-recompile-dia', 'generate darwin-inject-asm.S', False, bool=True)
 
 asm_archs = [
     ('x86_64', []),
@@ -21,12 +24,22 @@ machs = []
 for name, cflags in asm_archs:
     mach = mconfig.Machine('asm-' + name, settings, 'for cross-compiling the inject baton', name + '-apple-darwin10')
     machs.append(mach)
-    mach.c_tools().cc.required()
+    cc = mach.c_tools().cc
+    cc.optional()
+    def f():
+        if settings.gen_dia:
+            cc.argv()
+            mach_settings = settings[mach.name]
+            mach_settings.cflags = cflags + mach_settings.cflags
+    mconfig.post_parse_args_will_need.append(f)
 
 
 mconfig.parse_args()
-settings.cflags = ['-I%s/lib' % (settings.src,)] + settings.cflags
-settings.debug_info = True
+####################################
+mconfig.mark_safe_to_clean('(src)/generated/darwin-inject-asm.S', settings)
+
+settings.host.cflags = ['-I%s/lib' % (settings.src,)] + settings.host.cflags
+settings.host.debug_info = True
 
 emitter = settings.emitter
 
@@ -67,14 +80,27 @@ balco(
     ],
     settings_cb=cb
 )
-
-#for name, arch_flag, opts in [
-#]:
-#compile_c_objs(emitter, settings.host_machine(), 
-    
-
 #settings.test = 'foo baz'
+
+if settings.gen_dia:
+    bins = []
+    for (name, _cflags), mach in zip(asm_archs, machs):
+        exe = '(out)/inject-asm-raw-%s' % (name,)
+        bin = exe + '.bin'
+        mconfig.build_and_link_c_objs(emitter, mach,
+            settings.specialize(
+                override_obj_fn='(out)/inject-asm-raw-%s.o' % (name,),
+                override_ldflags=['-Wl,-order_file,(src)/lib/darwin/inject-asm-raw.order'] + settings[mach.name].ldflags,
+            ),
+            'exec',
+            exe,
+            ['(src)/lib/darwin/inject-asm-raw.c'])
+        bins.append(bin)
+        emitter.add_command(settings, [bin], [exe], ['segedit -extract __TEXT __text (outs[0]) (ins[0])'])
+    emitter.add_command(settings, ['(src)/generated/darwin-inject-asm.S'], bins, [['(src)/script/gen-inject-asm.sh', '(out)'] + bins])
+
 emitter.add_command(settings, ['all'], ['(out)/libsubstitute.dylib'], [], phony=True)
 emitter.set_default_rule('all')
+
 
 mconfig.finish_and_emit()
