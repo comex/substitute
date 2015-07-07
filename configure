@@ -17,6 +17,9 @@ settings.add_setting_option('enable_ios_bootstrap', '--enable-ios-bootstrap', 'd
     lambda: 'iphoneos' in str(settings.host_machine().toolchains()[0].sdk_opt.value),
     bool=True)
 
+ldid_tool = mconfig.CLITool('ldid', ['ldid'], 'LDID', settings.host_machine(), settings.host_machine().toolchains())
+ldid_tool.optional()
+
 asm_archs = [
     ('x86_64', []),
     ('i386', []),
@@ -47,6 +50,13 @@ mconfig.mark_safe_to_clean('(src)/generated/darwin-inject-asm.S', settings)
 
 if settings.enable_ios_bootstrap:
     mconfig.log('Will build iOS bootstrap.\n')
+
+
+# todo make overridable?
+cc_argv = c.cc.argv()
+if 'armv7' in cc_argv or 'arm64' in cc_argv:
+    settings.modify_link_commands = lambda cmds, env: cmds + [ldid_tool.argv() + ['-S'+settings.src+'/ent.plist', env['link_out']]]
+    settings.extra_link_deps = ['(src)/ent.plist']
 
 settings.host.debug_info = True
 settings.c_includes = ['(src)/lib', '(src)/substrate']

@@ -452,6 +452,8 @@ class Machine(object):
 
         self.toolchains = memoize(self.toolchains)
         self.c_tools = memoize(self.c_tools)
+        self.flags_section = OptSection('Compiler/linker flags (%s):' % (self.name,))
+        self.tools_section = OptSection('Tool overrides (%s):' % (self.name,))
 
     def __eq__(self, other):
         return self.triple == other.triple
@@ -488,6 +490,8 @@ class Machine(object):
 
 class CLITool(object):
     def __init__(self, name, defaults, env, machine, toolchains, dont_suffix_env=False, section=None):
+        if section is None:
+            section = machine.tools_section
         self.name = name
         self.defaults = defaults
         self.env = env
@@ -679,20 +683,19 @@ class XcodeToolchain(object):
     def find_tool(self, tool, failure_notes):
         if not self.ok:
             return None
-        argv = ['/usr/bin/xcrun', '--sdk', self.sdk, tool.name] + ([] if tool.name == 'dsymutil' else self.arch_flags())
-        sod, sed, code = run_command(argv + ['--asdf'])
+        arch_flags = self.arch_flags() if tool.name in {'cc', 'cxx', 'nm'} else []
+        argv = ['/usr/bin/xcrun', '--sdk', self.sdk, tool.name] + arch_flags
+        sod, sed, code = run_command(['/usr/bin/xcrun', '--sdk', self.sdk, '-f', tool.name])
         if code != 0:
-            if sed.startswith('xcrun: error: unable to find utility'):
-                failure_notes.append(sed)
-                return None
+            failure_notes.append(sed)
+            return None
+        # note: we can't just use the found path because xcrun sets some env magic
         return argv
 
 # Just a collection of common tools, plus flag options
 class CTools(object):
     def __init__(self, settings, machine, toolchains):
         group = settings[machine.name]
-        flags_section = OptSection('Compiler/linker flags (%s):' % (machine.name,))
-        tools_section = OptSection('Tool overrides (%s):' % (machine.name,))
 
         tools = [
             ('cc',   ['cc', 'gcc', 'clang'],    'CC'),
@@ -713,17 +716,17 @@ class CTools(object):
                 name, defaults, env = spec[0], [spec[0]], spec[0].upper()
             else:
                 name, defaults, env = spec
-            tool = CLITool(name, defaults, env, machine, toolchains, section=tools_section)
+            tool = CLITool(name, defaults, env, machine, toolchains)
             setattr(self, name, tool)
 
         suff = ''
         if machine.name != 'host':
             suff = '_FOR_' + to_upper_and_underscore(machine.name)
         suff += '='
-        self.cflags_opt = group.add_setting_option('cflags', 'CFLAGS'+suff, 'Flags for $CC', [], section=flags_section, type=shlex.split)
-        self.cxxflags_opt = group.add_setting_option('cxxflags', 'CXXFLAGS'+suff, 'Flags for $CXX', [], section=flags_section, type=shlex.split)
-        self.ldflags_opt = group.add_setting_option('ldflags', 'LDFLAGS'+suff, 'Flags for $CC/$CXX when linking', [], section=flags_section, type=shlex.split)
-        self.cppflags_opt = group.add_setting_option('cppflags', 'CPPFLAGS'+suff, 'Flags for $CC/$CXX when not linking (supposed to be used for preprocessor flags)', [], section=flags_section, type=shlex.split)
+        self.cflags_opt = group.add_setting_option('cflags', 'CFLAGS'+suff, 'Flags for $CC', [], section=machine.flags_section, type=shlex.split)
+        self.cxxflags_opt = group.add_setting_option('cxxflags', 'CXXFLAGS'+suff, 'Flags for $CXX', [], section=machine.flags_section, type=shlex.split)
+        self.ldflags_opt = group.add_setting_option('ldflags', 'LDFLAGS'+suff, 'Flags for $CC/$CXX when linking', [], section=machine.flags_section, type=shlex.split)
+        self.cppflags_opt = group.add_setting_option('cppflags', 'CPPFLAGS'+suff, 'Flags for $CC/$CXX when not linking (supposed to be used for preprocessor flags)', [], section=machine.flags_section, type=shlex.split)
         group.debug_info = False
 
 
@@ -1067,6 +1070,7 @@ def build_c_objs(emitter, machine, settings, sources, headers=[], settings_cb=No
         _expand_argv = lambda x: expand_argv(x, settings)
     else:
         _expand = _expand_argv = lambda x: x
+    env = {} # todo: ...
     headers = list(map(_expand, headers))
     for fn in map(_expand, sources):
         my_settings = settings
@@ -1081,7 +1085,7 @@ def build_c_objs(emitter, machine, settings, sources, headers=[], settings_cb=No
         dbg = ['-g'] if mach_settings.debug_info else []
         cflags = _expand_argv(get_else_and(my_settings, 'override_cflags', lambda: (mach_settings.cxxflags if is_cxx else mach_settings.cflags)))
         cc = _expand_argv(get_else_and(my_settings, 'override_cc', lambda: (tools.cxx if is_cxx else tools.cc).argv()))
-        extra_deps = list(map(_expand, my_settings.get('extra_deps', [])))
+        extra_deps = list(map(_expand, my_settings.get('extra_compile_deps', [])))
         any_was_cxx = any_was_cxx or is_cxx
         dep_fn = os.path.splitext(obj_fn)[0] + '.d'
 
@@ -1089,7 +1093,7 @@ def build_c_objs(emitter, machine, settings, sources, headers=[], settings_cb=No
         cmd = cc + dbg + include_args + cflags + ['-c', '-o', obj_fn, '-MMD', '-MF', dep_fn, fn]
 
         cmds = [mkdir_cmd, cmd]
-        cmds = settings.get('modify_compile_commands', lambda x: x)(cmds)
+        cmds = settings.get('modify_compile_commands', lambda x, env: x)(cmds, env)
         emitter.add_command(my_settings, [obj_fn], [fn] + extra_deps, cmds, depfile=('makefile', dep_fn), expand=False)
 
         for lset in my_settings.get('obj_ldflag_sets', ()):
@@ -1098,7 +1102,7 @@ def build_c_objs(emitter, machine, settings, sources, headers=[], settings_cb=No
 
     return obj_fns, any_was_cxx, ldflag_sets
 
-def link_c_objs(emitter, machine, settings, link_type, link_out, objs, link_with_cxx=None, force_cli=False, expand=True, extra_deps=[], ldflags_from_sets=[]):
+def link_c_objs(emitter, machine, settings, link_type, link_out, objs, link_with_cxx=None, force_cli=False, expand=True, ldflags_from_sets=[]):
     if expand:
         _expand = lambda x: globals()['expand'](x, settings)
         _expand_argv = lambda x: expand_argv(x, settings)
@@ -1106,6 +1110,7 @@ def link_c_objs(emitter, machine, settings, link_type, link_out, objs, link_with
         objs = list(map(_expand, objs))
     else:
         _expand = _expand_argv = lambda x: x
+    env = {'link_out': link_out} # todo: ...
     tools = machine.c_tools()
     assert link_type in ('exec', 'dylib', 'staticlib', 'obj')
     if link_type in ('exec', 'dylib'):
@@ -1125,13 +1130,14 @@ def link_c_objs(emitter, machine, settings, link_type, link_out, objs, link_with
     elif link_type == 'obj':
         cmds = [tools.cc.argv() + ['-Wl,-r', '-nostdlib', '-o', link_out] + objs]
     cmds.insert(0, ['mkdir', '-p', dirname(link_out)])
-    cmds = settings.get('modify_link_commands', lambda x: x)(cmds)
+    cmds = settings.get('modify_link_commands', lambda x, env: x)(cmds, env)
+    extra_deps = list(map(_expand, settings.get('extra_link_deps', [])))
     emitter.add_command(settings, [link_out], objs + extra_deps, cmds, expand=False)
 
 def build_and_link_c_objs(emitter, machine, settings, link_type, link_out, sources, headers=[], objs=[], settings_cb=None, force_cli=False, expand=True, extra_deps=[], extra_ldflags=[]):
     more_objs, link_with_cxx, ldflag_sets = build_c_objs(emitter, machine, settings, sources, headers, settings_cb, force_cli, expand)
     ldflags_from_sets = [flag for lset in ldflag_sets for flag in lset]
-    link_c_objs(emitter, machine, settings, link_type, link_out, objs + more_objs, link_with_cxx, force_cli, expand, extra_deps, ldflags_from_sets)
+    link_c_objs(emitter, machine, settings, link_type, link_out, objs + more_objs, link_with_cxx, force_cli, expand, ldflags_from_sets)
 
 def guess_obj_fn(fn, settings):
     rel = os.path.relpath(fn, settings.src)
