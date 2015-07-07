@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-import sys, os
+import sys, os, glob
 sys.path.append(os.path.join(os.path.dirname(sys.argv[0]), 'script'))
 import mconfig
 settings = mconfig.settings_root
@@ -12,6 +12,7 @@ c.dsymutil.required()
 
 settings.add_setting_option('imaon2', '--with-imaon2', 'path to imaon2 (optional)', '')
 settings.add_setting_option('gen_dia', '--enable-recompile-dia', 'generate darwin-inject-asm.S', False, bool=True)
+settings.add_setting_option('enable_tests', '--enable-tests', 'tests!', False, bool=True)
 
 asm_archs = [
     ('x86_64', []),
@@ -20,6 +21,8 @@ asm_archs = [
     ('arm64', []), # XXX
 ]
 
+asm_cflags = ['-Os', '-fno-stack-protector', '-isysroot', '/dev/null', '-fPIC']
+asm_ldflags = ['-nostartfiles', '-nodefaultlibs']
 machs = []
 for name, cflags in asm_archs:
     mach = mconfig.Machine('asm-' + name, settings, 'for cross-compiling the inject baton', name + '-apple-darwin10')
@@ -30,7 +33,8 @@ for name, cflags in asm_archs:
         if settings.gen_dia:
             cc.argv()
             mach_settings = settings[mach.name]
-            mach_settings.cflags = cflags + mach_settings.cflags
+            mach_settings.cflags = cflags + asm_cflags + mach_settings.cflags
+            mach_settings.ldflags = asm_ldflags + mach_settings.ldflags
     mconfig.post_parse_args_will_need.append(f)
 
 
@@ -38,12 +42,10 @@ mconfig.parse_args()
 ####################################
 mconfig.mark_safe_to_clean('(src)/generated/darwin-inject-asm.S', settings)
 
-settings.host.cflags = ['-I%s/lib' % (settings.src,)] + settings.host.cflags
 settings.host.debug_info = True
+settings.c_includes = ['(src)/lib', '(src)/substrate']
 
 emitter = settings.emitter
-
-balco = lambda *args, **kwargs: mconfig.build_and_link_c_objs(emitter, settings.host_machine(), settings, *args, **kwargs)
 
 def cb(fn):
     if fn.endswith('/objc.c'):
@@ -59,7 +61,8 @@ def cb(fn):
 # (This only matters on 32-bit ARM, and the text segment is currently 0xa000
 # bytes there, more than enough.)
 
-balco(
+mconfig.build_and_link_c_objs(
+    emitter, settings.host_machine(), settings,
     'dylib',
     '(out)/libsubstitute.dylib',
     [
@@ -82,8 +85,13 @@ balco(
 )
 #settings.test = 'foo baz'
 
+def o_to_bin(exe):
+    bin = os.path.splitext(exe)[0] + '.bin'
+    emitter.add_command(settings, [bin], [exe], ['segedit -extract __TEXT __text (outs[0]) (ins[0])'])
+    return bin
+
 if settings.gen_dia:
-    bins = []
+    args = []
     for (name, _cflags), mach in zip(asm_archs, machs):
         exe = '(out)/inject-asm-raw-%s' % (name,)
         bin = exe + '.bin'
@@ -92,15 +100,77 @@ if settings.gen_dia:
                 override_obj_fn='(out)/inject-asm-raw-%s.o' % (name,),
                 override_ldflags=['-Wl,-order_file,(src)/lib/darwin/inject-asm-raw.order'] + settings[mach.name].ldflags,
             ),
-            'exec',
+            'dylib',
             exe,
             ['(src)/lib/darwin/inject-asm-raw.c'])
-        bins.append(bin)
-        emitter.add_command(settings, [bin], [exe], ['segedit -extract __TEXT __text (outs[0]) (ins[0])'])
-    emitter.add_command(settings, ['(src)/generated/darwin-inject-asm.S'], bins, [['(src)/script/gen-inject-asm.sh', '(out)'] + bins])
+        bin = o_to_bin(exe)
+        args.extend([name, bin])
+    emitter.add_command(settings, ['(src)/generated/darwin-inject-asm.S'], ['(src)/script/gen-inject-asm.sh'] + args[1::2], [['(src)/script/gen-inject-asm.sh', '(outs[0])'] + args])
 
-emitter.add_command(settings, ['all'], ['(out)/libsubstitute.dylib'], [], phony=True)
+all_deps = ['(out)/libsubstitute.dylib']
+
+if settings.enable_tests:
+    # just for quick testing
+    for ofile, sfile, cflags, mach in [
+        ('insns-arm.o', 'insns-arm.S', [], machs[2]),
+        ('insns-thumb2.o', 'insns-arm.S', ['-DTHUMB2'], machs[2]),
+        ('insns-libz-arm.o', 'insns-libz-arm.S', [], machs[2]),
+        ('insns-libz-thumb2.o', 'insns-libz-arm.S', ['-DTHUMB2'], machs[2]),
+        ('transform-dis-cases-arm64.o', 'transform-dis-cases-arm64.S', [], machs[3]),
+        ('transform-dis-cases-i386.o', 'transform-dis-cases-i386.S', [], machs[1]),
+        ('transform-dis-cases-x86_64.o', 'transform-dis-cases-x86_64.S', [], machs[0]),
+    ]:
+        mconfig.build_c_objs(emitter, mach, settings.specialize(override_obj_fn='(out)/'+ofile), ['(src)/test/'+sfile])
+        all_deps.append(o_to_bin('(out)/'+ofile))
+
+    tests = [
+        ('find-syms', ['-std=c89']),
+        ('find-syms-cpp', 'find-syms', ['-x', 'c++', '-std=c++98'], {'cpp': True}),
+        ('substrate', ['-x', 'c++', '-std=c++98'], {'cpp': True}),
+        ('imp-forwarding', [], ['-framework', 'Foundation', '-lobjc']),
+        ('objc-hook', [], ['-framework', 'Foundation']),
+        ('interpose',),
+        ('inject', {'extra_objs': ['(out)/lib/darwin/inject.o', '(out)/lib/darwin/read.o']}),
+        ('pc-patch', {'extra_objs': ['(out)/lib/darwin/execmem.o']}),
+        ('execmem', [], ['-segprot', '__TEST', 'rwx', 'rx'], {'extra_objs': ['(out)/lib/darwin/execmem.o']}),
+        ('hook-functions', [], ['-segprot', '__TEST', 'rwx', 'rx']),
+        ('posixspawn-hook',),
+        ('htab',),
+        ('vec', {'cpp': True, 'extra_objs': ['(out)/lib/cbit/vec.o']}),
+    ]
+
+    for arch, hdr, xdis, target in [
+        ('arm', 'arm/dis-arm.inc.h', 'dis_arm', 'arm'),
+        ('thumb', 'arm/dis-thumb.inc.h', 'dis_thumb', 'arm'),
+        ('thumb2', 'arm/dis-thumb2.inc.h', 'dis_thumb2', 'arm'),
+        ('arm64', 'arm64/dis-main.inc.h', 'dis', 'arm64'),
+        ('i386', 'x86/dis-main.inc.h', 'dis', 'i386'),
+        ('x86_64', 'x86/dis-main.inc.h', 'dis', 'x86_64')
+    ]:
+        tests.append(('td-simple-'+arch, 'td-simple', ['-DHDR="%s"' % (hdr,), '-Dxdis='+xdis, '-DFORCE_TARGET_'+target]))
+        tests.append(('jump-dis-'+arch, 'jump-dis', ['-O0', '-DFORCE_TARGET_'+target], {'extra_objs': ['(out)/lib/cbit/vec.o']}))
+        tests.append(('transform-dis-'+arch, 'transform-dis', ['-O0', '-DFORCE_TARGET_'+target], {'extra_objs': ['(out)/lib/cbit/vec.o']}))
+
+    for tup in tests:
+        tup = list(tup)
+        ibase = obase = tup.pop(0)
+        cflags = ldflags = []
+        options = {}
+        if tup and isinstance(tup[0], basestring): ibase = tup.pop(0)
+        if tup and isinstance(tup[0], (list, tuple)): cflags = tup.pop(0)
+        if tup and isinstance(tup[0], (list, tuple)): ldflags = tup.pop(0)
+        if tup: options, = tup
+        o = '(out)/test-'+obase
+        cfile = glob.glob(settings.src+'/test/test-'+ibase+'.*')[0]
+        mconfig.build_and_link_c_objs(emitter, settings.host_machine(), settings.specialize(
+            override_cflags=cflags+settings.host.cflags,
+            override_ldflags=ldflags+['-L(out)', '-lsubstitute']+settings.host.ldflags,
+            override_obj_fn=o+'.o',
+            override_is_cxx=options.get('cxx', False),
+        ), 'exec', o, [cfile], objs=options.get('extra_objs', []))
+        all_deps.append(o)
+
+emitter.add_command(settings, ['all'], all_deps, [], phony=True)
 emitter.set_default_rule('all')
-
 
 mconfig.finish_and_emit()

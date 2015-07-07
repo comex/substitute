@@ -30,7 +30,7 @@ def to_upper_and_underscore(s):
 def argv_to_shell(argv):
     quoteds = []
     for arg in argv:
-        if re.match('^[a-zA-Z0-9_\.@/+=-]+$', arg):
+        if re.match('^[a-zA-Z0-9_\.@/+=,-]+$', arg):
             quoteds.append(arg)
         else:
             quoted = ''
@@ -1071,7 +1071,7 @@ def build_c_objs(emitter, machine, settings, sources, headers=[], settings_cb=No
                 my_settings = s
         obj_fn = get_else_and(my_settings, 'override_obj_fn', lambda: guess_obj_fn(fn, settings), _expand)
         is_cxx = get_else_and(my_settings, 'override_is_cxx', lambda: default_is_cxx(fn))
-        includes = list(map(_expand, my_settings.get('c_includes', [])))
+        include_args = ['-I'+_expand(inc) for inc in my_settings.c_includes]
         mach_settings = my_settings[machine.name]
         dbg = ['-g'] if mach_settings.debug_info else []
         cflags = _expand_argv(get_else_and(my_settings, 'override_cflags', lambda: (mach_settings.cxxflags if is_cxx else mach_settings.cflags)))
@@ -1081,9 +1081,11 @@ def build_c_objs(emitter, machine, settings, sources, headers=[], settings_cb=No
         dep_fn = os.path.splitext(obj_fn)[0] + '.d'
 
         mkdir_cmd = ['mkdir', '-p', dirname(obj_fn)]
-        cmd = cc + dbg + cflags + ['-c', '-o', obj_fn, '-MMD', '-MF', dep_fn, fn]
+        cmd = cc + dbg + include_args + cflags + ['-c', '-o', obj_fn, '-MMD', '-MF', dep_fn, fn]
 
-        emitter.add_command(my_settings, [obj_fn], [fn] + extra_deps, [mkdir_cmd, cmd], depfile=('makefile', dep_fn), expand=False)
+        cmds = [mkdir_cmd, cmd]
+        cmds = settings.get('modify_compile_commands', lambda x: x)(cmds)
+        emitter.add_command(my_settings, [obj_fn], [fn] + extra_deps, cmds, depfile=('makefile', dep_fn), expand=False)
 
         for lset in my_settings.get('obj_ldflag_sets', ()):
             ldflag_sets.add(tuple(lset))
@@ -1103,7 +1105,7 @@ def link_c_objs(emitter, machine, settings, link_type, link_out, objs, link_with
     assert link_type in ('exec', 'dylib', 'staticlib', 'obj')
     if link_type in ('exec', 'dylib'):
         assert link_with_cxx in (False, True)
-        cc_for_link = (tools.cxx if link_with_cxx else tools.cc).argv()
+        cc_for_link = _expand_argv(get_else_and(settings, 'override_ld', lambda: (tools.cxx if link_with_cxx else tools.cc).argv()))
         if link_type == 'dylib':
             typeflag = ['-dynamiclib'] if machine.is_darwin() else ['-shared']
         else:
@@ -1118,6 +1120,7 @@ def link_c_objs(emitter, machine, settings, link_type, link_out, objs, link_with
     elif link_type == 'obj':
         cmds = [tools.cc.argv() + ['-Wl,-r', '-nostdlib', '-o', link_out] + objs]
     cmds.insert(0, ['mkdir', '-p', dirname(link_out)])
+    cmds = settings.get('modify_link_commands', lambda x: x)(cmds)
     emitter.add_command(settings, [link_out], objs + extra_deps, cmds, expand=False)
 
 def build_and_link_c_objs(emitter, machine, settings, link_type, link_out, sources, headers=[], objs=[], settings_cb=None, force_cli=False, expand=True, extra_deps=[], extra_ldflags=[]):
@@ -1166,6 +1169,8 @@ settings_root.enable_rule_hashing = True
 settings_root.allow_autoclean_outside_out = False
 post_parse_args_will_need.append(check_rule_hashes)
 settings_root.auto_rerun_config = True
+
+settings_root.c_includes = []
 
 emitters = {
     'makefile': MakefileEmitter,
