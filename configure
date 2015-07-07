@@ -13,6 +13,9 @@ c.dsymutil.required()
 settings.add_setting_option('imaon2', '--with-imaon2', 'path to imaon2 (optional)', '')
 settings.add_setting_option('gen_dia', '--enable-recompile-dia', 'generate darwin-inject-asm.S', False, bool=True)
 settings.add_setting_option('enable_tests', '--enable-tests', 'tests!', False, bool=True)
+settings.add_setting_option('enable_ios_bootstrap', '--enable-ios-bootstrap', 'default: true if you pass --xcode-sdk=iphoneos',
+    lambda: 'iphoneos' in str(settings.host_machine().toolchains()[0].sdk_opt.value),
+    bool=True)
 
 asm_archs = [
     ('x86_64', []),
@@ -41,6 +44,9 @@ for name, cflags in asm_archs:
 mconfig.parse_args()
 ####################################
 mconfig.mark_safe_to_clean('(src)/generated/darwin-inject-asm.S', settings)
+
+if settings.enable_ios_bootstrap:
+    mconfig.log('Will build iOS bootstrap.\n')
 
 settings.host.debug_info = True
 settings.c_includes = ['(src)/lib', '(src)/substrate']
@@ -107,8 +113,6 @@ if settings.gen_dia:
         args.extend([name, bin])
     emitter.add_command(settings, ['(src)/generated/darwin-inject-asm.S'], ['(src)/script/gen-inject-asm.sh'] + args[1::2], [['(src)/script/gen-inject-asm.sh', '(outs[0])'] + args])
 
-all_deps = ['(out)/libsubstitute.dylib']
-
 if settings.enable_tests:
     # just for quick testing
     for ofile, sfile, cflags, mach in [
@@ -121,7 +125,7 @@ if settings.enable_tests:
         ('transform-dis-cases-x86_64.o', 'transform-dis-cases-x86_64.S', [], machs[0]),
     ]:
         mconfig.build_c_objs(emitter, mach, settings.specialize(override_obj_fn='(out)/'+ofile), ['(src)/test/'+sfile])
-        all_deps.append(o_to_bin('(out)/'+ofile))
+        o_to_bin('(out)/'+ofile)
 
     tests = [
         ('find-syms', ['-std=c89']),
@@ -164,13 +168,41 @@ if settings.enable_tests:
         cfile = glob.glob(settings.src+'/test/test-'+ibase+'.*')[0]
         mconfig.build_and_link_c_objs(emitter, settings.host_machine(), settings.specialize(
             override_cflags=cflags+settings.host.cflags,
-            override_ldflags=ldflags+['-L(out)', '-lsubstitute']+settings.host.ldflags,
+            override_ldflags=ldflags+settings.host.ldflags,
             override_obj_fn=o+'.o',
             override_is_cxx=options.get('cxx', False),
-        ), 'exec', o, [cfile], objs=options.get('extra_objs', []))
-        all_deps.append(o)
+        ), 'exec', o, [cfile], objs=options.get('extra_objs', [])+['(out)/libsubstitute.dylib'])
 
-emitter.add_command(settings, ['all'], all_deps, [], phony=True)
+    mconfig.build_and_link_c_objs(emitter, settings.host_machine(), settings, 'dylib', '(out)/injected-test-dylib.dylib', ['(src)/test/injected-test-dylib.c'])
+
+if settings.enable_ios_bootstrap:
+    mconfig.build_and_link_c_objs(emitter, settings.host_machine(),
+        settings.specialize(
+            override_cflags=['-fobjc-arc', '-Wno-unused-parameter']+settings.host.cflags,
+            override_ldflags=['-framework', 'UIKit', '-framework', 'Foundation', '-dead_strip']+settings.host.ldflags,
+        ),
+        'exec',
+        '(out)/safety-dance/SafetyDance.app/SafetyDance',
+        [
+            '(src)/darwin-bootstrap/safety-dance/AutoGrid.m',
+            '(src)/darwin-bootstrap/safety-dance/main.m',
+        ]
+    )
+    emitter.add_command(settings, ['(out)/safety-dance/SafetyDance.app/Info.plist'], ['(src)/darwin-bootstrap/safety-dance/Info.plist'], ['plutil -convert binary1 -o (outs[0]) (ins[0])'])
+    for out in ['Default.png', 'Default@2x.png']:
+        emitter.add_command(settings, ['(out)/safety-dance/SafetyDance.app/'+out], ['(src)/darwin-bootstrap/safety-dance/white.png'], ['cp (ins[0]) (outs[0])'])
+
+    ls = ['(out)/libsubstitute.dylib']
+    for ty, out, ins, objs, ldf, cf in [
+        ('dylib', '(out)/posixspawn-hook.dylib', ['(src)/darwin-bootstrap/posixspawn-hook.c'], ls, [], []),
+        ('dylib', '(out)/bundle-loader.dylib', ['(src)/darwin-bootstrap/bundle-loader.c'], [], [], []),
+        ('exec', '(out)/unrestrict', ['(src)/darwin-bootstrap/unrestrict.c'], ls, [], []),
+        ('exec', '(out)/inject-into-launchd', ['(src)/darwin-bootstrap/inject-into-launchd.c'], ls, ['-framework', 'IOKit', '-framework', 'CoreFoundation'], []),
+        ('exec', '(out)/substituted', ['(src)/darwin-bootstrap/substituted.c', '(src)/darwin-bootstrap/substituted-plist-loader.m'], [], ['-lbsm', '-framework', 'Foundation', '-framework', 'CoreFoundation'], ['-fobjc-arc']),
+    ]:
+        mconfig.build_and_link_c_objs(emitter, settings.host_machine(), settings.specialize(override_ldflags=ldf+settings.host.ldflags, override_cflags=cf+settings.host.cflags), ty, out, ins, objs=objs)
+
+emitter.add_command(settings, ['all'], list(emitter.all_outs), [], phony=True)
 emitter.set_default_rule('all')
 
 mconfig.finish_and_emit()

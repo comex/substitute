@@ -257,7 +257,7 @@ class Option(object):
         if not self.show:
             # If you didn't mention the option in help, you don't get no stinking value.  This is for ignored options only.
             return
-        if value is None:
+        if value is (False if self.bool else None):
             value = self.default
             if callable(value): # Pending
                 value = value()
@@ -507,9 +507,15 @@ class CLITool(object):
 
     def optional(self):
         self.argv_opt.need()
+        def f():
+            try:
+                self.argv()
+            except DependencyNotFoundException:
+                pass
+        post_parse_args_will_need.append(f)
 
     def required(self):
-        self.optional()
+        self.argv_opt.need()
         post_parse_args_will_need.append(lambda: self.argv())
 
     def argv(self): # mem
@@ -673,7 +679,7 @@ class XcodeToolchain(object):
     def find_tool(self, tool, failure_notes):
         if not self.ok:
             return None
-        argv = ['/usr/bin/xcrun', '--sdk', self.sdk, tool.name] + self.arch_flags()
+        argv = ['/usr/bin/xcrun', '--sdk', self.sdk, tool.name] + ([] if tool.name == 'dsymutil' else self.arch_flags())
         sod, sed, code = run_command(argv + ['--asdf'])
         if code != 0:
             if sed.startswith('xcrun: error: unable to find utility'):
@@ -1052,8 +1058,6 @@ def default_is_cxx(filename):
 # force_cli:    don't use IDEs' native C/C++ compilation mechanism
 # expand:       call expand on filenames
 def build_c_objs(emitter, machine, settings, sources, headers=[], settings_cb=None, force_cli=False, expand=True):
-    if expand:
-        headers = [expand(header, settings) for header in headers]
     tools = machine.c_tools()
     any_was_cxx = False
     obj_fns = []
@@ -1063,6 +1067,7 @@ def build_c_objs(emitter, machine, settings, sources, headers=[], settings_cb=No
         _expand_argv = lambda x: expand_argv(x, settings)
     else:
         _expand = _expand_argv = lambda x: x
+    headers = list(map(_expand, headers))
     for fn in map(_expand, sources):
         my_settings = settings
         if settings_cb is not None:
