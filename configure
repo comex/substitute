@@ -212,7 +212,7 @@ if settings.enable_ios_bootstrap:
         ('dylib', '(out)/bundle-loader.dylib', ['(src)/darwin-bootstrap/bundle-loader.c'], [], [], []),
         ('exec', '(out)/unrestrict', ['(src)/darwin-bootstrap/unrestrict.c'], ls, [], []),
         ('exec', '(out)/inject-into-launchd', ['(src)/darwin-bootstrap/inject-into-launchd.c'], ls, ['-framework', 'IOKit', '-framework', 'CoreFoundation'], []),
-        ('exec', '(out)/substituted', ['(src)/darwin-bootstrap/substituted.c', '(src)/darwin-bootstrap/substituted-plist-loader.m'], [], ['-lbsm', '-framework', 'Foundation', '-framework', 'CoreFoundation'], ['-fobjc-arc']),
+        ('exec', '(out)/substituted', ['(src)/darwin-bootstrap/substituted.m'], [], ['-lbsm', '-framework', 'Foundation', '-framework', 'CoreFoundation'], ['-fobjc-arc']),
     ]:
         mconfig.build_and_link_c_objs(emitter, settings.host_machine(), settings.specialize(override_ldflags=ldf+settings.host.ldflags, override_cflags=cf+settings.host.cflags), ty, out, ins, objs=objs)
 

@@ -2,37 +2,16 @@
 #define IB_LOG_TO_SYSLOG
 #include "ib-log.h"
 #include "darwin/mach-decls.h"
-#include "substituted-messages.h"
+#include "xxpc.h"
 #include <dlfcn.h>
 #include <mach/mach.h>
 #include <mach/mig.h>
 #include <objc/runtime.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <syslog.h>
+#include <pthread.h>
+#include <sys/time.h>
 extern char ***_NSGetArgv(void);
-
-static int peek(const void *buf, const void *end) {
-    if ((size_t) (end - buf) < sizeof(struct substituted_bundle_list_op))
-        return -1;
-    return ((struct substituted_bundle_list_op *) buf)->opc;
-}
-
-static bool pop(const void **buf, const void *end,
-                int *opc,
-                const char **name) {
-    const struct substituted_bundle_list_op *op;
-    if ((size_t) (end - *buf) < sizeof(*op))
-        return false;
-    op = *buf;
-    *buf += sizeof(*op);
-    *opc = op->opc;
-    if ((size_t) (end - *buf) <= op->namelen ||
-        ((const char *) *buf)[op->namelen] != '\0')
-        return false;
-    *name = *buf;
-    *buf += op->namelen + 1;
-    return true;
-}
 
 static struct {
     bool initialized;
@@ -46,6 +25,10 @@ static struct {
     bool initialized;
     typeof(objc_getClass) *objc_getClass;
 } objc_funcs;
+
+static pthread_mutex_t hello_reply_mtx = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t hello_reply_cond = PTHREAD_COND_INITIALIZER;
+static xxpc_object_t hello_reply;
 
 #define GET(funcs, handle, name) (funcs)->name = dlsym(handle, #name)
 
@@ -103,142 +86,166 @@ static void use_dylib(const char *name) {
     dlopen(name, RTLD_LAZY);
 }
 
-static void load_bundle_list(const void *buf, size_t size) {
-    if (IB_VERBOSE) {
-        ib_log("load_bundle_list: %p,%zu", buf, size);
-        ib_log_hex(buf, size);
+enum bundle_test_result {
+    BUNDLE_TEST_RESULT_INVALID,
+    BUNDLE_TEST_RESULT_FAIL,
+    BUNDLE_TEST_RESULT_PASS,
+    BUNDLE_TEST_RESULT_EMPTY,
+};
+
+static enum bundle_test_result do_bundle_test_type(
+    xxpc_object_t info, const char *key, bool (*test)(const char *)) {
+    xxpc_object_t values = xxpc_dictionary_get_value(info, key);
+    if (!values || xxpc_get_type(values) != XXPC_TYPE_ARRAY)
+        return BUNDLE_TEST_RESULT_INVALID;
+    size_t count = xxpc_array_get_count(values);
+    if (count == 0)
+        return BUNDLE_TEST_RESULT_EMPTY;
+    for (size_t i = 0; i < count; i++) {
+        const char *value = xxpc_array_get_string(values, i);
+        if (!value)
+            return BUNDLE_TEST_RESULT_INVALID;
+        if (test(value))
+            return BUNDLE_TEST_RESULT_PASS;
     }
-    int opc;
-    const char *name;
-    const void *end = buf + size;
-    while (buf != end) {
-        if (!pop(&buf, end, &opc, &name))
-            goto invalid;
-        bool pass;
-        switch (opc) {
-        case SUBSTITUTED_TEST_BUNDLE:
-            pass = cf_has_bundle(name);
-            if (IB_VERBOSE)
-                ib_log("cf_has_bundle('%s'): %d", name, pass);
-            if (pass)
-                goto pass_type;
-            /* fail, so... */
-            if (peek(buf, end) != SUBSTITUTED_TEST_BUNDLE)
-                goto fail;
-            break;
-        case SUBSTITUTED_TEST_CLASS:
-            pass = objc_has_class(name);
-            if (IB_VERBOSE)
-                ib_log("objc_has_class('%s'): %d", name, pass);
-            if (pass)
-                goto pass_type;
-            if (peek(buf, end) != SUBSTITUTED_TEST_CLASS)
-                goto fail;
-            break;
-        case SUBSTITUTED_USE_DYLIB:
-            use_dylib(name);
-            break;
-        pass_type:
-            while (peek(buf, end) == opc) {
-                if (!pop(&buf, end, &opc, &name))
-                    goto invalid;
-            }
-            break;
-        fail:
-            do {
-                if (!pop(&buf, end, &opc, &name))
-                    goto invalid;
-            } while (opc != SUBSTITUTED_USE_DYLIB);
-            break;
-        }
-    }
-    return;
-invalid:
-    ib_log("invalid bundle list IPC data (substitute bug)");
+    return BUNDLE_TEST_RESULT_FAIL;
 }
 
-static kern_return_t substituted_hello(mach_port_t service, int proto_version,
-                                       const char *argv0, void **bundle_list_p,
-                                       size_t *bundle_list_size_p) {
-    struct {
-        mach_msg_header_t hdr;
-        union {
-            struct substituted_msg_body_hello req;
-            struct substituted_msg_body_hello_resp resp;
-        } u;
-        mach_msg_trailer_t trailer_space;
-    } buf;
-    mach_port_t reply_port = mig_get_reply_port();
-    buf.hdr.msgh_bits = MACH_MSGH_BITS(MACH_MSG_TYPE_COPY_SEND,
-                                       MACH_MSG_TYPE_MAKE_SEND_ONCE);
-    buf.hdr.msgh_remote_port = service;
-    buf.hdr.msgh_local_port = reply_port;
-    buf.hdr.msgh_reserved = 0;
-    buf.hdr.msgh_id = SUBSTITUTED_MSG_HELLO;
-    buf.u.req.proto_version = proto_version;
-    strlcpy(buf.u.req.argv0, argv0, sizeof(buf.u.req.argv0));
-    size_t size = sizeof(buf.hdr) +
-                  offsetof(struct substituted_msg_body_hello, argv0) +
-                  strlen(buf.u.req.argv0);
-    size_t round = round_msg(size);
-    memset((char *) &buf + size, 0, round - size);
-    buf.hdr.msgh_size = round;
-    kern_return_t kr = mach_msg(&buf.hdr, MACH_RCV_MSG | MACH_SEND_MSG,
-                                buf.hdr.msgh_size, sizeof(buf), reply_port,
-                                MACH_MSG_TIMEOUT_NONE, MACH_PORT_NULL);
-    if (kr) {
-        if (kr == MACH_RCV_BODY_ERROR)
-            mach_msg_destroy(&buf.hdr);
-        return kr;
+/* return false if the info was invalid */
+static bool load_bundle_with_info(xxpc_object_t info) {
+    if (IB_VERBOSE) {
+        char *desc = xxpc_copy_description(info);
+        ib_log("load_bundle_with_info: %s", desc);
+        free(desc);
     }
-    mach_msg_ool_descriptor_t *ool = &buf.u.resp.bundle_list_ool;
+    bool any = xxpc_dictionary_get_bool(info, "any");
+    enum bundle_test_result btr =
+        do_bundle_test_type(info, "bundles", cf_has_bundle);
+    if (btr == BUNDLE_TEST_RESULT_INVALID)
+        return false;
+    if (!any && btr == BUNDLE_TEST_RESULT_FAIL)
+        goto no_load;
+    if (any && btr == BUNDLE_TEST_RESULT_PASS)
+        goto do_load;
+    btr = do_bundle_test_type(info, "classes", objc_has_class);
+    if (btr == BUNDLE_TEST_RESULT_INVALID)
+        return false;
+    if (btr == BUNDLE_TEST_RESULT_FAIL)
+        goto no_load;
+    else
+        goto do_load;
 
-    if (buf.hdr.msgh_size != sizeof(buf.hdr) + sizeof(buf.u.resp) ||
-        !(buf.hdr.msgh_bits & MACH_MSGH_BITS_COMPLEX) ||
-        buf.u.resp.body.msgh_descriptor_count != 1 ||
-        ool->type != MACH_MSG_OOL_DESCRIPTOR) {
-        kr = KERN_INVALID_ARGUMENT;
-        goto out;
+no_load:
+    return true;
+do_load:;
+    const char *name = xxpc_dictionary_get_string(info, "dylib");
+    if (!name)
+        return false;
+    use_dylib(name);
+    return true;
+}
+
+static bool handle_hello_reply(xxpc_object_t dict) {
+    xxpc_object_t bundles = xxpc_dictionary_get_value(dict, "bundles");
+    if (!bundles || xxpc_get_type(bundles) != XXPC_TYPE_ARRAY)
+        return false;
+    for (size_t i = 0, count = xxpc_array_get_count(bundles);
+         i < count; i++) {
+        if (!load_bundle_with_info(xxpc_array_get_value(bundles, i)))
+            return false;
     }
+    return true;
+}
 
-    if (buf.u.resp.error) {
-        ib_log("substituted_hello returned error %x", buf.u.resp.error);
-        kr = KERN_FAILURE;
-        goto out;
+static void handle_xxpc_object(xxpc_object_t object, bool is_reply) {
+    const char *msg;
+    xxpc_type_t ty = xxpc_get_type(object);
+    if (ty == XXPC_TYPE_DICTIONARY) {
+        if (is_reply) {
+            pthread_mutex_lock(&hello_reply_mtx);
+            hello_reply = object;
+            pthread_cond_signal(&hello_reply_cond);
+            pthread_mutex_unlock(&hello_reply_mtx);
+            return;
+        }
+        msg = "received extraneous message from substituted";
+        goto complain;
+    } else if (ty == XXPC_TYPE_ERROR) {
+        msg = "XPC error communicating with substituted";
+        goto complain;
+    } else {
+        msg = "unknown object received from XPC";
+        goto complain;
     }
-
-    *bundle_list_p = ool->address;
-    *bundle_list_size_p = ool->size;
-    return KERN_SUCCESS;
-
-out:
-    mach_msg_destroy(&buf.hdr);
-    return kr;
+complain:;
+    char *desc = xxpc_copy_description(object);
+    ib_log("%s: %s", msg, desc);
+    free(desc);
 }
 
 /* this is DYLD_INSERT_LIBRARIES'd, not injected. */
 __attribute__((constructor))
 static void init() {
-    mach_port_t service;
-    kern_return_t kr = bootstrap_look_up(bootstrap_port, "com.ex.substituted",
-                                         &service);
-    if (kr) {
-        ib_log("bootstrap_look_up com.ex.substituted: %x", kr);
+    xxpc_connection_t conn = xxpc_connection_create_mach_service(
+        "com.ex.substituted", NULL, 0);
+    /* it's not supposed to return null, but just in case */
+    if (!conn) {
+        ib_log("xxpc_connection_create_mach_service returned null");
         return;
     }
+
+    __block xxpc_object_t received_dict = NULL;
+    __block bool did_receive_dict = false;
+
+    xxpc_connection_set_event_handler(conn, ^(xxpc_object_t object) {
+        handle_xxpc_object(object, false);
+    });
+    xxpc_connection_resume(conn);
+
     const char *argv0 = (*_NSGetArgv())[0];
     if (!argv0)
         argv0 = "???";
-    void *bundle_list;
-    size_t bundle_list_size;
-    kr = substituted_hello(service, SUBSTITUTED_PROTO_VERSION, argv0,
-                           &bundle_list, &bundle_list_size);
-    if (kr) {
-        ib_log("substituted_hello: %x", kr);
-        return;
-    }
-    load_bundle_list(bundle_list, bundle_list_size);
-    vm_deallocate(mach_task_self(), (vm_address_t) bundle_list, bundle_list_size);
 
-    /* hang onto the port */
+    xxpc_object_t message = xxpc_dictionary_create(NULL, NULL, 0);
+    xxpc_dictionary_set_string(message, "type", "hello");
+    xxpc_dictionary_set_string(message, "argv0", argv0);
+    xxpc_connection_send_message_with_reply(conn, message, NULL,
+                                           ^(xxpc_object_t reply) {
+        handle_xxpc_object(reply, true);
+    });
+
+    struct timeval now;
+    struct timespec give_up_time;
+    gettimeofday(&now, NULL);
+    /* Timing out *always* means a bug (or the user manually unloaded
+     * substituted).  Therefore, a high timeout is actually a good thing,
+     * because it makes it clear (especially in testing) that something's wrong
+     * rather than more subtly slowing things down. */
+    give_up_time.tv_sec = now.tv_sec + 10;
+    give_up_time.tv_nsec = now.tv_usec * 1000;
+    pthread_mutex_lock(&hello_reply_mtx);
+    while (!hello_reply) {
+        if (pthread_cond_timedwait(&hello_reply_cond, &hello_reply_mtx,
+                                   &give_up_time)) {
+            if (errno == ETIMEDOUT) {
+                ib_log("ACK - didn't receive a reply from substituted in time!");
+                goto bad;
+            } else {
+                ib_log("pthread_cond_timedwait failed");
+                goto bad;
+            }
+        }
+    }
+    pthread_mutex_unlock(&hello_reply_mtx);
+
+    if (!handle_hello_reply(hello_reply)) {
+        char *desc = xxpc_copy_description(hello_reply);
+        ib_log("received invalid message from substituted: %s", desc);
+        free(desc);
+        goto bad;
+    }
+
+    return;
+bad:
+    ib_log("giving up...");
 }
