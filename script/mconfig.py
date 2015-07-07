@@ -906,8 +906,10 @@ class MakefileEmitter(Emitter):
             # TODO avoid deleting partial output?
             stub = '''
 %(banner)s
-_ := $(shell "$(MAKE_COMMAND)" -s -f %(main_mk_arg)s %(makefile_arg)s >&2)
+_out := $(shell "$(MAKE_COMMAND)" -s -f %(main_mk_arg)s %(makefile_arg)s >&2 || echo fail)
+ifneq ($(_out),fail)
 include %(main_mk)s
+endif
 '''.lstrip() \
             % {
                 'makefile_arg': argv_to_shell([makefile]),
