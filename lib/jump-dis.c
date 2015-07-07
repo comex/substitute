@@ -140,7 +140,11 @@ bool jump_dis_main(void *code_ptr, uint_tptr pc_patch_start, uint_tptr pc_patch_
 #ifdef JUMP_DIS_VERBOSE
         printf("jump-dis: pc=%llx op=%08x size=%x bad=%d continue_after=%d\n",
             (unsigned long long) ctx.base.pc,
+#if defined(TARGET_x86_64) || defined(TARGET_i386)
+            0,
+#else
             ctx.base.op,
+#endif
             ctx.base.op_size,
             ctx.bad_insn,
             ctx.continue_after_this_insn);

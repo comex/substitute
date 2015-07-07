@@ -1,0 +1,222 @@
+#!/usr/bin/env python
+import sys, os, glob
+sys.path.append(os.path.join(os.path.dirname(sys.argv[0]), 'script'))
+import mconfig
+settings = mconfig.settings_root
+settings.package_unix_name.value = 'substitute'
+
+c = settings.host_machine().c_tools()
+c.cc.required()
+c.dsymutil.required()
+
+
+settings.add_setting_option('imaon2', '--with-imaon2', 'path to imaon2 (optional)', '')
+settings.add_setting_option('gen_dia', '--enable-recompile-dia', 'generate darwin-inject-asm.S', False, bool=True)
+settings.add_setting_option('enable_tests', '--enable-tests', 'tests!', False, bool=True)
+settings.add_setting_option('enable_ios_bootstrap', '--enable-ios-bootstrap', 'default: true if you pass --xcode-sdk=iphoneos',
+    lambda: 'iphoneos' in str(settings.host_machine().toolchains()[0].sdk_opt.value),
+    bool=True)
+settings.add_setting_option('enable_werror', '--enable-werror', '', False, bool=True)
+
+ldid_tool = mconfig.CLITool('ldid', ['ldid'], 'LDID', settings.host_machine(), settings.host_machine().toolchains())
+ldid_tool.optional()
+
+asm_archs = [
+    ('x86_64', []),
+    ('i386', []),
+    ('arm', ['-marm']),
+    ('arm64', []), # XXX
+]
+
+asm_cflags = ['-Os', '-fno-stack-protector', '-isysroot', '/dev/null', '-fPIC']
+asm_ldflags = ['-nostartfiles', '-nodefaultlibs']
+machs = []
+for name, cflags in asm_archs:
+    mach = mconfig.Machine('asm-' + name, settings, 'for cross-compiling the inject baton', name + '-apple-darwin10')
+    machs.append(mach)
+    cc = mach.c_tools().cc
+    cc.optional()
+    def f():
+        if settings.gen_dia:
+            cc.argv()
+            mach_settings = settings[mach.name]
+            mach_settings.cflags = cflags + asm_cflags + mach_settings.cflags
+            mach_settings.ldflags = asm_ldflags + mach_settings.ldflags
+    mconfig.post_parse_args_will_need.append(f)
+
+
+mconfig.parse_args()
+####################################
+mconfig.mark_safe_to_clean('(src)/generated/darwin-inject-asm.S', settings)
+
+if settings.enable_ios_bootstrap:
+    mconfig.log('Will build iOS bootstrap.\n')
+
+if settings.enable_werror:
+    for mach in machs + [settings.host_machine()]:
+        settings[mach.name].cflags = ['-Werror'] + settings[mach.name].cflags
+
+# todo make overridable?
+cc_argv = c.cc.argv()
+if 'armv7' in cc_argv or 'arm64' in cc_argv:
+    settings.modify_link_commands = lambda cmds, env: cmds + [ldid_tool.argv() + ['-S'+settings.src+'/ent.plist', env['link_out']]]
+    settings.extra_link_deps = ['(src)/ent.plist']
+
+settings.host.debug_info = True
+settings.c_includes = ['(src)/lib', '(src)/substrate']
+
+emitter = settings.emitter
+
+def cb(fn):
+    if fn.endswith('/objc.c'):
+        return settings.specialize(obj_ldflag_sets=[('-lobjc',)])
+    return settings
+
+# Note: the order of darwin-inject-asm.o is significant.  Per man page, ld is
+# guaranteed to link objects in order, which is necessary because
+# darwin-inject-asm.S does not itself ensure there is at least 0x4000 bytes of
+# executable stuff after inject_page_start (so that arm can remap into arm64).
+# By putting it at the beginning, we can just reuse the space for the rest of
+# the library rather than having to pad with zeroes.
+# (This only matters on 32-bit ARM, and the text segment is currently 0xa000
+# bytes there, more than enough.)
+
+mconfig.build_and_link_c_objs(
+    emitter, settings.host_machine(), settings,
+    'dylib',
+    '(out)/libsubstitute.dylib',
+    [
+        '(src)/generated/darwin-inject-asm.S',
+        '(src)/lib/darwin/find-syms.c',
+        '(src)/lib/darwin/inject.c',
+        '(src)/lib/darwin/interpose.c',
+        '(src)/lib/darwin/objc-asm.S',
+        '(src)/lib/darwin/objc.c',
+        '(src)/lib/darwin/read.c',
+        '(src)/lib/darwin/substrate-compat.c',
+        '(src)/lib/darwin/execmem.c',
+        '(src)/lib/cbit/vec.c',
+        '(src)/lib/jump-dis.c',
+        '(src)/lib/transform-dis.c',
+        '(src)/lib/hook-functions.c',
+        '(src)/lib/strerror.c',
+    ],
+    settings_cb=cb
+)
+#settings.test = 'foo baz'
+
+def o_to_bin(exe):
+    bin = os.path.splitext(exe)[0] + '.bin'
+    emitter.add_command(settings, [bin], [exe], ['segedit -extract __TEXT __text (outs[0]) (ins[0])'])
+    return bin
+
+if settings.gen_dia:
+    args = []
+    for (name, _cflags), mach in zip(asm_archs, machs):
+        exe = '(out)/inject-asm-raw-%s' % (name,)
+        bin = exe + '.bin'
+        mconfig.build_and_link_c_objs(emitter, mach,
+            settings.specialize(
+                override_obj_fn='(out)/inject-asm-raw-%s.o' % (name,),
+                override_ldflags=['-Wl,-order_file,(src)/lib/darwin/inject-asm-raw.order'] + settings[mach.name].ldflags,
+            ),
+            'dylib',
+            exe,
+            ['(src)/lib/darwin/inject-asm-raw.c'])
+        bin = o_to_bin(exe)
+        args.extend([name, bin])
+    emitter.add_command(settings, ['(src)/generated/darwin-inject-asm.S'], ['(src)/script/gen-inject-asm.sh'] + args[1::2], [['(src)/script/gen-inject-asm.sh', '(outs[0])'] + args])
+
+if settings.enable_tests:
+    # just for quick testing
+    for ofile, sfile, cflags, mach in [
+        ('insns-arm.o', 'insns-arm.S', [], machs[2]),
+        ('insns-thumb2.o', 'insns-arm.S', ['-DTHUMB2'], machs[2]),
+        ('insns-libz-arm.o', 'insns-libz-arm.S', [], machs[2]),
+        ('insns-libz-thumb2.o', 'insns-libz-arm.S', ['-DTHUMB2'], machs[2]),
+        ('transform-dis-cases-arm64.o', 'transform-dis-cases-arm64.S', [], machs[3]),
+        ('transform-dis-cases-i386.o', 'transform-dis-cases-i386.S', [], machs[1]),
+        ('transform-dis-cases-x86_64.o', 'transform-dis-cases-x86_64.S', [], machs[0]),
+    ]:
+        mconfig.build_c_objs(emitter, mach, settings.specialize(override_obj_fn='(out)/'+ofile), ['(src)/test/'+sfile])
+        o_to_bin('(out)/'+ofile)
+
+    tests = [
+        ('find-syms', ['-std=c89']),
+        ('find-syms-cpp', 'find-syms', ['-x', 'c++', '-std=c++98'], {'cpp': True}),
+        ('substrate', ['-x', 'c++', '-std=c++98'], {'cpp': True}),
+        ('imp-forwarding', [], ['-framework', 'Foundation', '-lobjc']),
+        ('objc-hook', [], ['-framework', 'Foundation']),
+        ('interpose',),
+        ('inject', {'extra_objs': ['(out)/lib/darwin/inject.o', '(out)/lib/darwin/read.o']}),
+        ('pc-patch', {'extra_objs': ['(out)/lib/darwin/execmem.o']}),
+        ('execmem', [], ['-segprot', '__TEST', 'rwx', 'rx'], {'extra_objs': ['(out)/lib/darwin/execmem.o']}),
+        ('hook-functions', [], ['-segprot', '__TEST', 'rwx', 'rx']),
+        ('posixspawn-hook',),
+        ('htab',),
+        ('vec', {'cpp': True, 'extra_objs': ['(out)/lib/cbit/vec.o']}),
+    ]
+
+    for arch, hdr, xdis, target in [
+        ('arm', 'arm/dis-arm.inc.h', 'dis_arm', 'arm'),
+        ('thumb', 'arm/dis-thumb.inc.h', 'dis_thumb', 'arm'),
+        ('thumb2', 'arm/dis-thumb2.inc.h', 'dis_thumb2', 'arm'),
+        ('arm64', 'arm64/dis-main.inc.h', 'dis', 'arm64'),
+        ('i386', 'x86/dis-main.inc.h', 'dis', 'i386'),
+        ('x86_64', 'x86/dis-main.inc.h', 'dis', 'x86_64')
+    ]:
+        tests.append(('td-simple-'+arch, 'td-simple', ['-DHDR="%s"' % (hdr,), '-Dxdis='+xdis, '-DFORCE_TARGET_'+target]))
+        tests.append(('jump-dis-'+arch, 'jump-dis', ['-O0', '-DFORCE_TARGET_'+target], {'extra_objs': ['(out)/lib/cbit/vec.o']}))
+        tests.append(('transform-dis-'+arch, 'transform-dis', ['-O0', '-DFORCE_TARGET_'+target], {'extra_objs': ['(out)/lib/cbit/vec.o']}))
+
+    for tup in tests:
+        tup = list(tup)
+        ibase = obase = tup.pop(0)
+        cflags = ldflags = []
+        options = {}
+        if tup and isinstance(tup[0], basestring): ibase = tup.pop(0)
+        if tup and isinstance(tup[0], (list, tuple)): cflags = tup.pop(0)
+        if tup and isinstance(tup[0], (list, tuple)): ldflags = tup.pop(0)
+        if tup: options, = tup
+        o = '(out)/test-'+obase
+        cfile = glob.glob(settings.src+'/test/test-'+ibase+'.*')[0]
+        mconfig.build_and_link_c_objs(emitter, settings.host_machine(), settings.specialize(
+            override_cflags=cflags+settings.host.cflags,
+            override_ldflags=ldflags+settings.host.ldflags,
+            override_obj_fn=o+'.o',
+            override_is_cxx=options.get('cxx', False),
+        ), 'exec', o, [cfile], objs=options.get('extra_objs', [])+['(out)/libsubstitute.dylib'])
+
+    mconfig.build_and_link_c_objs(emitter, settings.host_machine(), settings, 'dylib', '(out)/injected-test-dylib.dylib', ['(src)/test/injected-test-dylib.c'])
+
+if settings.enable_ios_bootstrap:
+    mconfig.build_and_link_c_objs(emitter, settings.host_machine(),
+        settings.specialize(
+            override_cflags=['-fobjc-arc', '-Wno-unused-parameter']+settings.host.cflags,
+            override_ldflags=['-framework', 'UIKit', '-framework', 'Foundation', '-dead_strip']+settings.host.ldflags,
+        ),
+        'exec',
+        '(out)/safety-dance/SafetyDance.app/SafetyDance',
+        [
+            '(src)/darwin-bootstrap/safety-dance/AutoGrid.m',
+            '(src)/darwin-bootstrap/safety-dance/main.m',
+        ]
+    )
+    emitter.add_command(settings, ['(out)/safety-dance/SafetyDance.app/Info.plist'], ['(src)/darwin-bootstrap/safety-dance/Info.plist'], ['plutil -convert binary1 -o (outs[0]) (ins[0])'])
+    for out in ['Default.png', 'Default@2x.png']:
+        emitter.add_command(settings, ['(out)/safety-dance/SafetyDance.app/'+out], ['(src)/darwin-bootstrap/safety-dance/white.png'], ['cp (ins[0]) (outs[0])'])
+
+    ls = ['(out)/libsubstitute.dylib']
+    for ty, out, ins, objs, ldf, cf in [
+        ('dylib', '(out)/posixspawn-hook.dylib', ['(src)/darwin-bootstrap/posixspawn-hook.c'], ls, [], []),
+        ('dylib', '(out)/bundle-loader.dylib', ['(src)/darwin-bootstrap/bundle-loader.c'], [], [], []),
+        ('exec', '(out)/unrestrict', ['(src)/darwin-bootstrap/unrestrict.c'], ls, [], []),
+        ('exec', '(out)/inject-into-launchd', ['(src)/darwin-bootstrap/inject-into-launchd.c'], ls, ['-framework', 'IOKit', '-framework', 'CoreFoundation'], []),
+        ('exec', '(out)/substituted', ['(src)/darwin-bootstrap/substituted.c', '(src)/darwin-bootstrap/substituted-plist-loader.m'], [], ['-lbsm', '-framework', 'Foundation', '-framework', 'CoreFoundation'], ['-fobjc-arc']),
+    ]:
+        mconfig.build_and_link_c_objs(emitter, settings.host_machine(), settings.specialize(override_ldflags=ldf+settings.host.ldflags, override_cflags=cf+settings.host.cflags), ty, out, ins, objs=objs)
+
+emitter.add_command(settings, ['all'], list(emitter.all_outs), [], phony=True)
+emitter.set_default_rule('all')
+
+mconfig.finish_and_emit()
