@@ -9,7 +9,11 @@
  * libraries into the target binary (unless actually required by loaded
  * libraries).  In the future it will help with hot loading. */
 
-static bool g_springboard_needs_safe;
+static enum {
+    NO_SAFE,
+    NEEDS_SAFE,
+    REALLY_SAFE,
+} g_springboard_needs_safe;
 
 extern kern_return_t bootstrap_look_up3(mach_port_t bp,
     const char *service_name, mach_port_t *sp, pid_t target_pid,
@@ -91,17 +95,22 @@ enum convert_filters_ret {
         }
     }
 
-    bool safe_mode = false;
+    bool for_safe_mode = false;
     NSNumber *safe_mode_num = [filter objectForKey:@"SafeMode"];
     if (safe_mode_num) {
          if ([safe_mode_num isEqual:[NSNumber numberWithBool:true]])
-            safe_mode = true;
+            for_safe_mode = true;
          else if (![safe_mode_num isEqual:[NSNumber numberWithBool:false]])
             return INVALID;
     }
-    if ((safe_mode && !_is_springboard) ||
-         safe_mode != g_springboard_needs_safe)
-        return FAIL;
+    /* in REALLY_SAFE mode, nothing gets loaded */
+    if (for_safe_mode) {
+        if (!_is_springboard || g_springboard_needs_safe != NEEDS_SAFE)
+            return FAIL;
+    } else {
+        if (_is_springboard && g_springboard_needs_safe != NO_SAFE)
+            return FAIL;
+    }
 
     bool any = false;
     NSString *mode_str = [filter objectForKey:@"Mode"];
@@ -249,9 +258,19 @@ enum convert_filters_ret {
 - (void)handleHangup {
     /* this could be false because hello hasn't been sent, but in that case it
      * hasn't loaded any substitute dylibs, so not our problem *whistle* */
-    if (_is_springboard && !_got_bye) {
-        NSLog(@"SpringBoard hung up without saying bye; using safe mode next time.");
-        g_springboard_needs_safe = true;
+    if (_is_springboard) {
+        bool needs_safe = !_got_bye;
+        if (needs_safe) {
+            if (g_springboard_needs_safe) {
+                NSLog(@"SpringBoard hung up more than once without without saying bye; using Really Safe Mode (no UI) next time :(");
+                g_springboard_needs_safe = REALLY_SAFE;
+            } else {
+                NSLog(@"SpringBoard hung up without saying bye; using safe mode next time.");
+                g_springboard_needs_safe = NEEDS_SAFE;
+            }
+        } else {
+            g_springboard_needs_safe = NO_SAFE;
+        }
     }
 }
 
