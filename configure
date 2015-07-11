@@ -13,8 +13,8 @@ c.dsymutil.required()
 settings.add_setting_option('imaon2', '--with-imaon2', 'path to imaon2 (optional)', '')
 settings.add_setting_option('gen_dia', '--enable-recompile-dia', 'generate darwin-inject-asm.S', False, bool=True)
 settings.add_setting_option('enable_tests', '--enable-tests', 'tests!', False, bool=True)
-settings.add_setting_option('enable_ios_bootstrap', '--enable-ios-bootstrap', 'default: true if you pass --xcode-sdk=iphoneos',
-    lambda: 'iphoneos' in str(settings.host_machine().toolchains()[0].sdk_opt.value),
+settings.add_setting_option('enable_ios_bootstrap', '--enable-ios-bootstrap', 'default: true if you pass --xcode-sdk=iphone*',
+    lambda: 'iphone' in str(settings.host_machine().toolchains()[0].sdk_opt.value),
     bool=True)
 settings.add_setting_option('enable_werror', '--enable-werror', '', False, bool=True)
 
@@ -55,6 +55,9 @@ if settings.enable_ios_bootstrap:
 if settings.enable_werror:
     for mach in machs + [settings.host_machine()]:
         settings[mach.name].cflags = ['-Werror'] + settings[mach.name].cflags
+
+for i in ('cflags', 'ldflags'):
+    settings.host[i] = ['-miphoneos-version-min=8.0'] + settings.host[i]
 
 # todo make overridable?
 cc_argv = c.cc.argv()
@@ -205,6 +208,7 @@ if settings.enable_ios_bootstrap:
     emitter.add_command(settings, ['(out)/safety-dance/SafetyDance.app/Info.plist'], ['(src)/darwin-bootstrap/safety-dance/Info.plist'], ['plutil -convert binary1 -o (outs[0]) (ins[0])'])
     for out in ['Default.png', 'Default@2x.png']:
         emitter.add_command(settings, ['(out)/safety-dance/SafetyDance.app/'+out], ['(src)/darwin-bootstrap/safety-dance/white.png'], ['cp (ins[0]) (outs[0])'])
+    emitter.add_command(settings, ['safety-dance'], list(filter(lambda out: '/safety-dance/' in out, emitter.all_outs)), [], phony=True)
 
     ls = ['(out)/libsubstitute.dylib']
     for ty, out, ins, objs, ldf, cf in [

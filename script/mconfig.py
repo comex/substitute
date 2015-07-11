@@ -1085,7 +1085,7 @@ def build_c_objs(emitter, machine, settings, sources, headers=[], settings_cb=No
         include_args = ['-I'+_expand(inc) for inc in my_settings.c_includes]
         mach_settings = my_settings[machine.name]
         dbg = ['-g'] if mach_settings.debug_info else []
-        cflags = _expand_argv(get_else_and(my_settings, 'override_cflags', lambda: (mach_settings.cxxflags if is_cxx else mach_settings.cflags)))
+        cflags = _expand_argv(get_else_and(my_settings, 'override_cflags', lambda: mach_settings.cppflags + (mach_settings.cxxflags if is_cxx else mach_settings.cflags)))
         cc = _expand_argv(get_else_and(my_settings, 'override_cc', lambda: (tools.cxx if is_cxx else tools.cc).argv()))
         extra_deps = list(map(_expand, my_settings.get('extra_compile_deps', [])))
         any_was_cxx = any_was_cxx or is_cxx
