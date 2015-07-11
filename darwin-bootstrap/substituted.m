@@ -9,6 +9,8 @@
  * libraries into the target binary (unless actually required by loaded
  * libraries).  In the future it will help with hot loading. */
 
+static bool g_springboard_needs_safe;
+
 extern kern_return_t bootstrap_look_up3(mach_port_t bp,
     const char *service_name, mach_port_t *sp, pid_t target_pid,
     const uuid_t instance_id, uint64_t flags);
@@ -32,12 +34,6 @@ static void install_deadlock_warning() {
     }
 }
 
-enum convert_filters_ret {
-    PROVISIONAL_PASS,
-    FAIL,
-    INVALID
-};
-
 static double id_to_double(id o) {
     if ([o isKindOfClass:[NSString class]]) {
         NSScanner *scan = [NSScanner scannerWithString:o];
@@ -56,10 +52,27 @@ static xxpc_object_t nsstring_to_xpc(NSString *in) {
     return xxpc_string_create([in cStringUsingEncoding:NSUTF8StringEncoding]);
 }
 
-static enum convert_filters_ret convert_filters(NSDictionary *plist_dict,
-                                                const char *exec_name,
-                                                xxpc_object_t out_info) {
+@interface PeerHandler : NSObject {
+    xxpc_object_t _connection;
+    NSString *_argv0;
+    bool _is_springboard, _got_bye;
+}
 
+@end
+
+enum convert_filters_ret TEST;
+
+@implementation PeerHandler
+
+enum convert_filters_ret {
+    PROVISIONAL_PASS,
+    FAIL,
+    INVALID
+};
+
+- (enum convert_filters_ret)
+    convertFiltersForBundleInfo:(NSDictionary *)plist_dict
+    toXPCReply:(xxpc_object_t)out_info {
     NSDictionary *filter = [plist_dict objectForKey:@"Filter"];
     if (!filter)
         return PROVISIONAL_PASS;
@@ -72,10 +85,23 @@ static enum convert_filters_ret convert_filters(NSDictionary *plist_dict,
               [key isEqualToString:@"Classes"] ||
               [key isEqualToString:@"Bundles"] ||
               [key isEqualToString:@"Executables"] ||
-              [key isEqualToString:@"Mode"])) {
+              [key isEqualToString:@"Mode"] ||
+              [key isEqualToString:@"SafeMode"])) {
             return INVALID;
         }
     }
+
+    bool safe_mode = false;
+    NSNumber *safe_mode_num = [filter objectForKey:@"SafeMode"];
+    if (safe_mode_num) {
+         if ([safe_mode_num isEqual:[NSNumber numberWithBool:true]])
+            safe_mode = true;
+         else if (![safe_mode_num isEqual:[NSNumber numberWithBool:false]])
+            return INVALID;
+    }
+    if ((safe_mode && !_is_springboard) ||
+         safe_mode != g_springboard_needs_safe)
+        return FAIL;
 
     bool any = false;
     NSString *mode_str = [filter objectForKey:@"Mode"];
@@ -113,18 +139,16 @@ static enum convert_filters_ret convert_filters(NSDictionary *plist_dict,
 
     NSArray *executables = [filter objectForKey:@"Executables"];
     if (executables) {
-        NSString *exe = [NSString stringWithCString:exec_name
-                                  encoding:NSUTF8StringEncoding];
         if (![executables isKindOfClass:[NSArray class]])
             return INVALID;
         for (NSString *name in executables) {
             if (![name isKindOfClass:[NSString class]])
                 return INVALID;
-            if ([name isEqualToString:exe])
+            if ([name isEqualToString:_argv0])
                 goto ok;
         }
         if (any)
-            return PROVISIONAL_PASS; // without adding other conditions
+            return PROVISIONAL_PASS; /* without adding other conditions */
         else
             return FAIL;
     ok:;
@@ -152,15 +176,24 @@ static enum convert_filters_ret convert_filters(NSDictionary *plist_dict,
                 xxpc_array_append_value(out_things, nsstring_to_xpc(name));
             }
             xxpc_dictionary_set_value(out_info, types[i].okey, out_things);
-            xxpc_release(out_things);
         }
     }
 
     return PROVISIONAL_PASS;
 }
 
-xxpc_object_t get_hello_bundles(const char *exec_name) {
-    /* TODO cache */
+- (bool)handleMessageHello:(xxpc_object_t)request {
+    if (_argv0 != NULL)
+        return false;
+
+    const char *argv0 = xxpc_dictionary_get_string(request, "argv0");
+    if (!argv0)
+        return false;
+    _argv0 = [NSString stringWithCString:argv0
+                       encoding:NSUTF8StringEncoding];
+
+    _is_springboard = [_argv0 isEqualToString:@"SpringBoard"];
+
     xxpc_object_t bundles = xxpc_array_create(NULL, 0);
 
     NSError *err;
@@ -187,7 +220,8 @@ xxpc_object_t get_hello_bundles(const char *exec_name) {
 
         xxpc_object_t info = xxpc_dictionary_create(NULL, NULL, 0);
 
-        enum convert_filters_ret ret = convert_filters(plist_dict, exec_name, info);
+        enum convert_filters_ret ret =
+            [self convertFiltersForBundleInfo:plist_dict toXPCReply:info];
         if (ret == FAIL) {
             continue;
         } else if (ret == INVALID) {
@@ -199,47 +233,63 @@ xxpc_object_t get_hello_bundles(const char *exec_name) {
         xxpc_dictionary_set_value(info, "dylib", nsstring_to_xpc(dylib_path));
 
         xxpc_array_append_value(bundles, info);
-        xxpc_release(info);
     }
 
-    return bundles;
-}
-
-#define PRECISE objc_precise_lifetime
-
-static bool handle_message(xxpc_object_t request, xxpc_object_t reply) {
-    const char *type = xxpc_dictionary_get_string(request, "type");
-    if (!type || strcmp(type, "hello"))
-        return false;
-    const char *argv0 = xxpc_dictionary_get_string(request, "argv0");
-    if (!argv0)
-        return false;
-    xxpc_object_t bundles = get_hello_bundles(argv0);
+    xxpc_object_t reply = xxpc_dictionary_create_reply(request);
     xxpc_dictionary_set_value(reply, "bundles", bundles);
-    xxpc_release(bundles);
+    xxpc_connection_send_message(_connection, reply);
     return true;
 }
 
-static void init_peer(xxpc_object_t peer) {
-    xxpc_connection_set_event_handler(peer, ^(xxpc_object_t event) {
+- (bool)handleMessageBye:(xxpc_object_t)request {
+    _got_bye = true;
+    return true;
+}
+
+- (void)handleHangup {
+    /* this could be false because hello hasn't been sent, but in that case it
+     * hasn't loaded any substitute dylibs, so not our problem *whistle* */
+    if (_is_springboard && !_got_bye) {
+        NSLog(@"SpringBoard hung up without saying bye; using safe mode next time.");
+        g_springboard_needs_safe = true;
+    }
+}
+
+
+- (bool)handleMessage:(xxpc_object_t)request {
+    const char *type = xxpc_dictionary_get_string(request, "type");
+    if (!type)
+        return false;
+    if (!strcmp(type, "hello"))
+        return [self handleMessageHello:request];
+    else if (!strcmp(type, "bye"))
+        return [self handleMessageBye:request];
+    else
+        return false;
+}
+
+- (instancetype)initWithConnection:(xxpc_object_t)connection {
+    _connection = connection;
+    xxpc_connection_set_event_handler(connection, ^(xxpc_object_t event) {
         xxpc_type_t ty = xxpc_get_type(event);
         if (ty == XXPC_TYPE_DICTIONARY) {
-            xxpc_object_t reply = xxpc_dictionary_create_reply(event);
-            if (handle_message(event, reply))
-                xxpc_connection_send_message(peer, reply);
-            else
-                xxpc_connection_cancel(peer);
-            xxpc_release(reply);
+            if (![self handleMessage:event])
+                xxpc_connection_cancel(connection);
         } else if (ty == XXPC_TYPE_ERROR) {
-            if (event == XXPC_ERROR_CONNECTION_INVALID)
-                return;
-            NSLog(@"XPC error from peer: %@", event);
+            if (event == XXPC_ERROR_CONNECTION_INVALID) {
+                [self handleHangup];
+            } else {
+                NSLog(@"XPC error from connection: %@", event);
+                xxpc_connection_cancel(connection);
+            }
         } else {
             NSLog(@"unknown object received from XPC (peer): %@", event);
         }
     });
-    xxpc_connection_resume(peer);
+    xxpc_connection_resume(connection);
+    return self;
 }
+@end
 
 int main() {
     NSLog(@"hello from substituted");
@@ -253,7 +303,7 @@ int main() {
     xxpc_connection_set_event_handler(listener, ^(xxpc_object_t object) {
         xxpc_type_t ty = xxpc_get_type(object);
         if (ty == XXPC_TYPE_CONNECTION) {
-            init_peer(object);
+            (void) [[PeerHandler alloc] initWithConnection:object];
         } else if (ty == XXPC_TYPE_ERROR) {
             NSLog(@"XPC error in server: %@", object);
             exit(1);

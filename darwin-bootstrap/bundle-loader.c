@@ -27,6 +27,8 @@ static struct {
     typeof(objc_getClass) *objc_getClass;
 } objc_funcs;
 
+static xxpc_connection_t substituted_conn;
+
 static pthread_mutex_t hello_reply_mtx = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t hello_reply_cond = PTHREAD_COND_INITIALIZER;
 static xxpc_object_t hello_reply;
@@ -191,6 +193,13 @@ static void handle_xxpc_object(xxpc_object_t object, bool is_reply) {
     free(desc);
 }
 
+static void inform_sud_of_clean_exit() {
+    xxpc_object_t message = xxpc_dictionary_create(NULL, NULL, 0);
+    xxpc_dictionary_set_string(message, "type", "bye");
+    xxpc_connection_send_message(substituted_conn, message);
+    xxpc_release(message);
+}
+
 /* this is DYLD_INSERT_LIBRARIES'd, not injected. */
 __attribute__((constructor))
 static void init() {
@@ -199,11 +208,10 @@ static void init() {
     /* it's not supposed to return null, but just in case */
     if (!conn) {
         ib_log("xxpc_connection_create_mach_service returned null");
-        return;
+        goto bad;
     }
 
-    __block xxpc_object_t received_dict = NULL;
-    __block bool did_receive_dict = false;
+    substituted_conn = conn;
 
     xxpc_connection_set_event_handler(conn, ^(xxpc_object_t object) {
         handle_xxpc_object(object, false);
@@ -259,14 +267,14 @@ static void init() {
         char *desc = xxpc_copy_description(hello_reply);
         ib_log("received invalid message from substituted: %s", desc);
         free(desc);
+        xxpc_release(hello_reply);
         goto bad;
     }
+    xxpc_release(hello_reply);
+
+    atexit(inform_sud_of_clean_exit);
 
     return;
 bad:
-    if (hello_reply) {
-        xxpc_release(hello_reply);
-        hello_reply = NULL;
-    }
     ib_log("giving up on loading bundles for this process...");
 }

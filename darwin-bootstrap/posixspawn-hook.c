@@ -36,8 +36,6 @@ extern char ***_NSGetEnviron(void);
 
 static __typeof__(posix_spawn) *old_posix_spawn, *old_posix_spawnp,
                                hook_posix_spawn, hook_posix_spawnp;
-static __typeof__(wait4) *old_wait4, hook_wait4;
-static typeof(waitpid) *old_waitpid, hook_waitpid;
 static int (*old_sandbox_check)(pid_t, const char *, int type, ...);
 
 static bool is_launchd;
@@ -187,10 +185,9 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
     /* which dylib should we add, if any? */
     const char *dylib_to_add;
     if (is_launchd) {
-        if (!strcmp(path, "/usr/libexec/xpcproxy"))
-            dylib_to_add = psh_dylib;
-        else
+        if (strcmp(path, "/usr/libexec/xpcproxy"))
             goto skip;
+        dylib_to_add = psh_dylib;
     } else {
         /* - substituted obviously doesn't want to have bundle_loader run in it
          *   and try to contact substituted.  I have _MSSafeMode=1 in the plist
@@ -220,8 +217,7 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
             !strcmp(path, "/usr/sbin/notifyd") ||
             !strcmp(xbasename(argv[0] ?: ""), "sshd"))
             goto skip;
-        else
-            dylib_to_add = bl_dylib;
+        dylib_to_add = bl_dylib;
     }
 
     if (access(dylib_to_add, R_OK)) {
@@ -347,6 +343,7 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
     int ret = old(pidp, path, file_actions, &my_attr, argv, envp_to_use);
     if (IB_VERBOSE)
         ib_log("ret=%d pid=%ld", ret, (long) *pidp);
+
     if (ret)
         goto cleanup;
     /* Since it returned, obviously it was not SETEXEC, so we need to
@@ -366,12 +363,6 @@ cleanup:
     return ret;
 }
 
-static void after_wait_generic(pid_t pid, int stat) {
-    /* TODO safety */
-    (void) pid;
-    (void) stat;
-}
-
 int hook_posix_spawn(pid_t *restrict pid, const char *restrict path,
                      const posix_spawn_file_actions_t *file_actions,
                      const posix_spawnattr_t *restrict attrp,
@@ -386,18 +377,6 @@ int hook_posix_spawnp(pid_t *restrict pid, const char *restrict path,
                       char *const argv[restrict], char *const envp[restrict]) {
     return hook_posix_spawn_generic(old_posix_spawnp, pid, path, file_actions,
                                     attrp, argv, envp);
-}
-
-pid_t hook_wait4(pid_t pid, int *stat_loc, int options, struct rusage *rusage) {
-    pid_t ret = old_wait4(pid, stat_loc, options, rusage);
-    after_wait_generic(ret, *stat_loc);
-    return ret;
-}
-
-pid_t hook_waitpid(pid_t pid, int *stat_loc, int options) {
-    pid_t ret = old_waitpid(pid, stat_loc, options);
-    after_wait_generic(ret, *stat_loc);
-    return ret;
 }
 
 int hook_sandbox_check(pid_t pid, const char *op, int type, ...) {
@@ -468,8 +447,6 @@ static void init() {
     static const struct substitute_import_hook hooks[] = {
         {"_posix_spawn", hook_posix_spawn, &old_posix_spawn},
         {"_posix_spawnp", hook_posix_spawnp, &old_posix_spawnp},
-        {"_waitpid", hook_waitpid, &old_waitpid},
-        {"_wait4", hook_wait4, &old_wait4},
         {"_sandbox_check", hook_sandbox_check, &old_sandbox_check},
     };
 

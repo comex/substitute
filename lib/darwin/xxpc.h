@@ -1,15 +1,22 @@
 #pragma once
 /* distinct names to avoid incompatibility if <xpc/xpc.h> gets included somehow
- * on OS X.  No ARC support! */
+ * on OS X. */
 #include <dispatch/dispatch.h>
+#include <os/object.h>
 
-typedef struct _xxpc_object {
-    int x;
-} *xxpc_object_t, *xxpc_connection_t, *xxpc_type_t;
+#if OS_OBJECT_USE_OBJC
+#define DC_CAST (__bridge xxpc_object_t)
+OS_OBJECT_DECL(xxpc_object);
+#else
+#define DC_CAST
+typedef struct xxpc_object *xxpc_object_t;
+#endif
+typedef xxpc_object_t xxpc_connection_t, xxpc_type_t;
 typedef void (^xxpc_handler_t)(xxpc_object_t);
 
 #define DEFINE_CONST(name, sym) \
-    extern struct _xxpc_object name[1] asm("_" #sym)
+   extern struct xxpc_object x_##name asm("_" #sym); \
+   static const xxpc_object_t name = DC_CAST &x_##name
 
 DEFINE_CONST(XXPC_TYPE_CONNECTION, _xpc_type_connection);
 DEFINE_CONST(XXPC_TYPE_ERROR, _xpc_type_error);
@@ -28,21 +35,26 @@ DEFINE_CONST(XXPC_ERROR_CONNECTION_INVALID,
 #define WRAP(name, args...) \
     x##name args asm("_" #name)
 
+#if !OS_OBJECT_USE_OBJC
 void WRAP(xpc_release, (xxpc_object_t));
 xxpc_object_t WRAP(xpc_retain, (xxpc_object_t));
+#endif
 char *WRAP(xpc_copy_description, (xxpc_object_t));
 
 xxpc_type_t WRAP(xpc_get_type, (xxpc_object_t));
 xxpc_object_t WRAP(xpc_string_create, (const char *));
+const char *WRAP(xpc_string_get_string_ptr, (xxpc_object_t));
 void WRAP(xpc_array_append_value, (xxpc_object_t, xxpc_object_t));
 xxpc_object_t WRAP(xpc_array_create, (const xxpc_object_t *, size_t));
 size_t WRAP(xpc_array_get_count, (const xxpc_object_t));
 xxpc_object_t WRAP(xpc_array_get_value, (xxpc_object_t, size_t));
 const char *WRAP(xpc_array_get_string, (xxpc_object_t, size_t));
 void WRAP(xpc_array_set_string, (xxpc_object_t, size_t, const char *));
+OS_OBJECT_RETURNS_RETAINED
 xxpc_object_t WRAP(xpc_dictionary_create, (const char *const *,
                                            const xxpc_object_t *, size_t));
 
+OS_OBJECT_RETURNS_RETAINED
 xxpc_object_t WRAP(xpc_dictionary_create_reply, (xxpc_object_t));
 bool WRAP(xpc_dictionary_get_bool, (xxpc_object_t, const char *));
 const char *WRAP(xpc_dictionary_get_string, (xxpc_object_t, const char *));
@@ -64,3 +76,4 @@ void WRAP(xpc_connection_cancel, (xxpc_connection_t));
 #undef DEFINE_TYPE
 #undef DEFINE_CONST
 #undef WRAP
+#undef DC_CAST
