@@ -224,6 +224,13 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
             dylib_to_add = bl_dylib;
     }
 
+    if (access(dylib_to_add, R_OK)) {
+        /* Substitute must have been uninstalled or something.  In the future
+         * we'll be able to actually unload from launchd, but this is still
+         * useful as a safety measure. */
+        goto skip;
+    }
+
     if (attrp) {
         posix_spawnattr_t attr = *attrp;
         size_t size = malloc_size(attr);
