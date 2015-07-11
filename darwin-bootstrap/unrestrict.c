@@ -6,9 +6,9 @@
  *
  * It exists as a separate executable because (a) such processes may be
  * launched with POSIX_SPAWN_SETEXEC, which makes posix_spawn act like exec and
- * replace the current process, and (b) if they're not, launchd (into which
- * posixspawn-hook is injected) still can't task_for_pid the child process
- * itself, because it doesn't have the right entitlements.
+ * replace the current process, and (b) if they're not, launchd/xpcproxy (into
+ * which posixspawn-hook is injected) still can't task_for_pid the child
+ * process itself, because they don't have the right entitlements.
 */
 
 #define IB_LOG_NAME "unrestrict"

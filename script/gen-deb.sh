@@ -24,4 +24,5 @@ cp -a darwin-bootstrap/DEBIAN $debroot/
 sed "s#{VERSION}#$version#g" darwin-bootstrap/DEBIAN/control > $debroot/DEBIAN/control
 #... add bootstrap stuff
 # yay, old forks and deprecated compression
+rm -f out/*.deb
 fakeroot dpkg-deb -Zlzma -b $debroot out/com.ex.substitute-$version.deb

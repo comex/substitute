@@ -30,6 +30,7 @@ static struct {
 static pthread_mutex_t hello_reply_mtx = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t hello_reply_cond = PTHREAD_COND_INITIALIZER;
 static xxpc_object_t hello_reply;
+static bool hello_reply_ready;
 
 #define GET(funcs, handle, name) (funcs)->name = dlsym(handle, #name)
 
@@ -113,12 +114,7 @@ static enum bundle_test_result do_bundle_test_type(
 }
 
 /* return false if the info was invalid */
-static bool load_bundle_with_info(xxpc_object_t info) {
-    if (IB_VERBOSE) {
-        char *desc = xxpc_copy_description(info);
-        ib_log("load_bundle_with_info: %s", desc);
-        free(desc);
-    }
+static bool check_bundle_with_info(xxpc_object_t info) {
     bool any = xxpc_dictionary_get_bool(info, "any");
     enum bundle_test_result btr =
         do_bundle_test_type(info, "bundles", cf_has_bundle);
@@ -147,15 +143,30 @@ do_load:;
 }
 
 static bool handle_hello_reply(xxpc_object_t dict) {
+    if (IB_VERBOSE) {
+        char *desc = xxpc_copy_description(dict);
+        ib_log("hello_reply: %s", desc);
+        free(desc);
+    }
     xxpc_object_t bundles = xxpc_dictionary_get_value(dict, "bundles");
     if (!bundles || xxpc_get_type(bundles) != XXPC_TYPE_ARRAY)
         return false;
     for (size_t i = 0, count = xxpc_array_get_count(bundles);
          i < count; i++) {
-        if (!load_bundle_with_info(xxpc_array_get_value(bundles, i)))
+        if (!check_bundle_with_info(xxpc_array_get_value(bundles, i)))
             return false;
     }
     return true;
+}
+
+static void signal_hello_reply(xxpc_object_t object) {
+    if (hello_reply_ready)
+        return;
+    pthread_mutex_lock(&hello_reply_mtx);
+    hello_reply = object;
+    hello_reply_ready = true;
+    pthread_cond_signal(&hello_reply_cond);
+    pthread_mutex_unlock(&hello_reply_mtx);
 }
 
 static void handle_xxpc_object(xxpc_object_t object, bool is_reply) {
@@ -163,22 +174,16 @@ static void handle_xxpc_object(xxpc_object_t object, bool is_reply) {
     xxpc_type_t ty = xxpc_get_type(object);
     if (ty == XXPC_TYPE_DICTIONARY) {
         if (is_reply) {
-            pthread_mutex_lock(&hello_reply_mtx);
-            hello_reply = object;
-            pthread_cond_signal(&hello_reply_cond);
-            pthread_mutex_unlock(&hello_reply_mtx);
+            signal_hello_reply(xxpc_retain(object));
             return;
         }
         msg = "received extraneous message from substituted";
-        goto complain;
     } else if (ty == XXPC_TYPE_ERROR) {
+        signal_hello_reply(NULL);
         msg = "XPC error communicating with substituted";
-        goto complain;
     } else {
         msg = "unknown object received from XPC";
-        goto complain;
     }
-complain:;
     char *desc = xxpc_copy_description(object);
     ib_log("%s: %s", msg, desc);
     free(desc);
@@ -224,23 +229,29 @@ static void init() {
      * time changes. */
     uint64_t then = mach_absolute_time() + 10 * NSEC_PER_SEC;
     pthread_mutex_lock(&hello_reply_mtx);
-    while (!hello_reply) {
+    while (!hello_reply_ready) {
         uint64_t now = mach_absolute_time();
         uint64_t remaining = now >= then ? 0 : then - now;
         struct timespec remaining_ts = {.tv_sec = remaining / NSEC_PER_SEC,
                                         .tv_nsec = remaining % NSEC_PER_SEC};
-        if (pthread_cond_timedwait_relative_np(&hello_reply_cond, &hello_reply_mtx,
-                                               &remaining_ts)) {
-            if (errno == ETIMEDOUT) {
+        int err = pthread_cond_timedwait_relative_np(&hello_reply_cond,
+                                                     &hello_reply_mtx,
+                                                     &remaining_ts);
+        if (err != 0) {
+            if (err == ETIMEDOUT)
                 ib_log("ACK - didn't receive a reply from substituted in time!");
-                goto bad;
-            } else {
-                ib_log("pthread_cond_timedwait failed");
-                goto bad;
-            }
+            else
+                ib_log("pthread_cond_timedwait failed: %s", strerror(err));
+            pthread_mutex_unlock(&hello_reply_mtx);
+            goto bad;
         }
     }
     pthread_mutex_unlock(&hello_reply_mtx);
+
+    if (hello_reply == NULL) {
+        /* thread notified us of XPC error */
+        goto bad;
+    }
 
     if (!handle_hello_reply(hello_reply)) {
         char *desc = xxpc_copy_description(hello_reply);
@@ -251,5 +262,9 @@ static void init() {
 
     return;
 bad:
-    ib_log("giving up...");
+    if (hello_reply) {
+        xxpc_release(hello_reply);
+        hello_reply = NULL;
+    }
+    ib_log("giving up on loading bundles for this process...");
 }

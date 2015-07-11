@@ -2,7 +2,6 @@
 #import <CoreFoundation/CoreFoundation.h>
 #include "xxpc.h"
 #include "substitute.h"
-#
 
 /* This is a daemon contacted by all processes which can load extensions.  It
  * currently does the work of reading the plists in
@@ -143,8 +142,8 @@ static enum convert_filters_ret convert_filters(NSDictionary *plist_dict,
 
     for (int i = 0; i < 2; i++) {
         NSArray *things = [filter objectForKey:types[i].key];
+        xxpc_object_t out_things = xxpc_array_create(NULL, 0);
         if (things) {
-            xxpc_object_t out_things = xxpc_array_create(NULL, 0);
             if (![things isKindOfClass:[NSArray class]])
                 return INVALID;
             for (NSString *name in things) {
@@ -153,8 +152,8 @@ static enum convert_filters_ret convert_filters(NSDictionary *plist_dict,
                 xxpc_array_append_value(out_things, nsstring_to_xpc(name));
             }
             xxpc_dictionary_set_value(out_info, types[i].okey, out_things);
-            xxpc_release(out_things);
         }
+        xxpc_release(out_things);
     }
 
     return PROVISIONAL_PASS;
@@ -243,6 +242,7 @@ static void init_peer(xxpc_object_t peer) {
 }
 
 int main() {
+    NSLog(@"hello from substituted");
     install_deadlock_warning();
     xxpc_connection_t listener = xxpc_connection_create_mach_service(
         "com.ex.substituted", NULL, XXPC_CONNECTION_MACH_SERVICE_LISTENER);
