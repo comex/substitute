@@ -16,7 +16,10 @@ DEFINE_CONST(XXPC_TYPE_ERROR, _xpc_type_error);
 DEFINE_CONST(XXPC_TYPE_DICTIONARY, _xpc_type_dictionary);
 DEFINE_CONST(XXPC_TYPE_ARRAY, _xpc_type_array);
 DEFINE_CONST(XXPC_TYPE_STRING, _xpc_type_string);
-DEFINE_CONST(XXPC_ERROR_CONNECTION_INTERRUPTED, _xpc_error_connection_interrupted);
+DEFINE_CONST(XXPC_ERROR_CONNECTION_INTERRUPTED,
+             _xpc_error_connection_interrupted);
+DEFINE_CONST(XXPC_ERROR_CONNECTION_INVALID,
+             _xpc_error_connection_invalid);
 
 
 #define XXPC_ARRAY_APPEND -1

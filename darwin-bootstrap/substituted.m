@@ -1,6 +1,6 @@
 #import <Foundation/Foundation.h>
 #import <CoreFoundation/CoreFoundation.h>
-#include "xxpc.h"
+#include "darwin/xxpc.h"
 #include "substitute.h"
 
 /* This is a daemon contacted by all processes which can load extensions.  It
@@ -231,7 +231,7 @@ static void init_peer(xxpc_object_t peer) {
                 xxpc_connection_cancel(peer);
             xxpc_release(reply);
         } else if (ty == XXPC_TYPE_ERROR) {
-            if (event == XXPC_ERROR_CONNECTION_INTERRUPTED)
+            if (event == XXPC_ERROR_CONNECTION_INVALID)
                 return;
             NSLog(@"XPC error from peer: %@", event);
         } else {
