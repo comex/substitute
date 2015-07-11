@@ -142,18 +142,18 @@ static enum convert_filters_ret convert_filters(NSDictionary *plist_dict,
 
     for (int i = 0; i < 2; i++) {
         NSArray *things = [filter objectForKey:types[i].key];
-        xxpc_object_t out_things = xxpc_array_create(NULL, 0);
         if (things) {
             if (![things isKindOfClass:[NSArray class]])
                 return INVALID;
+            xxpc_object_t out_things = xxpc_array_create(NULL, 0);
             for (NSString *name in things) {
                 if (![name isKindOfClass:[NSString class]])
                     return INVALID;
                 xxpc_array_append_value(out_things, nsstring_to_xpc(name));
             }
             xxpc_dictionary_set_value(out_info, types[i].okey, out_things);
+            xxpc_release(out_things);
         }
-        xxpc_release(out_things);
     }
 
     return PROVISIONAL_PASS;

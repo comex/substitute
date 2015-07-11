@@ -98,7 +98,9 @@ enum bundle_test_result {
 static enum bundle_test_result do_bundle_test_type(
     xxpc_object_t info, const char *key, bool (*test)(const char *)) {
     xxpc_object_t values = xxpc_dictionary_get_value(info, key);
-    if (!values || xxpc_get_type(values) != XXPC_TYPE_ARRAY)
+    if (!values)
+        return BUNDLE_TEST_RESULT_EMPTY;
+    if (xxpc_get_type(values) != XXPC_TYPE_ARRAY)
         return BUNDLE_TEST_RESULT_INVALID;
     size_t count = xxpc_array_get_count(values);
     if (count == 0)
