@@ -22,6 +22,8 @@
 	<string>1</string>
 	<key>LSRequiresIPhoneOS</key>
 	<false/>
+	<key>UIDeviceFamily</key>
+	<integer>2</integer>
 	<key>UILaunchImages</key>
 	<array>
 		<dict>

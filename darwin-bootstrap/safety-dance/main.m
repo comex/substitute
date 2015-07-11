@@ -13,7 +13,7 @@
     [super viewDidLoad];
     [self loadStuff];
     NSMutableArray *names = [NSMutableArray array];
-    for (int i = 0; i < 100; i++)
+    for (int i = 0; i < 200; i++)
         [names addObject:[NSString stringWithFormat:@"Some Dylib %d", i]];
     NSMutableArray *views = [NSMutableArray array];
     for (NSString *name in names) {
@@ -25,7 +25,7 @@
 }
 
 #define EXPLANATION \
-    @"SpringBoard seems to have crashed.  The cause might be a Substitute jailbreak extension, or unrelated.  Just to be safe, extensions in SpringBoard have been temporarily disabled.  You can continue in this mode, or restart SpringBoard normally.\n\nThe following extensions were running:"
+    @"SpringBoard seems to have crashed.  This might have been caused by Substitute jailbreak extension, or it could be unrelated.  Just to be safe, extensions in SpringBoard have been temporarily disabled.\n\nThe following extensions were running:"
 
 static void hugging(UIView *view, UILayoutPriority pri) {
     [view setContentHuggingPriority:pri forAxis:UILayoutConstraintAxisHorizontal];
@@ -107,7 +107,7 @@ static void compression(UIView *view, UILayoutPriority pri) {
             options:NSLayoutFormatAlignAllCenterX metrics:nil views:viewsDictionary]];
     NSArray *additional = @[
         @"[explain(<=650)]",
-        @"|-10-[explain]-10-|",
+        @"|->=10-[explain]->=10-|",
         @"|-20-[grid]-20-|",
     ];
     for (NSString *fmt in additional) {
