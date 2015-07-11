@@ -5,6 +5,7 @@
 #include "xxpc.h"
 #include <dlfcn.h>
 #include <mach/mach.h>
+#include <mach/mach_time.h>
 #include <mach/mig.h>
 #include <objc/runtime.h>
 #include <CoreFoundation/CoreFoundation.h>
@@ -214,19 +215,22 @@ static void init() {
         handle_xxpc_object(reply, true);
     });
 
-    struct timeval now;
-    struct timespec give_up_time;
-    gettimeofday(&now, NULL);
     /* Timing out *always* means a bug (or the user manually unloaded
      * substituted).  Therefore, a high timeout is actually a good thing,
      * because it makes it clear (especially in testing) that something's wrong
-     * rather than more subtly slowing things down. */
-    give_up_time.tv_sec = now.tv_sec + 10;
-    give_up_time.tv_nsec = now.tv_usec * 1000;
+     * rather than more subtly slowing things down.
+     * We use mach_absolute_time + pthread_cond_timedwait_relative_np instead
+     * of regular pthread_cond_timedwait in order to avoid issues if the system
+     * time changes. */
+    uint64_t then = mach_absolute_time() + 10 * NSEC_PER_SEC;
     pthread_mutex_lock(&hello_reply_mtx);
     while (!hello_reply) {
-        if (pthread_cond_timedwait(&hello_reply_cond, &hello_reply_mtx,
-                                   &give_up_time)) {
+        uint64_t now = mach_absolute_time();
+        uint64_t remaining = now >= then ? 0 : then - now;
+        struct timespec remaining_ts = {.tv_sec = remaining / NSEC_PER_SEC,
+                                        .tv_nsec = remaining % NSEC_PER_SEC};
+        if (pthread_cond_timedwait_relative_np(&hello_reply_cond, &hello_reply_mtx,
+                                               &remaining_ts)) {
             if (errno == ETIMEDOUT) {
                 ib_log("ACK - didn't receive a reply from substituted in time!");
                 goto bad;
