@@ -147,6 +147,11 @@ static bool looks_restricted(const char *filename) {
     return ret;
 }
 
+static const char *xbasename(const char *path) {
+    const char *slash = strrchr(path, '/');
+    return slash ? slash + 1 : path;
+}
+
 static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
                                     pid_t *restrict pidp, const char *restrict path,
                                     const posix_spawn_file_actions_t *file_actions,
@@ -188,13 +193,26 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
             goto skip;
     } else {
         /* substituted obviously doesn't want to have bundle_loader run in it
-         * and try to contact substituted.  I am not sure why notifyd is an
-         * issue.  Some libc functions (localtime) synchronously contact it,
-         * which launchd could be calling, but I haven't caught it in the act.
-         * XXX I'd like to be completely sure that notifyd and nothing else is
-         * a problem. */
+         * and try to contact substituted.  I have _MSSafeMode=1 in the plist
+         * so that Substrate also leaves it alone, and that's also checked in
+         * this routine, so the strcmp is just a backup.
+         * sshd is here because one of its routines tries to close all file
+         * descriptors after a certain number - fine in a sane system, but
+         * here, if a file descriptor opened with guarded_open_np is closed
+         * with close, it crashes the process (and I don't see any way to cheat
+         * and disable the guard without actually knowing it).  bundle-loader
+         * uses xpc, which uses dispatch, which uses guarded_open_np for its
+         * descriptors.  I could try to hook guarded_open_np for dispatch
+         * instead, but that doesn't help if an actual loaded bundle uses it
+         * from some other library, and I don't want to completely disable this
+         * bug detection measure for all processes.  Just excluding it from
+         * hooking is easier, and doing so provides a tiny bit of extra safety
+         * anyway, because ssh can sometimes be used as a last resort if
+         * hooking is screwing something up.
+         * note: sshd is started with the wrapper, with argv[0] != path
+         */
         if (!strcmp(path, "/Library/Substitute/Helpers/substituted") ||
-            !strcmp(path, "/usr/sbin/notifyd"))
+            !strcmp(xbasename(argv[0] ?: ""), "sshd"))
             goto skip;
         else
             dylib_to_add = bl_dylib;
