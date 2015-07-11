@@ -121,7 +121,8 @@ void jump_dis_thumb_it(UNUSED struct jump_dis_ctx *ctx) {
 
 static void jump_dis_dis(struct jump_dis_ctx *ctx);
 
-bool jump_dis_main(void *code_ptr, uint_tptr pc_patch_start, uint_tptr pc_patch_end,
+bool jump_dis_main(void *code_ptr, uint_tptr pc_patch_start,
+                   uint_tptr pc_patch_end,
                    struct arch_dis_ctx initial_dis_ctx) {
     bool ret;
     struct jump_dis_ctx ctx;

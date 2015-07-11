@@ -13,6 +13,11 @@
 	<string>com.ex.substituted</string>
 	<key>Program</key>
 	<string>/Library/Substitute/Helpers/substituted</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>_MSSafeMode</key>
+		<string>1</string>
+	</dict>
 </dict>
 </plist>
 

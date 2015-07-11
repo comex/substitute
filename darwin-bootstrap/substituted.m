@@ -1,6 +1,37 @@
 #import <Foundation/Foundation.h>
 #import <CoreFoundation/CoreFoundation.h>
 #include "xxpc.h"
+#include "substitute.h"
+#
+
+/* This is a daemon contacted by all processes which can load extensions.  It
+ * currently does the work of reading the plists in
+ * /Library/Substitute/DynamicLibraries in order to avoid loading objc/CF
+ * libraries into the target binary (unless actually required by loaded
+ * libraries).  In the future it will help with hot loading. */
+
+extern kern_return_t bootstrap_look_up3(mach_port_t bp,
+    const char *service_name, mach_port_t *sp, pid_t target_pid,
+    const uuid_t instance_id, uint64_t flags);
+
+static kern_return_t my_bootstrap_look_up3(mach_port_t bp,
+    const char *service_name, mach_port_t *sp, pid_t target_pid,
+    const uuid_t instance_id, uint64_t flags) {
+    NSLog(@"Something in substituted tried to look up '%s', which could cause a deadlock.  This is a bug.",
+          service_name);
+    return KERN_FAILURE;
+}
+static const struct substitute_function_hook deadlock_warning_hook = {
+    bootstrap_look_up3, my_bootstrap_look_up3, NULL
+};
+
+static void install_deadlock_warning() {
+    int ret = substitute_hook_functions(&deadlock_warning_hook, 1, NULL, 0);
+    if (ret) {
+        NSLog(@"substitute_hook_functions(&deadlock_warning_hook, ..) failed: %d",
+              ret);
+    }
+}
 
 enum convert_filters_ret {
     PROVISIONAL_PASS,
@@ -211,13 +242,8 @@ static void init_peer(xxpc_object_t peer) {
     xxpc_connection_resume(peer);
 }
 
-/* This is a daemon contacted by all processes which can load extensions.  It
- * currently does the work of reading the plists in
- * /Library/Substitute/DynamicLibraries in order to avoid loading objc/CF
- * libraries into the target binary (unless actually required by loaded
- * libraries).  In the future it will help with hot loading. */
-
 int main() {
+    install_deadlock_warning();
     xxpc_connection_t listener = xxpc_connection_create_mach_service(
         "com.ex.substituted", NULL, XXPC_CONNECTION_MACH_SERVICE_LISTENER);
     if (!listener) {

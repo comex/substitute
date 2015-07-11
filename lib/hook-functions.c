@@ -213,8 +213,8 @@ int substitute_hook_functions(const struct substitute_function_hook *hooks,
 
         /* Generate the rewritten start of the function for the outro
          * trampoline (complaining if any bad instructions are found)
-         * (on arm64, this modifies regs_possibly_written, which is used by the
-         * ending make_jump_patch call) */
+         * (on arm64, this modifies arch.regs_possibly_written, which is used
+         * by the later make_jump_patch call) */
         if ((ret = transform_dis_main(code, &trampoline_ptr, pc_patch_start,
                                       &pc_patch_end, (uintptr_t) trampoline_ptr,
                                       &arch, hi->offset_by_pcdiff,

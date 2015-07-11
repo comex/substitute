@@ -124,7 +124,7 @@ enum {
  * other similar library which cares about atomicity, noticing the same
  * concern, would independently come up with the same restriction - at least,
  * if they do not find an easier method to avoid deadlocks.  Note that all
- * existing hooking libraries I know of do not attempt to do any
+ * existing hooking libraries I know of make no attempt to do any
  * synchronization at all; this is fine if hooking is only done during
  * initialization while the process is single threaded, but I want to properly
  * support dynamic injection.  (Note - if there is such an easier method on OS
@@ -280,7 +280,7 @@ int substitute_interpose_imports(const struct substitute_image *handle,
  * @old_ptr          optional - out pointer to the 'old implementation'.
  *                   If there is no old implementation, a custom IMP is
  *                   returned that delegates to the superclass.  This IMP can
- *                   be freed if desired with imp_removeBlock.
+ *                   be freed if desired with substitute_free_created_imp.
  * @created_imp_ptr  optional - out pointer to whether a fake superclass-call
  *                   IMP has been placed in <old_ptr>
  *
