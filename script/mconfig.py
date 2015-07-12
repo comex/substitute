@@ -870,6 +870,7 @@ class MakefileEmitter(Emitter):
             raise ValueError("your awful filename %r can't be encoded in make (probably)" % (fn,))
         return re.sub(r'([ :\$\\])', r'\\\1', fn)
     # depfile = ('makefile', filename) or ('msvc',)
+    # TODO TODO: the depfile out paths won't be relative, fix that somehow
     def add_command_raw(self, outs, ins, argvs, phony=False, depfile=None):
         bit = ''
         outs = ' '.join(map(self.filename_rel_and_escape, outs))

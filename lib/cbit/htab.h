@@ -105,25 +105,46 @@ struct htab_internal {
         return NULL; \
     } \
     \
-    /* slow but who cares */ \
+    /* a bit inefficient */ \
     void __htab_key_removeat_##name(struct htab_internal *restrict hi, \
                                     void *op, \
                                     size_t entry_size) { \
-        key_ty *orig = op; \
-        key_ty *end = (void *) ((char *) hi->base + hi->capacity * entry_size); \
-        key_ty *cur = orig; \
-        key_ty *prev; \
-        do { \
-            prev = cur; \
+        size_t capacity = hi->capacity; \
+        char *buckets = (char *) hi->base; \
+        key_ty *end = (void *) buckets + capacity * entry_size; \
+        key_ty *hole = op; \
+        key_ty *cur = hole; \
+        key_ty *last_cf_not_after_hole = NULL; \
+        while (1) { \
             cur = (void *) ((char *) cur + entry_size); \
-            if (cur == end) \
+            if (cur == end)\
                 cur = hi->base; \
-            if (null_func(cur)) \
-                break; \
-            memmove(prev, cur, entry_size); \
-            prev = cur; \
-        } while (cur != orig); \
-        memset(cur, nil_byte, entry_size); \
+            if (cur == hole || null_func(cur)) { \
+                if (!last_cf_not_after_hole) { \
+                    /* all of the elements in this chain have starting \
+                     * positions (hashes) strictly 'after' the hole position, \
+                     * so we can't move any of them into the hole.  but that \
+                     * also means it's safe to just erase the hole. */ \
+                    memset(hole, nil_byte, entry_size); \
+                    break; \
+                } else { \
+                    memcpy(hole, last_cf_not_after_hole, entry_size); \
+                    /* if we could get the last element which has the
+                     * 'earliest' hash in the chain, then it would be safe to
+                     * end here, but ... */ \
+                    cur = hole = last_cf_not_after_hole; \
+                    last_cf_not_after_hole = NULL; \
+                    continue; \
+                } \
+            } \
+            size_t cur_hash = (hash_func(cur)) % capacity; \
+            key_ty *cur_chain_first = (void *) buckets + cur_hash * entry_size; \
+            bool cf_after_hole /* cyclically */ = hole <= cur ? \
+                (hole < cur_chain_first) : \
+                (cur < cur_chain_first && cur_chain_first <= hole); \
+            if (!cf_after_hole) \
+                last_cf_not_after_hole = cur; \
+        } \
         hi->length--; \
     } \
     void __htab_key_memset_##name(void *ptr, size_t size) { \
