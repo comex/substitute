@@ -12,6 +12,7 @@ static bool g_did_exit_safety_dance;
 
 @interface _SBApplicationController
 - (id)applicationWithBundleIdentifier:(NSString *)identifier;
++ (instancetype)sharedInstanceIfExists;
 @end
 
 @interface _SBSetupManager
@@ -26,21 +27,40 @@ static bool g_did_exit_safety_dance;
 
 static id (*old_setupApplication)(id, SEL);
 static id my_setupApplication(id self, SEL sel) {
-    if (g_did_say_in_setup_mode)
-        return [self applicationWithBundleIdentifier:@"com.ex.SafetyDance"];
+    if (g_did_say_in_setup_mode) {
+        id app = [self applicationWithBundleIdentifier:@"com.ex.SafetyDance"];
+        if (app) {
+            /* definitely shouldn't be nil, given below check, but... */
+            return app;
+        }
+    }
     return old_setupApplication(self, sel);
 }
 
 static bool (*old_updateInSetupMode)(id, SEL);
 static bool my_updateInSetupMode(id self, SEL sel) {
-    if (g_did_exit_safety_dance) {
-        g_did_say_in_setup_mode = false;
-        return old_updateInSetupMode(self, sel);
-    } else {
+    bool should_say = !g_did_exit_safety_dance;
+    if (should_say) {
+        _SBApplicationController *controller =
+            [objc_getClass("SBApplicationController") sharedInstanceIfExists];
+        if (!controller) {
+            NSLog(@"substitute safe mode: SBApplicationController missing...");
+            should_say = false;
+        } else if (![controller
+                     applicationWithBundleIdentifier:@"com.ex.SafetyDance"]) {
+            NSLog(@"substitute safe mode: SafetyDance app missing or unregistered");
+            should_say = false;
+        }
+    }
+
+    if (should_say) {
         /* take priority over real setup */
         g_did_say_in_setup_mode = true;
         [self _setInSetupMode:true];
         return true;
+    } else {
+        g_did_say_in_setup_mode = false;
+        return old_updateInSetupMode(self, sel);
     }
 }
 

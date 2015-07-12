@@ -199,15 +199,15 @@ if settings.enable_ios_bootstrap:
             override_ldflags=['-framework', 'UIKit', '-framework', 'Foundation', '-dead_strip']+settings.host.ldflags,
         ),
         'exec',
-        '(out)/safety-dance/SafetyDance.app/SafetyDance',
+        '(out)/SafetyDance.app/SafetyDance',
         [
             '(src)/darwin-bootstrap/safety-dance/AutoGrid.m',
             '(src)/darwin-bootstrap/safety-dance/main.m',
         ]
     )
-    emitter.add_command(settings, ['(out)/safety-dance/SafetyDance.app/Info.plist'], ['(src)/darwin-bootstrap/safety-dance/Info.plist'], ['plutil -convert binary1 -o (outs[0]) (ins[0])'])
+    emitter.add_command(settings, ['(out)/SafetyDance.app/Info.plist'], ['(src)/darwin-bootstrap/safety-dance/Info.plist'], ['plutil -convert binary1 -o (outs[0]) (ins[0])'])
     for out in ['Default.png', 'Default@2x.png']:
-        emitter.add_command(settings, ['(out)/safety-dance/SafetyDance.app/'+out], ['(src)/darwin-bootstrap/safety-dance/white.png'], ['cp (ins[0]) (outs[0])'])
+        emitter.add_command(settings, ['(out)/SafetyDance.app/'+out], ['(src)/darwin-bootstrap/safety-dance/white.png'], ['cp (ins[0]) (outs[0])'])
     emitter.add_command(settings, ['safety-dance'], list(filter(lambda out: '/safety-dance/' in out, emitter.all_outs)), [], phony=True)
 
     ls = ['(out)/libsubstitute.dylib']

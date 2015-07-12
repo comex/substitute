@@ -14,12 +14,15 @@ mkdir -p $debroot/usr/include/substitute
 cp lib/substitute.h $debroot/usr/include/substitute/
 cp substrate/substrate.h $debroot/usr/include/substitute/
 mkdir -p $debroot/Library/Substitute/DynamicLibraries
+cp darwin-bootstrap/safemode-ui-hook.plist out/safemode-ui-hook.dylib $debroot/Library/Substitute/DynamicLibraries/
 mkdir -p $debroot/Library/Substitute/Helpers
 cp out/{posixspawn-hook.dylib,bundle-loader.dylib,unrestrict,inject-into-launchd,substituted} $debroot/Library/Substitute/Helpers/
 mkdir -p $debroot/etc/rc.d
 ln -s /Library/Substitute/Helpers/inject-into-launchd $debroot/etc/rc.d/substitute
 mkdir -p $debroot/Library/LaunchDaemons
 cp darwin-bootstrap/com.ex.substituted.plist $debroot/Library/LaunchDaemons/
+mkdir -p $debroot/Applications/SafetyDance.app
+cp -a out/SafetyDance.app/{*.png,Info.plist,SafetyDance} $debroot/Applications/SafetyDance.app/
 cp -a darwin-bootstrap/DEBIAN $debroot/
 sed "s#{VERSION}#$version#g" darwin-bootstrap/DEBIAN/control > $debroot/DEBIAN/control
 #... add bootstrap stuff

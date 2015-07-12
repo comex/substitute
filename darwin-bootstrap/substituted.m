@@ -77,6 +77,12 @@ enum convert_filters_ret {
 - (enum convert_filters_ret)
     convertFiltersForBundleInfo:(NSDictionary *)plist_dict
     toXPCReply:(xxpc_object_t)out_info {
+
+    for (NSString *key in [plist_dict allKeys]) {
+        if (!([key isEqualToString:@"Filter"]))
+            return INVALID;
+    }
+
     NSDictionary *filter = [plist_dict objectForKey:@"Filter"];
     if (!filter)
         return PROVISIONAL_PASS;
@@ -201,7 +207,9 @@ enum convert_filters_ret {
     _argv0 = [NSString stringWithCString:argv0
                        encoding:NSUTF8StringEncoding];
 
-    _is_springboard = [_argv0 isEqualToString:@"SpringBoard"];
+    NSString *sb_exe =
+        @"/System/Library/CoreServices/SpringBoard.app/SpringBoard";
+    _is_springboard = [_argv0 isEqualToString:sb_exe];
 
     xxpc_object_t bundles = xxpc_array_create(NULL, 0);
 
