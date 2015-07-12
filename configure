@@ -56,8 +56,12 @@ if settings.enable_werror:
     for mach in machs + [settings.host_machine()]:
         settings[mach.name].cflags = ['-Werror'] + settings[mach.name].cflags
 
+# XXX this is a mess and wrong
+flags = ['-O3']
+if settings.host_machine().is_cross():
+    flags.append('-miphoneos-version-min=8.0')
 for i in ('cflags', 'ldflags'):
-    settings.host[i] = ['-miphoneos-version-min=8.0', '-O3'] + settings.host[i]
+    settings.host[i] = flags + settings.host[i]
 
 # todo make overridable?
 cc_argv = c.cc.argv()

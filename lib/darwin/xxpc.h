@@ -20,6 +20,7 @@ typedef void (^xxpc_handler_t)(xxpc_object_t);
    static const xxpc_object_t name = DC_CAST &x_##name
 
 DEFINE_CONST(XXPC_TYPE_CONNECTION, _xpc_type_connection);
+DEFINE_CONST(XXPC_TYPE_BOOL, _xpc_type_error);
 DEFINE_CONST(XXPC_TYPE_ERROR, _xpc_type_error);
 DEFINE_CONST(XXPC_TYPE_DICTIONARY, _xpc_type_dictionary);
 DEFINE_CONST(XXPC_TYPE_ARRAY, _xpc_type_array);
@@ -43,6 +44,9 @@ xxpc_object_t WRAP(xpc_retain, (xxpc_object_t));
 #endif
 char *WRAP(xpc_copy_description, (xxpc_object_t));
 
+#if OS_OBJECT_USE_OBJC
+__attribute__((ns_returns_autoreleased))
+#endif
 xxpc_type_t WRAP(xpc_get_type, (xxpc_object_t));
 xxpc_object_t WRAP(xpc_string_create, (const char *));
 const char *WRAP(xpc_string_get_string_ptr, (xxpc_object_t));

@@ -57,9 +57,9 @@ static int (*old_xpc_pipe_try_receive)(mach_port_t, xxpc_object_t *,
                                        mach_port_t *, void *, size_t, int);
 
 static bool g_is_launchd;
-static xxpc_object_t g_argv0_to_fate;
-static HTAB_STORAGE(pid_str) g_pid_to_argv0 =
-    HTAB_STORAGE_INIT_STATIC(&g_pid_to_argv0, pid_str);
+static xxpc_object_t g_bundleid_to_fate;
+static HTAB_STORAGE(pid_str) g_pid_to_bundleid =
+    HTAB_STORAGE_INIT_STATIC(&g_pid_to_bundleid, pid_str);
 static pthread_mutex_t g_dicts_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static bool advance(char **strp, const char *template) {
@@ -207,13 +207,15 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
     static const char psh_dylib[] =
         "/Library/Substitute/Helpers/posixspawn-hook.dylib";
 
-    const char *argv0 = argv[0] ?: "";
+    const char *bundleid = NULL;
 
     /* which dylib should we add, if any? */
     const char *dylib_to_add;
     if (g_is_launchd) {
         if (strcmp(path, "/usr/libexec/xpcproxy"))
             goto skip;
+        if (argv[0] && argv[1])
+            bundleid = argv[1];
         dylib_to_add = psh_dylib;
     } else {
         /* - substituted obviously doesn't want to have bundle_loader run in it
@@ -242,7 +244,7 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
          */
         if (!strcmp(path, "/Library/Substitute/Helpers/substituted") ||
             !strcmp(path, "/usr/sbin/notifyd") ||
-            !strcmp(xbasename(argv0), "sshd"))
+            !strcmp(xbasename(argv[0] ?: ""), "sshd"))
             goto skip;
         dylib_to_add = bl_dylib;
     }
@@ -379,9 +381,11 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
     if (need_unrestrict)
         spawn_unrestrict(pid, !was_suspended, false);
 
-    pthread_mutex_lock(&g_dicts_lock);
-    *htab_setp_pid_str(&g_pid_to_argv0.h, &pid, NULL) = strdup(argv0);
-    pthread_mutex_unlock(&g_dicts_lock);
+    if (bundleid) {
+        pthread_mutex_lock(&g_dicts_lock);
+        *htab_setp_pid_str(&g_pid_to_bundleid.h, &pid, NULL) = strdup(bundleid);
+        pthread_mutex_unlock(&g_dicts_lock);
+    }
 
     goto cleanup;
 crap:
@@ -416,17 +420,18 @@ static void after_wait_generic(pid_t pid, int stat) {
         return;
     pthread_mutex_lock(&g_dicts_lock);
     struct htab_bucket_pid_str *bucket =
-        htab_getbucket_pid_str(&g_pid_to_argv0.h, &pid);
+        htab_getbucket_pid_str(&g_pid_to_bundleid.h, &pid);
     if (!bucket) {
         /* probably spawned some other way / not a task */
         if (IB_VERBOSE)
             ib_log("reaped unknown pid %d", pid);
-        return;
+        goto end;
     }
-    char *argv0 = bucket->value;
-    xxpc_dictionary_set_int64(g_argv0_to_fate, argv0, stat);
-    free(argv0);
-    htab_removeat_pid_str(&g_pid_to_argv0.h, bucket);
+    char *bundleid = bucket->value;
+    xxpc_dictionary_set_int64(g_bundleid_to_fate, bundleid, stat);
+    free(bundleid);
+    htab_removeat_pid_str(&g_pid_to_bundleid.h, bucket);
+end:
     pthread_mutex_unlock(&g_dicts_lock);
 }
 
@@ -473,16 +478,28 @@ int hook_xpc_pipe_try_receive(mach_port_t port_set, xxpc_object_t *requestp,
         return res;
     }
     xxpc_object_t reply = NULL;
-    if (!strcmp(name, "argv0-to-fate")) {
-        const char *argv0 = xxpc_dictionary_get_string(in, "argv0");
-        if (!argv0) {
+    if (!strcmp(name, "bundleid-to-fate")) {
+        const char *bundleid = xxpc_dictionary_get_string(in, "bundleid");
+        if (!bundleid) {
             ib_log("invalid hook-operation message");
             return res;
         }
         reply = xxpc_dictionary_create_reply(request);
-        xxpc_object_t fate = xxpc_dictionary_get_value(g_argv0_to_fate, argv0);
-        if (fate)
-            xxpc_dictionary_set_value(reply, "out", fate);
+        xxpc_object_t out = xxpc_dictionary_create(NULL, NULL, 0);
+        xxpc_object_t fate = xxpc_dictionary_get_value(g_bundleid_to_fate, bundleid);
+        if (fate) {
+            if (IB_VERBOSE) {
+                char *desc = xxpc_copy_description(fate);
+                ib_log("your (%s) fate is %s", bundleid, desc);
+                free(desc);
+            }
+            xxpc_dictionary_set_value(out, "fate", fate);
+        } else {
+            if (IB_VERBOSE)
+                ib_log("your (%s) fate is unavailable", bundleid);
+        }
+        xxpc_dictionary_set_value(reply, "out", out);
+        xxpc_release(out);
     } else {
         ib_log("unknown hook-operation '%s'", name);
         return res;
@@ -556,7 +573,7 @@ static void init() {
      * (it also decreases the amount of library code necessary to load from
      * disk...)
      */
-    g_argv0_to_fate = xxpc_dictionary_create(NULL, NULL, 0);
+    g_bundleid_to_fate = xxpc_dictionary_create(NULL, NULL, 0);
 
     const char *image0 = _dyld_get_image_name(0);
     g_is_launchd = !!strstr(image0, "launchd");

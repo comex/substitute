@@ -30,8 +30,8 @@ int main() {
 
 
     struct htab_teststr_int *hp;
-    HTAB_STORAGE(teststr_int) stor;
-    HTAB_STORAGE_INIT(&stor, teststr_int);
+    HTAB_STORAGE(teststr_int) stor = HTAB_STORAGE_INIT_STATIC(&stor, teststr_int);
+    /*HTAB_STORAGE_INIT(&stor, teststr_int);*/
     hp = &stor.h;
     for(int i = 0; i < 100; i++) {
         const char *k;
@@ -39,6 +39,8 @@ int main() {
         bool new;
         *htab_setp_teststr_int(hp, &k, &new) = i;
         assert(new);
+        assert(htab_getbucket_teststr_int(hp, &k)->value == i);
+        assert(*htab_getp_teststr_int(hp, &k) == i);
     }
     {
         const char *k = "foo31";

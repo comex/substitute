@@ -200,40 +200,55 @@ enum convert_filters_ret {
     return PROVISIONAL_PASS;
 }
 
-- (void)updateSpringBoardNeedsSafe:(const char *)argv0 then:(void (^)())then {
+- (void)updateSpringBoardNeedsSafeThen:(void (^)())then {
     xxpc_object_t inn = xxpc_dictionary_create(NULL, NULL, 0);
-    xxpc_dictionary_set_string(inn, "com.ex.substiute.hook-operation",
-                               "argv0-to-fate");
-    xxpc_dictionary_set_string(inn, "argv0", argv0);
+    xxpc_dictionary_set_string(inn, "com.ex.substitute.hook-operation",
+                               "bundleid-to-fate");
+    xxpc_dictionary_set_string(inn, "bundleid", "com.apple.SpringBoard");
 
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0),
                    ^{
+        int to_set = REALLY_SAFE;
         xxpc_object_t out = NULL;
         vproc_swap_complex(NULL, 99999, inn, &out);
-        int to_set = REALLY_SAFE;
         if (!out) {
             NSLog(@"couldn't talk to launchd :( - assume worst case scenario");
             goto out;
         }
-        if (xxpc_get_type(out) != XXPC_TYPE_INT64) {
-            NSLog(@"wrong type from launchd!?");
-            goto out;
+        __unsafe_unretained xxpc_type_t type = xxpc_get_type(out);
+        if (xxpc_get_type(out) != XXPC_TYPE_DICTIONARY)
+            goto bad_data;
+
+        bool crashed;
+        __unsafe_unretained xxpc_object_t fate =
+            xxpc_dictionary_get_value(out, "fate");
+        if (!fate) {
+            /* no record yet */
+            crashed = false;
+        } else if (xxpc_get_type(out) == XXPC_TYPE_INT64) {
+            int stat = (int) xxpc_int64_get_value(out);
+            crashed = WIFSIGNALED(stat) && WTERMSIG(stat) != SIGTERM;
+        } else {
+            goto bad_data;
         }
 
-        int stat = (int) xxpc_int64_get_value(out);
-        bool crashed = WIFSIGNALED(stat) && WTERMSIG(stat) != SIGTERM;
+
         if (crashed) {
             if (g_springboard_needs_safe) {
-                NSLog(@"SpringBoard hung up more than once without without saying bye; using Really Safe Mode (no UI) next time :(");
+                NSLog(@"SpringBoard crashed while in safe mode; using Really Safe Mode (no UI) next time :(");
                 to_set = REALLY_SAFE;
             } else {
-                NSLog(@"SpringBoard hung up without saying bye; using safe mode next time.");
+                NSLog(@"SpringBoard crashed; using safe mode next time.");
                 to_set = NEEDS_SAFE;
             }
         } else {
             to_set = NO_SAFE;
         }
+        goto out;
 
+    bad_data:
+        NSLog(@"bad data %@ from launchd!?", out);
+        goto out;
     out:
         dispatch_async(dispatch_get_main_queue(), ^{
             g_springboard_needs_safe = to_set;
@@ -258,8 +273,9 @@ enum convert_filters_ret {
     _is_springboard = [_argv0 isEqualToString:sb_exe];
 
     if (_is_springboard)
-        [self updateSpringBoardNeedsSafe:argv0
-              then:^{[self handleMessageHelloRest:request];}];
+        [self updateSpringBoardNeedsSafeThen:^{
+            [self handleMessageHelloRest:request];
+        }];
     else
         [self handleMessageHelloRest:request];
     return;
