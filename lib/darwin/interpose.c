@@ -172,7 +172,8 @@ int substitute_interpose_imports(const struct substitute_image *image,
         if (lc->cmd == LC_SEGMENT_X) {
             segment_command_x *sc = (void *) lc;
             if (st.nsegments == st.max_segments) {
-                segment_command_x **new = calloc(st.nsegments * 2, sizeof(*st.segments));
+                segment_command_x **new = calloc(st.nsegments * 2,
+                                                 sizeof(*st.segments));
                 if (!new)
                     substitute_panic("%s: out of memory\n", __func__);
                 memcpy(new, st.segments, st.nsegments * sizeof(*st.segments));
@@ -190,9 +191,12 @@ int substitute_interpose_imports(const struct substitute_image *image,
         if (lc->cmd == LC_DYLD_INFO || lc->cmd == LC_DYLD_INFO_ONLY) {
             struct dyld_info_command *dc = (void *) lc;
             int ret;
-            if ((ret = try_bind_section(off_to_addr(&st, dc->bind_off), dc->bind_size, &st, false)) ||
-                (ret = try_bind_section(off_to_addr(&st, dc->weak_bind_off), dc->weak_bind_size, &st, false)) ||
-                (ret = try_bind_section(off_to_addr(&st, dc->lazy_bind_off), dc->lazy_bind_size, &st, true)))
+            if ((ret = try_bind_section(off_to_addr(&st, dc->bind_off),
+                                        dc->bind_size, &st, false)) ||
+                (ret = try_bind_section(off_to_addr(&st, dc->weak_bind_off),
+                                        dc->weak_bind_size, &st, false)) ||
+                (ret = try_bind_section(off_to_addr(&st, dc->lazy_bind_off),
+                                        dc->lazy_bind_size, &st, true)))
                 goto fail;
 
             break;
