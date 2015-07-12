@@ -225,8 +225,8 @@ enum convert_filters_ret {
         if (!fate) {
             /* no record yet */
             crashed = false;
-        } else if (xxpc_get_type(out) == XXPC_TYPE_INT64) {
-            int stat = (int) xxpc_int64_get_value(out);
+        } else if (xxpc_get_type(fate) == XXPC_TYPE_INT64) {
+            int stat = (int) xxpc_int64_get_value(fate);
             crashed = WIFSIGNALED(stat) && WTERMSIG(stat) != SIGTERM;
         } else {
             goto bad_data;
