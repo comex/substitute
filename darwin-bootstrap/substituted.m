@@ -3,6 +3,9 @@
 #include "darwin/xxpc.h"
 #include "substitute.h"
 
+void *vproc_swap_complex(void *vp, int key, xxpc_object_t inval,
+                         __strong xxpc_object_t *outval);
+
 /* This is a daemon contacted by all processes which can load extensions.  It
  * currently does the work of reading the plists in
  * /Library/Substitute/DynamicLibraries in order to avoid loading objc/CF
@@ -59,7 +62,7 @@ static xxpc_object_t nsstring_to_xpc(NSString *in) {
 @interface PeerHandler : NSObject {
     xxpc_object_t _connection;
     NSString *_argv0;
-    bool _is_springboard, _got_bye;
+    bool _is_springboard;
 }
 
 @end
@@ -197,19 +200,76 @@ enum convert_filters_ret {
     return PROVISIONAL_PASS;
 }
 
-- (bool)handleMessageHello:(xxpc_object_t)request {
+- (void)updateSpringBoardNeedsSafe:(const char *)argv0 then:(void (^)())then {
+    xxpc_object_t inn = xxpc_dictionary_create(NULL, NULL, 0);
+    xxpc_dictionary_set_string(inn, "com.ex.substiute.hook-operation",
+                               "argv0-to-fate");
+    xxpc_dictionary_set_string(inn, "argv0", argv0);
+
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0),
+                   ^{
+        xxpc_object_t out = NULL;
+        vproc_swap_complex(NULL, 99999, inn, &out);
+        int to_set = REALLY_SAFE;
+        if (!out) {
+            NSLog(@"couldn't talk to launchd :( - assume worst case scenario");
+            goto out;
+        }
+        if (xxpc_get_type(out) != XXPC_TYPE_INT64) {
+            NSLog(@"wrong type from launchd!?");
+            goto out;
+        }
+
+        int stat = (int) xxpc_int64_get_value(out);
+        bool crashed = WIFSIGNALED(stat) && WTERMSIG(stat) != SIGTERM;
+        if (crashed) {
+            if (g_springboard_needs_safe) {
+                NSLog(@"SpringBoard hung up more than once without without saying bye; using Really Safe Mode (no UI) next time :(");
+                to_set = REALLY_SAFE;
+            } else {
+                NSLog(@"SpringBoard hung up without saying bye; using safe mode next time.");
+                to_set = NEEDS_SAFE;
+            }
+        } else {
+            to_set = NO_SAFE;
+        }
+
+    out:
+        dispatch_async(dispatch_get_main_queue(), ^{
+            g_springboard_needs_safe = to_set;
+            then();
+        });
+    });
+}
+
+- (void)handleMessageHello:(NS_VALID_UNTIL_END_OF_SCOPE xxpc_object_t)request {
+    NSString *sb_exe =
+        @"/System/Library/CoreServices/SpringBoard.app/SpringBoard";
+
     if (_argv0 != NULL)
-        return false;
+        goto bad;
 
     const char *argv0 = xxpc_dictionary_get_string(request, "argv0");
     if (!argv0)
-        return false;
+        goto bad;
     _argv0 = [NSString stringWithCString:argv0
                        encoding:NSUTF8StringEncoding];
 
-    NSString *sb_exe =
-        @"/System/Library/CoreServices/SpringBoard.app/SpringBoard";
     _is_springboard = [_argv0 isEqualToString:sb_exe];
+
+    if (_is_springboard)
+        [self updateSpringBoardNeedsSafe:argv0
+              then:^{[self handleMessageHelloRest:request];}];
+    else
+        [self handleMessageHelloRest:request];
+    return;
+
+bad:
+    [self handleBadMessage:request];
+}
+
+- (void)handleMessageHelloRest:(NS_VALID_UNTIL_END_OF_SCOPE
+                                xxpc_object_t)request {
 
     xxpc_object_t bundles = xxpc_array_create(NULL, 0);
 
@@ -218,8 +278,6 @@ enum convert_filters_ret {
     NSArray *list = [[NSFileManager defaultManager]
                      contentsOfDirectoryAtPath:base
                      error:&err];
-    if (!list)
-        return bundles;
 
     for (NSString *dylib in list) {
         if (![[dylib pathExtension] isEqualToString:@"dylib"])
@@ -255,44 +313,23 @@ enum convert_filters_ret {
     xxpc_object_t reply = xxpc_dictionary_create_reply(request);
     xxpc_dictionary_set_value(reply, "bundles", bundles);
     xxpc_connection_send_message(_connection, reply);
-    return true;
 }
 
-- (bool)handleMessageBye:(xxpc_object_t)request {
-    _got_bye = true;
-    return true;
+- (void)handleBadMessage:(xxpc_object_t)request {
+    NSLog(@"bad message received: %@", request);
+    xxpc_connection_cancel(_connection);
 }
 
-- (void)handleHangup {
-    /* this could be false because hello hasn't been sent, but in that case it
-     * hasn't loaded any substitute dylibs, so not our problem *whistle* */
-    if (_is_springboard) {
-        bool needs_safe = !_got_bye;
-        if (needs_safe) {
-            if (g_springboard_needs_safe) {
-                NSLog(@"SpringBoard hung up more than once without without saying bye; using Really Safe Mode (no UI) next time :(");
-                g_springboard_needs_safe = REALLY_SAFE;
-            } else {
-                NSLog(@"SpringBoard hung up without saying bye; using safe mode next time.");
-                g_springboard_needs_safe = NEEDS_SAFE;
-            }
-        } else {
-            g_springboard_needs_safe = NO_SAFE;
-        }
-    }
-}
-
-
-- (bool)handleMessage:(xxpc_object_t)request {
+- (void)handleMessage:(NS_VALID_UNTIL_END_OF_SCOPE xxpc_object_t)request {
     const char *type = xxpc_dictionary_get_string(request, "type");
     if (!type)
-        return false;
+        goto bad;
     if (!strcmp(type, "hello"))
         return [self handleMessageHello:request];
-    else if (!strcmp(type, "bye"))
-        return [self handleMessageBye:request];
     else
-        return false;
+        goto bad;
+bad:
+    return [self handleBadMessage:request];
 }
 
 - (instancetype)initWithConnection:(xxpc_object_t)connection {
@@ -300,11 +337,10 @@ enum convert_filters_ret {
     xxpc_connection_set_event_handler(connection, ^(xxpc_object_t event) {
         xxpc_type_t ty = xxpc_get_type(event);
         if (ty == XXPC_TYPE_DICTIONARY) {
-            if (![self handleMessage:event])
-                xxpc_connection_cancel(connection);
+            [self handleMessage:event];
         } else if (ty == XXPC_TYPE_ERROR) {
             if (event == XXPC_ERROR_CONNECTION_INVALID) {
-                [self handleHangup];
+                /* [self handleHangup]; */
             } else {
                 NSLog(@"XPC error from connection: %@", event);
                 xxpc_connection_cancel(connection);
@@ -322,7 +358,8 @@ int main() {
     NSLog(@"hello from substituted");
     install_deadlock_warning();
     xxpc_connection_t listener = xxpc_connection_create_mach_service(
-        "com.ex.substituted", NULL, XXPC_CONNECTION_MACH_SERVICE_LISTENER);
+        "com.ex.substituted", dispatch_get_main_queue(),
+        XXPC_CONNECTION_MACH_SERVICE_LISTENER);
     if (!listener) {
         NSLog(@"xxpc_connection_create_mach_service returned null");
         exit(1);

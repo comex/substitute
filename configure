@@ -57,7 +57,7 @@ if settings.enable_werror:
         settings[mach.name].cflags = ['-Werror'] + settings[mach.name].cflags
 
 for i in ('cflags', 'ldflags'):
-    settings.host[i] = ['-miphoneos-version-min=8.0'] + settings.host[i]
+    settings.host[i] = ['-miphoneos-version-min=8.0', '-O3'] + settings.host[i]
 
 # todo make overridable?
 cc_argv = c.cc.argv()
@@ -212,7 +212,7 @@ if settings.enable_ios_bootstrap:
 
     ls = ['(out)/libsubstitute.dylib']
     for ty, out, ins, objs, ldf, cf in [
-        ('dylib', '(out)/posixspawn-hook.dylib', ['(src)/darwin-bootstrap/posixspawn-hook.c'], ls, [], []),
+        ('dylib', '(out)/posixspawn-hook.dylib', ['(src)/darwin-bootstrap/posixspawn-hook.c'], ls, ['-lbsm'], []),
         ('dylib', '(out)/bundle-loader.dylib', ['(src)/darwin-bootstrap/bundle-loader.c'], [], [], []),
         ('exec', '(out)/unrestrict', ['(src)/darwin-bootstrap/unrestrict.c'], ls, [], []),
         ('exec', '(out)/inject-into-launchd', ['(src)/darwin-bootstrap/inject-into-launchd.c'], ls, ['-framework', 'IOKit', '-framework', 'CoreFoundation'], []),

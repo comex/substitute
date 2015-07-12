@@ -42,11 +42,11 @@ struct htab_internal {
     void *__htab_key_lookup_##name(struct htab_internal *restrict hi, \
                                    const key_ty *restrict key, \
                                    size_t entry_size, \
-                                   bool add, bool resize_if_necessary); \
+                                   bool add); \
     func_decl \
-    bool __htab_key_remove_##name(struct htab_internal *restrict hi, \
-                                  const key_ty *restrict key, \
-                                  size_t entry_size); \
+    void __htab_key_removeat_##name(struct htab_internal *restrict hi, \
+                                    void *op, \
+                                    size_t entry_size); \
     func_decl \
     void __htab_key_memset_##name(void *ptr, size_t size); \
     func_decl \
@@ -81,8 +81,8 @@ struct htab_internal {
     void *__htab_key_lookup_##name(struct htab_internal *restrict hi, \
                                    const key_ty *restrict key, \
                                    size_t entry_size, \
-                                   bool add, bool resize_if_necessary) { \
-        if (resize_if_necessary && \
+                                   bool add) { \
+        if (add && \
             hi->capacity * 2 <= hi->length * 3) \
             __htab_key_resize_##name(hi, hi->capacity * 2, entry_size); \
         size_t capacity = hi->capacity; \
@@ -101,17 +101,14 @@ struct htab_internal {
             } \
             if (eq_func(bucket, key)) \
                 return bucket; \
-        } while ((i = (i + 1) % capacity) != hash); \
+        } while (i = (i + 1) == capacity ? 0 : (i + 1), i != hash); \
         return NULL; \
     } \
     \
     /* slow but who cares */ \
-    bool __htab_key_remove_##name(struct htab_internal *restrict hi, \
-                                  const key_ty *restrict key, \
-                                  size_t entry_size) { \
-        void *op = __htab_key_lookup_##name(hi, key, entry_size, false, false); \
-        if (!op) \
-            return false; \
+    void __htab_key_removeat_##name(struct htab_internal *restrict hi, \
+                                    void *op, \
+                                    size_t entry_size) { \
         key_ty *orig = op; \
         key_ty *end = (void *) ((char *) hi->base + hi->capacity * entry_size); \
         key_ty *cur = orig; \
@@ -126,9 +123,8 @@ struct htab_internal {
             memmove(prev, cur, entry_size); \
             prev = cur; \
         } while (cur != orig); \
-        memset(cur, 0, entry_size); \
+        memset(cur, nil_byte, entry_size); \
         hi->length--; \
-        return true; \
     } \
     void __htab_key_memset_##name(void *ptr, size_t size) { \
         memset(ptr, (nil_byte), size); \
@@ -152,7 +148,7 @@ struct htab_internal {
             if (!null_func(bucket)) { \
                 memcpy( \
                     __htab_key_lookup_##name(&temp, bucket, entry_size, \
-                                             true, false), \
+                                             true), \
                     bucket, \
                     entry_size); \
             } \
@@ -199,7 +195,7 @@ struct htab_internal {
     bucket_ty *htab_getbucket_##name(htab_ty *restrict ht, \
                                      const key_ty *restrict key) { \
         return __htab_key_lookup_##key_name(&ht->hi, key, sizeof(bucket_ty), \
-                                            false, true); \
+                                            false); \
     } \
     UNUSED_STATIC_INLINE \
     value_ty *htab_getp_##name(const htab_ty *restrict ht, \
@@ -211,7 +207,7 @@ struct htab_internal {
     bucket_ty *htab_setbucket_##name(htab_ty *restrict ht, \
                                      const key_ty *restrict key) { \
         return __htab_key_lookup_##key_name(&ht->hi, key, sizeof(bucket_ty), \
-                                            true, true); \
+                                            true); \
     } \
     UNUSED_STATIC_INLINE \
     value_ty *htab_setp_##name(const htab_ty *restrict ht, \
@@ -231,7 +227,16 @@ struct htab_internal {
     } \
     UNUSED_STATIC_INLINE \
     bool htab_remove_##name(htab_ty *restrict ht, const key_ty *restrict key) { \
-        return __htab_key_remove_##key_name(&ht->hi, key, sizeof(bucket_ty)); \
+        void *op = __htab_key_lookup_##key_name(&ht->hi, key, sizeof(bucket_ty), \
+                                                false); \
+        if (!op) \
+            return false; \
+        __htab_key_removeat_##key_name(&ht->hi, op, sizeof(bucket_ty)); \
+        return true; \
+    } \
+    UNUSED_STATIC_INLINE \
+    void htab_removeat_##name(htab_ty *restrict ht, bucket_ty *op) { \
+        __htab_key_removeat_##key_name(&ht->hi, op, sizeof(bucket_ty)); \
     } \
     UNUSED_STATIC_INLINE \
     void __htab_memset_##name(void *ptr, size_t size) { \
@@ -263,11 +268,18 @@ struct htab_internal {
 #define HTAB_STORAGE_INIT(hs, name) do { \
     struct htab_##name *h = &(hs)->h; \
     h->length = 0; \
-    h->capacity = (sizeof((hs)->rest) / sizeof(__htab_key_ty_##name)) + 1; \
+    h->capacity = (sizeof((hs)->rest) / sizeof(struct htab_bucket_##name)) + 1; \
     h->base = h->storage; \
     __htab_memset_##name(h->base, \
-                         h->capacity * sizeof(__htab_key_ty_##name)); \
+                         h->capacity * sizeof(struct htab_bucket_##name)); \
 } while (0)
+
+/* only works if nil_byte is 0 */
+#define HTAB_STORAGE_INIT_STATIC(hs, name) \
+    {{0, \
+      (sizeof((hs)->rest) / sizeof(struct htab_bucket_##name)) + 1, \
+      (hs)->h.storage \
+    }}
 
 #define HTAB_FOREACH(ht, key_var, val_var, name) \
     LET(struct htab_##name *__htfe_ht = (ht)) \

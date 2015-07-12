@@ -20,6 +20,8 @@
 #include "ib-log.h"
 #include "substitute.h"
 #include "substitute-internal.h"
+#include "darwin/xxpc.h"
+#include "cbit/htab.h"
 #include <mach/mach.h>
 #include <mach-o/dyld.h>
 #include <mach-o/loader.h>
@@ -30,15 +32,35 @@
 #include <malloc/malloc.h>
 #include <errno.h>
 #include <arpa/inet.h>
+#include <pthread.h>
 #include <libkern/OSByteOrder.h>
+
+#define _pid_hash(pidp) (*(pidp))
+#define _pid_eq(pid1p, pid2p) (*(pid1p) == *(pid2p))
+#define _pid_null(pidp) (!*(pidp))
+DECL_STATIC_HTAB_KEY(pid_t, pid_t, _pid_hash, _pid_eq, _pid_null, 0);
+DECL_HTAB(pid_str, pid_t, char *);
 
 extern char ***_NSGetEnviron(void);
 
-static __typeof__(posix_spawn) *old_posix_spawn, *old_posix_spawnp,
-                               hook_posix_spawn, hook_posix_spawnp;
-static int (*old_sandbox_check)(pid_t, const char *, int type, ...);
+struct au_tid;
+extern void audit_token_to_au32(audit_token_t, uid_t *, uid_t *, gid_t *,
+                                uid_t *, gid_t *, pid_t *, pid_t *,
+                                struct au_tid *);
 
-static bool is_launchd;
+static typeof(posix_spawn) *old_posix_spawn, *old_posix_spawnp,
+                           hook_posix_spawn, hook_posix_spawnp;
+static typeof(wait4) *old_wait4, hook_wait4;
+static typeof(waitpid) *old_waitpid, hook_waitpid;
+static int (*old_sandbox_check)(pid_t, const char *, int type, ...);
+static int (*old_xpc_pipe_try_receive)(mach_port_t, xxpc_object_t *,
+                                       mach_port_t *, void *, size_t, int);
+
+static bool g_is_launchd;
+static xxpc_object_t g_argv0_to_fate;
+static HTAB_STORAGE(pid_str) g_pid_to_argv0 =
+    HTAB_STORAGE_INIT_STATIC(&g_pid_to_argv0, pid_str);
+static pthread_mutex_t g_dicts_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static bool advance(char **strp, const char *template) {
     size_t len = strlen(template);
@@ -174,7 +196,7 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
                path,
                (flags & POSIX_SPAWN_SETEXEC) ? " (exec)" : "",
                (flags & POSIX_SPAWN_START_SUSPENDED) ? " (suspend)" : "",
-               is_launchd);
+               g_is_launchd);
         for (char *const *ap = argv; *ap; ap++)
             ib_log("   %s", *ap);
     }
@@ -185,9 +207,11 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
     static const char psh_dylib[] =
         "/Library/Substitute/Helpers/posixspawn-hook.dylib";
 
+    const char *argv0 = argv[0] ?: "";
+
     /* which dylib should we add, if any? */
     const char *dylib_to_add;
-    if (is_launchd) {
+    if (g_is_launchd) {
         if (strcmp(path, "/usr/libexec/xpcproxy"))
             goto skip;
         dylib_to_add = psh_dylib;
@@ -218,7 +242,7 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
          */
         if (!strcmp(path, "/Library/Substitute/Helpers/substituted") ||
             !strcmp(path, "/usr/sbin/notifyd") ||
-            !strcmp(xbasename(argv[0] ?: ""), "sshd"))
+            !strcmp(xbasename(argv0), "sshd"))
             goto skip;
         dylib_to_add = bl_dylib;
     }
@@ -354,6 +378,11 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
     pid_t pid = *pidp;
     if (need_unrestrict)
         spawn_unrestrict(pid, !was_suspended, false);
+
+    pthread_mutex_lock(&g_dicts_lock);
+    *htab_setp_pid_str(&g_pid_to_argv0.h, &pid, NULL) = strdup(argv0);
+    pthread_mutex_unlock(&g_dicts_lock);
+
     goto cleanup;
 crap:
     ib_log("posixspawn-hook: weird error - OOM?  skipping our stuff");
@@ -380,6 +409,95 @@ int hook_posix_spawnp(pid_t *restrict pid, const char *restrict path,
                       char *const argv[restrict], char *const envp[restrict]) {
     return hook_posix_spawn_generic(old_posix_spawnp, pid, path, file_actions,
                                     attrp, argv, envp);
+}
+
+static void after_wait_generic(pid_t pid, int stat) {
+    if (pid == -1)
+        return;
+    pthread_mutex_lock(&g_dicts_lock);
+    struct htab_bucket_pid_str *bucket =
+        htab_getbucket_pid_str(&g_pid_to_argv0.h, &pid);
+    if (!bucket) {
+        /* probably spawned some other way / not a task */
+        if (IB_VERBOSE)
+            ib_log("reaped unknown pid %d", pid);
+        return;
+    }
+    char *argv0 = bucket->value;
+    xxpc_dictionary_set_int64(g_argv0_to_fate, argv0, stat);
+    free(argv0);
+    htab_removeat_pid_str(&g_pid_to_argv0.h, bucket);
+    pthread_mutex_unlock(&g_dicts_lock);
+}
+
+pid_t hook_wait4(pid_t pid, int *stat_loc, int options, struct rusage *rusage) {
+    pid_t ret = old_wait4(pid, stat_loc, options, rusage);
+    after_wait_generic(ret, *stat_loc);
+    return ret;
+}
+
+pid_t hook_waitpid(pid_t pid, int *stat_loc, int options) {
+    pid_t ret = old_waitpid(pid, stat_loc, options);
+    after_wait_generic(ret, *stat_loc);
+    return ret;
+}
+
+int hook_xpc_pipe_try_receive(mach_port_t port_set, xxpc_object_t *requestp,
+                              mach_port_t *recvp, void *mig_demux,
+                              size_t msg_size, int dunno_ignored) {
+    int res = old_xpc_pipe_try_receive(port_set, requestp, recvp, mig_demux,
+                                       msg_size, dunno_ignored);
+    if (res)
+        return res;
+    xxpc_object_t request = *requestp;
+    if (!request || /* just to be sure */
+        xxpc_get_type(request) != XXPC_TYPE_DICTIONARY)
+        return res;
+    /* is it for us? - usage of "in"/"out" is to satisfy the public vproc API */
+    xxpc_object_t in = xxpc_dictionary_get_value(request, "in");
+    if (!in || xxpc_get_type(in) != XXPC_TYPE_DICTIONARY)
+        return res;
+    const char *name = xxpc_dictionary_get_string(in,
+        "com.ex.substitute.hook-operation");
+    if (!name)
+        return res;
+    /* is it from someone untrustworthy? */
+    audit_token_t at;
+    xxpc_dictionary_get_audit_token(request, &at);
+    uid_t euid;
+    pid_t pid;
+    audit_token_to_au32(at, NULL, &euid, NULL, NULL, NULL, &pid, NULL, NULL);
+    if (euid != 0) {
+        ib_log("Attempt to perform hook-operation by pid %d with euid %d",
+               euid, pid);
+        return res;
+    }
+    xxpc_object_t reply = NULL;
+    if (!strcmp(name, "argv0-to-fate")) {
+        const char *argv0 = xxpc_dictionary_get_string(in, "argv0");
+        if (!argv0) {
+            ib_log("invalid hook-operation message");
+            return res;
+        }
+        reply = xxpc_dictionary_create_reply(request);
+        xxpc_object_t fate = xxpc_dictionary_get_value(g_argv0_to_fate, argv0);
+        if (fate)
+            xxpc_dictionary_set_value(reply, "out", fate);
+    } else {
+        ib_log("unknown hook-operation '%s'", name);
+        return res;
+    }
+    if (reply) {
+        int reply_res = xxpc_pipe_routine_reply(reply);
+        if (reply_res) {
+            ib_log("xxpc_pipe_routine_reply: %d", reply_res);
+            return res;
+        }
+        xxpc_release(reply);
+    }
+    xxpc_release(request);
+    *requestp = NULL;
+    return 0;
 }
 
 int hook_sandbox_check(pid_t pid, const char *op, int type, ...) {
@@ -438,9 +556,10 @@ static void init() {
      * (it also decreases the amount of library code necessary to load from
      * disk...)
      */
+    g_argv0_to_fate = xxpc_dictionary_create(NULL, NULL, 0);
 
     const char *image0 = _dyld_get_image_name(0);
-    is_launchd = !!strstr(image0, "launchd");
+    g_is_launchd = !!strstr(image0, "launchd");
     struct substitute_image *im = substitute_open_image(image0);
     if (!im) {
         ib_log("posixspawn-hook: substitute_open_image failed");
@@ -451,6 +570,10 @@ static void init() {
         {"_posix_spawn", hook_posix_spawn, &old_posix_spawn},
         {"_posix_spawnp", hook_posix_spawnp, &old_posix_spawnp},
         {"_sandbox_check", hook_sandbox_check, &old_sandbox_check},
+        {"_waitpid", hook_waitpid, &old_waitpid},
+        {"_wait4", hook_wait4, &old_wait4},
+        {"_xpc_pipe_try_receive", hook_xpc_pipe_try_receive,
+         &old_xpc_pipe_try_receive},
     };
 
     int err = substitute_interpose_imports(im, hooks, sizeof(hooks)/sizeof(*hooks),

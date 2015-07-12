@@ -193,13 +193,6 @@ static void handle_xxpc_object(xxpc_object_t object, bool is_reply) {
     free(desc);
 }
 
-static void inform_sud_of_clean_exit() {
-    xxpc_object_t message = xxpc_dictionary_create(NULL, NULL, 0);
-    xxpc_dictionary_set_string(message, "type", "bye");
-    xxpc_connection_send_message(substituted_conn, message);
-    xxpc_release(message);
-}
-
 /* this is DYLD_INSERT_LIBRARIES'd, not injected. */
 __attribute__((constructor))
 static void init() {
@@ -229,6 +222,7 @@ static void init() {
                                            ^(xxpc_object_t reply) {
         handle_xxpc_object(reply, true);
     });
+    xxpc_release(message);
 
     /* Timing out *always* means a bug (or the user manually unloaded
      * substituted).  Therefore, a high timeout is actually a good thing,
@@ -271,8 +265,6 @@ static void init() {
         goto bad;
     }
     xxpc_release(hello_reply);
-
-    atexit(inform_sud_of_clean_exit);
 
     return;
 bad:
