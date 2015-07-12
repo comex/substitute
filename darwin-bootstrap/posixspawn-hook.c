@@ -80,6 +80,7 @@ static bool looks_restricted(const char *filename) {
         ib_log("open '%s': %s", filename, strerror(errno));
         return false;
     }
+    bool ret = false;
     uint32_t offset = 0;
     union {
         uint32_t magic;
@@ -91,18 +92,18 @@ static bool looks_restricted(const char *filename) {
     } u;
     if (read(fd, &u, sizeof(u)) != sizeof(u)) {
         ib_log("read header for '%s': %s", filename, strerror(errno));
-        return false;
+        goto end;
     }
     if (ntohl(u.magic) == FAT_MAGIC) {
         /* Fat binary - to avoid needing to replicate grade_binary in the
          * kernel, we assume all architectures have the same restrict-ness. */
          if (u.fh.nfat_arch == 0)
-            return false;
+            goto end;
         offset = ntohl(u.fa1.offset);
         if (pread(fd, &u, sizeof(u), offset) != sizeof(u)) {
             ib_log("read header (inside fat) for '%s': %s",
                    filename, strerror(errno));
-            return false;
+            goto end;
         }
     }
     bool swap, is64;
@@ -125,7 +126,7 @@ static bool looks_restricted(const char *filename) {
         break;
     default:
         ib_log("bad mach-o magic for '%s'", filename);
-        return false;
+        goto end;
     }
     uint32_t sizeofcmds = u.mh.sizeofcmds;
     if (swap)
@@ -136,12 +137,14 @@ static bool looks_restricted(const char *filename) {
     if (actual < 0 || (uint32_t) actual != sizeofcmds) {
         ib_log("read load cmds for '%s': %s", filename, strerror(errno));
         free(cmds_buf);
-        return false;
+        goto end;
     }
     /* overestimation is fine here */
     const char sectname[] = "__restrict";
-    bool ret = !!memmem(cmds_buf, sizeofcmds, sectname, sizeof(sectname));
+    ret = !!memmem(cmds_buf, sizeofcmds, sectname, sizeof(sectname));
     free(cmds_buf);
+end:
+    close(fd);
     return ret;
 }
 
