@@ -1,6 +1,10 @@
+#include "darwin/xxpc.h"
+#include "substitute-internal.h"
 #import <UIKit/UIKit.h>
-#include <notify.h>
 #import "AutoGrid.h"
+#include <notify.h>
+
+static NSArray *g_dylibs_to_show;
 
 @interface UIApplication (Private)
 - (void)terminateWithSuccess;
@@ -23,11 +27,14 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
     [self loadStuff];
+    /*
     NSMutableArray *names = [NSMutableArray array];
     for (int i = 0; i < 200; i++)
         [names addObject:[NSString stringWithFormat:@"Some Dylib %d", i]];
+    g_dylibs_to_show = names;
+    */
     NSMutableArray *views = [NSMutableArray array];
-    for (NSString *name in names) {
+    for (NSString *name in g_dylibs_to_show) {
         UILabel *label = [[UILabel alloc] init];
         label.text = name;
         [views addObject:label];
@@ -191,9 +198,72 @@ static void compression(UIView *view, UILayoutPriority pri) {
 
 @end
 
+static const char *test_and_transform_id_dylib(const char *id_dylib) {
+    const char *base = xbasename(id_dylib);
+    static const char dir1[] = "/Library/MobileSubstrate/DynamicLibraries/";
+    static const char dir2[] = "/Library/Substitute/DynamicLibraries/";
+    if (!strncmp(id_dylib, dir1, sizeof(dir1) - 1) ||
+        !strncmp(id_dylib, dir2, sizeof(dir2) - 1))
+        return base;
+    char *fn = NULL, *fn2 = NULL;
+    asprintf(&fn, "%s%s", dir1, base);
+    asprintf(&fn2, "%s%s", dir2, base);
+    bool found = !access(fn, F_OK) || !access(fn2, F_OK);
+    free(fn);
+    free(fn2);
+    if (found)
+        return base;
+    return NULL;
+}
+
+static void do_bad() {
+    NSLog(@"problem asking substituted for springboard-fatal-loaded-dylibs...");
+    g_dylibs_to_show = @[@"<error>"];
+}
+
+static void startup() {
+    xxpc_connection_t conn = xxpc_connection_create_mach_service(
+        "com.ex.substituted", NULL, 0);
+    if (!conn)
+        return do_bad();
+    xxpc_connection_set_event_handler(conn, ^(xxpc_object_t event) {
+        NSLog(@"< %@", event);
+    });
+    xxpc_connection_resume(conn);
+    xxpc_object_t request = xxpc_dictionary_create(NULL, NULL, 0);
+    xxpc_dictionary_set_string(request, "type",
+                               "springboard-fatal-loaded-dylibs");
+    NSLog(@"asking substituted...");
+    xxpc_object_t reply = xxpc_connection_send_message_with_reply_sync(
+        conn, request);
+    NSLog(@"done.");
+    if (!reply || xxpc_get_type(reply) != XXPC_TYPE_DICTIONARY)
+        return do_bad();
+    NS_VALID_UNTIL_END_OF_SCOPE
+    xxpc_object_t dylibs = xxpc_dictionary_get_value(reply, "dylibs");
+    if (!dylibs) {
+        g_dylibs_to_show = @[@"<unknown>"];
+        return;
+    }
+    if (xxpc_get_type(dylibs) != XXPC_TYPE_ARRAY)
+        return do_bad();
+    NSMutableArray *ary = [NSMutableArray array];
+    for (size_t i = 0, count = xxpc_array_get_count(dylibs);
+         i < count; i++) {
+        const char *dylib = xxpc_array_get_string(dylibs, i);
+        if (!dylib)
+            return do_bad();
+        const char *dylib_to_show = test_and_transform_id_dylib(dylib);
+        if (dylib_to_show)
+            [ary addObject:[NSString stringWithCString:dylib_to_show
+                                     encoding:NSUTF8StringEncoding]];
+    }
+    g_dylibs_to_show = ary;
+}
+
 int main(int argc, char *argv[]) {
-    NSLog(@"main");
     @autoreleasepool {
+        startup();
         return UIApplicationMain(argc, argv, nil, @"AppDelegate");
     }
 }

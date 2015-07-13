@@ -43,8 +43,10 @@ static bool detect_substrate_safe_mode() {
 void (*old_applicationDidFinishLaunching)(id, SEL, id);
 static void my_applicationDidFinishLaunching(id self, SEL sel, id app) {
     old_applicationDidFinishLaunching(self, sel, app);
-    if (detect_substrate_safe_mode())
+    if (detect_substrate_safe_mode()) {
+        NSLog(@"Deferring to Substrate's safe mode.");
         return;
+    }
     id controller = [SBApplicationController sharedInstanceIfExists];
     if (!controller) {
         NSLog(@"substitute safe mode: sharedInstanceIfExists => nil!");

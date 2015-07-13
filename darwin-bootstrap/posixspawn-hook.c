@@ -170,11 +170,6 @@ end:
     return ret;
 }
 
-static const char *xbasename(const char *path) {
-    const char *slash = strrchr(path, '/');
-    return slash ? slash + 1 : path;
-}
-
 static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
                                     pid_t *restrict pidp, const char *restrict path,
                                     const posix_spawn_file_actions_t *file_actions,

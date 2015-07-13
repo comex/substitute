@@ -18,6 +18,9 @@ static enum {
     REALLY_SAFE,
 } g_springboard_needs_safe;
 
+static NSSet *g_springboard_loaded_dylibs;
+static NSSet *g_springboard_last_loaded_dylibs;
+
 extern kern_return_t bootstrap_look_up3(mach_port_t bp,
     const char *service_name, mach_port_t *sp, pid_t target_pid,
     const uuid_t instance_id, uint64_t flags);
@@ -63,6 +66,7 @@ static xxpc_object_t nsstring_to_xpc(NSString *in) {
     xxpc_object_t _connection;
     NSString *_argv0;
     bool _is_springboard;
+    NSMutableSet *_loaded_dylibs;
 }
 
 @end
@@ -272,12 +276,16 @@ enum convert_filters_ret {
 
     _is_springboard = [_argv0 isEqualToString:sb_exe];
 
-    if (_is_springboard)
+    if (_is_springboard) {
+        g_springboard_last_loaded_dylibs = g_springboard_loaded_dylibs;
+        g_springboard_loaded_dylibs = _loaded_dylibs = [NSMutableSet set];
+
         [self updateSpringBoardNeedsSafeThen:^{
             [self handleMessageHelloRest:request];
         }];
-    else
+    } else {
         [self handleMessageHelloRest:request];
+    }
     return;
 
 bad:
@@ -322,12 +330,45 @@ bad:
 
         NSString *dylib_path = [base stringByAppendingPathComponent:dylib];
         xxpc_dictionary_set_value(info, "dylib", nsstring_to_xpc(dylib_path));
-
         xxpc_array_append_value(bundles, info);
     }
 
     xxpc_object_t reply = xxpc_dictionary_create_reply(request);
     xxpc_dictionary_set_value(reply, "bundles", bundles);
+    if (_is_springboard)
+        xxpc_dictionary_set_bool(reply, "notify-me-of-add-remove", true);
+    xxpc_connection_send_message(_connection, reply);
+}
+
+- (void)handleMessageAddRemove:(NS_VALID_UNTIL_END_OF_SCOPE
+                                xxpc_object_t)request {
+    bool is_add = xxpc_dictionary_get_bool(request, "is-add");
+    const char *id_dylib = xxpc_dictionary_get_string(request, "id-dylib");
+    if (!id_dylib || !_loaded_dylibs)
+        return [self handleBadMessage:request];
+    NSString *id_dylib_s = [NSString stringWithCString:id_dylib
+                                     encoding:NSUTF8StringEncoding];
+    if (is_add)
+        [_loaded_dylibs addObject:id_dylib_s];
+    else
+        [_loaded_dylibs removeObject:id_dylib_s];
+}
+
+- (void)handleMessageSBFatalLoadedDylibs:(xxpc_object_t)request {
+    /* This should probably be secured somehow... */
+    NSLog(@"handleMessageSBFatalLoadedDylibs");
+    NSSet *set = g_springboard_last_loaded_dylibs;
+    xxpc_object_t reply = xxpc_dictionary_create_reply(request);
+    if (set) {
+        xxpc_object_t dylibs = xxpc_array_create(NULL, 0);
+        xxpc_dictionary_set_value(reply, "dylibs", dylibs);
+        for (NSString *dylib in set) {
+            xxpc_array_set_string(dylibs, XXPC_ARRAY_APPEND,
+                                  [dylib cStringUsingEncoding:
+                                         NSUTF8StringEncoding]);
+
+        }
+    }
     xxpc_connection_send_message(_connection, reply);
 }
 
@@ -342,6 +383,10 @@ bad:
         goto bad;
     if (!strcmp(type, "hello"))
         return [self handleMessageHello:request];
+    else if (!strcmp(type, "add-remove"))
+        return [self handleMessageAddRemove:request];
+    else if (!strcmp(type, "springboard-fatal-loaded-dylibs"))
+        return [self handleMessageSBFatalLoadedDylibs:request];
     else
         goto bad;
 bad:

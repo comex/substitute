@@ -3,10 +3,12 @@
 #include "ib-log.h"
 #include "darwin/mach-decls.h"
 #include "darwin/xxpc.h"
+#include "substitute-internal.h"
 #include <dlfcn.h>
 #include <mach/mach.h>
 #include <mach/mach_time.h>
 #include <mach/mig.h>
+#include <mach-o/loader.h>
 #include <objc/runtime.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <syslog.h>
@@ -146,11 +148,59 @@ do_load:;
     return true;
 }
 
+static void notify_added_removed(const struct mach_header *mh32, bool is_add) {
+    char id_dylib_buf[32];
+    const char *id_dylib;
+
+    const mach_header_x *mh = (void *) mh32;
+    uint32_t ncmds = mh->ncmds;
+    const struct load_command *lc = (void *) (mh + 1);
+    for (uint32_t i = 0; i < ncmds; i++) {
+        if (lc->cmd == LC_ID_DYLIB) {
+            const struct dylib_command *dc = (void *) lc;
+            id_dylib = (const char *) dc + dc->dylib.name.offset;
+            goto ok;
+        }
+        lc = (void *) lc + lc->cmdsize;
+    }
+    /* no name? */
+    sprintf(id_dylib_buf, "unknown.%p", mh32);
+    id_dylib = id_dylib_buf;
+
+ok:;
+    xxpc_object_t message = xxpc_dictionary_create(NULL, NULL, 0);
+    xxpc_dictionary_set_string(message, "type", "add-remove");
+    xxpc_dictionary_set_bool(message, "is-add", is_add);
+    xxpc_dictionary_set_string(message, "id-dylib", id_dylib);
+    xxpc_connection_send_message(substituted_conn, message);
+    xxpc_release(message);
+}
+
+static void add_image_cb(const struct mach_header *mh, intptr_t vmaddr_slide) {
+    notify_added_removed(mh, true);
+
+}
+
+static void remove_image_cb(const struct mach_header *mh, intptr_t vmaddr_slide) {
+    notify_added_removed(mh, false);
+}
+
 static bool handle_hello_reply(xxpc_object_t dict) {
     if (IB_VERBOSE) {
         char *desc = xxpc_copy_description(dict);
         ib_log("hello_reply: %s", desc);
         free(desc);
+    }
+    bool notify = xxpc_dictionary_get_bool(dict, "notify-me-of-add-remove");
+    if (notify) {
+        _dyld_register_func_for_add_image(add_image_cb);
+        _dyld_register_func_for_remove_image(remove_image_cb);
+
+        for (uint32_t i = 0, count = _dyld_image_count(); i < count; i++) {
+            const struct mach_header *mh32 = _dyld_get_image_header(i);
+            if (mh32)
+                notify_added_removed(mh32, true);
+        }
     }
     xxpc_object_t bundles = xxpc_dictionary_get_value(dict, "bundles");
     if (!bundles || xxpc_get_type(bundles) != XXPC_TYPE_ARRAY)

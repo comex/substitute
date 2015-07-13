@@ -80,6 +80,8 @@ void WRAP(xpc_connection_resume, (xxpc_connection_t));
 void WRAP(xpc_connection_set_event_handler, (xxpc_connection_t, xxpc_handler_t));
 void WRAP(xpc_connection_send_message_with_reply,
     (xxpc_connection_t, xxpc_object_t, dispatch_queue_t, xxpc_handler_t));
+xxpc_object_t WRAP(xpc_connection_send_message_with_reply_sync,
+    (xxpc_connection_t, xxpc_object_t));
 void WRAP(xpc_connection_send_message, (xxpc_connection_t, xxpc_object_t));
 void WRAP(xpc_connection_cancel, (xxpc_connection_t));
 int WRAP(xpc_pipe_routine_reply, (xxpc_object_t));
