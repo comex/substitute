@@ -1,0 +1,15 @@
+<plist>
+<dict>
+    <key>Filter</key>
+    <dict>
+        <key>Executables</key>
+        <array>
+            <string>/System/Library/CoreServices/SpringBoard.app/SpringBoard</string>
+        </array>
+        <!--
+        <key>SafeMode</key>
+        <true/>
+        -->
+    </dict>
+</dict>
+</plist>
