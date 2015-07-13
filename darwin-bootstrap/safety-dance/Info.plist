@@ -86,5 +86,20 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>SBAppTags</key>
+	<array>
+		<string>hidden</string>
+	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>continuous</string>
+		<string>unboundedTaskCompletion</string>
+	</array>
+	<key>_UILaunchAlwaysFullScreen</key>
+	<true/>
+	<key>SBIsLaunchableDuringSetup</key>
+	<true/>
+	<key>BKRequiresExtendedLaunchInterval</key>
+	<true/>
 </dict>
 </plist>

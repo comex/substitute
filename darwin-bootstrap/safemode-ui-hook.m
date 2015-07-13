@@ -31,6 +31,7 @@ static id my_setupApplication(id self, SEL sel) {
         id app = [self applicationWithBundleIdentifier:@"com.ex.SafetyDance"];
         if (app) {
             /* definitely shouldn't be nil, given below check, but... */
+            NSLog(@"=>%@", app);
             return app;
         }
     }

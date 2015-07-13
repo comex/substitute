@@ -1,5 +1,15 @@
 #import <UIKit/UIKit.h>
+#include <notify.h>
 #import "AutoGrid.h"
+
+@interface UIApplication (Private)
+- (void)terminateWithSuccess;
+- (void)suspend;
+
+- (void)setGlowAnimationEnabled:(BOOL)enabled forStyle:(int)style;
+- (void)addStatusBarStyleOverrides:(int)overrides;
+- (void)setDoubleHeightStatusText:(NSString *)text forStyle:(int)style;
+@end
 
 @interface ViewController : UIViewController {
     AutoGrid *autoGrid;
@@ -22,6 +32,16 @@
         [views addObject:label];
     }
     [autoGrid setViews:views];
+}
+
+- (void)exitReturnToNormal {
+    notify_post("com.ex.substitute.safemode-restart-springboard-plz");
+}
+
+- (void)exitContinueSafe {
+    /* mimic Setup.app, but we don't want to actually quit */
+    UIApplication *app = [UIApplication sharedApplication];
+    [app suspend];
 }
 
 #define EXPLANATION \
@@ -75,6 +95,8 @@ static void compression(UIView *view, UILayoutPriority pri) {
     returnButton.titleLabel.font = [UIFont systemFontOfSize:17];
     [returnButton setTitle:@"Return to Normal" forState:UIControlStateNormal];
     [self.view addSubview:returnButton];
+    [returnButton addTarget:self action:@selector(exitReturnToNormal)
+                  forControlEvents:UIControlEventTouchUpInside];
 
     UIButton *continueButton = [UIButton buttonWithType:UIButtonTypeSystem];
     continueButton.translatesAutoresizingMaskIntoConstraints = NO;
@@ -85,6 +107,8 @@ static void compression(UIView *view, UILayoutPriority pri) {
     continueButton.titleLabel.font = [UIFont systemFontOfSize:17];
     [continueButton setTitle:@"Continue in Safe Mode" forState:UIControlStateNormal];
     [self.view addSubview:continueButton];
+    [continueButton addTarget:self action:@selector(exitContinueSafe)
+                    forControlEvents:UIControlEventTouchUpInside];
 
     autoGrid = [[AutoGrid alloc] init];
     autoGrid.translatesAutoresizingMaskIntoConstraints = NO;
@@ -140,12 +164,18 @@ static void compression(UIView *view, UILayoutPriority pri) {
 
 @implementation AppDelegate
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
-    NSLog(@"dflwo");
     self.window = [[UIWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
     ViewController *viewController = [[ViewController alloc] init];
     self.window.rootViewController = viewController;
     [self.window makeKeyAndVisible];
     return YES;
+}
+
+- (void)applicationDidEnterBackground:(UIApplication *)application {
+    /* mimic Voice Memos... */
+    [application setGlowAnimationEnabled:YES forStyle:202];
+    [application setDoubleHeightStatusText:@"Safe Mode" forStyle:202];
+    [application addStatusBarStyleOverrides:4];
 }
 
 @end

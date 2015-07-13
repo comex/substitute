@@ -66,7 +66,7 @@
             break;
         }
         contentSize = CGSizeMake(tentativeWidth, tentativeHeight);
-        NSLog(@"%f", contentSize.height);
+        /* NSLog(@"%f", contentSize.height); */
         if (contentSize.width == 0)
             break;
 
