@@ -6,10 +6,8 @@
         <array>
             <string>/System/Library/CoreServices/SpringBoard.app/SpringBoard</string>
         </array>
-        <!--
         <key>SafeMode</key>
         <true/>
-        -->
     </dict>
 </dict>
 </plist>

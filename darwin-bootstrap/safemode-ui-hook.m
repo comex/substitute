@@ -4,8 +4,10 @@
 #include <dispatch/dispatch.h>
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
+#include <mach-o/dyld.h>
 
-Class SpringBoard, SBApplicationController;
+static Class SpringBoard, SBApplicationController;
+static bool g_did_activate_safetydance;
 
 @interface _SBApplicationController
 - (id)applicationWithBundleIdentifier:(NSString *)identifier;
@@ -24,9 +26,25 @@ Class SpringBoard, SBApplicationController;
 - (void)activate;
 @end
 
+static bool detect_substrate_safe_mode() {
+    /* Defer to Substrate's safe mode.  On my device, this doesn't seem to be
+     * strictly necessary, because for whatever reason SafetyDance doesn't get
+     * launched when MobileSafety is loaded, but let's not rely on that
+     * quirk... */
+    for (uint32_t i = 0, count = _dyld_image_count();
+         i < count; i++) {
+        const char *name = _dyld_get_image_name(i);
+        if (name && strstr(name, "MobileSafety"))
+            return true;
+    }
+    return false;
+}
+
 void (*old_applicationDidFinishLaunching)(id, SEL, id);
 static void my_applicationDidFinishLaunching(id self, SEL sel, id app) {
     old_applicationDidFinishLaunching(self, sel, app);
+    if (detect_substrate_safe_mode())
+        return;
     id controller = [SBApplicationController sharedInstanceIfExists];
     if (!controller) {
         NSLog(@"substitute safe mode: sharedInstanceIfExists => nil!");
@@ -42,11 +60,12 @@ static void my_applicationDidFinishLaunching(id self, SEL sel, id app) {
     [sbapp setFlag:1 forActivationSetting:1]; /* noAnimate */
     /* [sbapp setFlag:1 forActivationSetting:5]; */ /* seo */
     [self launchApplicationWithIdentifier:bundle_id suspended:NO];
+    g_did_activate_safetydance = true;
 }
 
 BOOL (*old_handleDoubleHeightStatusBarTap)(id, SEL, int64_t);
 static BOOL my_handleDoubleHeightStatusBarTap(id self, SEL sel, int64_t number) {
-    if (number == 202) {
+    if (g_did_activate_safetydance && number == 202) {
         NSString *bundle_id = @"com.ex.SafetyDance";
         id controller = [SBApplicationController sharedInstanceIfExists];
         id sbapp = [controller applicationWithBundleIdentifier:bundle_id];
