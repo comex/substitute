@@ -114,36 +114,27 @@ struct htab_internal {
         key_ty *end = (void *) buckets + capacity * entry_size; \
         key_ty *hole = op; \
         key_ty *cur = hole; \
-        key_ty *last_cf_not_after_hole = NULL; \
         while (1) { \
-            cur = (void *) ((char *) cur + entry_size); \
             if (cur == end)\
-                cur = hi->base; \
+                cur = (void *) buckets; \
+            cur = (void *) ((char *) cur + entry_size); \
             if (cur == hole || null_func(cur)) { \
-                if (!last_cf_not_after_hole) { \
-                    /* all of the elements in this chain have starting \
-                     * positions (hashes) strictly 'after' the hole position, \
-                     * so we can't move any of them into the hole.  but that \
-                     * also means it's safe to just erase the hole. */ \
-                    memset(hole, nil_byte, entry_size); \
-                    break; \
-                } else { \
-                    memcpy(hole, last_cf_not_after_hole, entry_size); \
-                    /* if we could get the last element which has the
-                     * 'earliest' hash in the chain, then it would be safe to
-                     * end here, but ... */ \
-                    cur = hole = last_cf_not_after_hole; \
-                    last_cf_not_after_hole = NULL; \
-                    continue; \
-                } \
+                /* all of the elements in this chain have starting \
+                 * positions (hashes) strictly 'after' the hole position, \
+                 * so we can't move any of them into the hole.  but that \
+                 * also means it's safe to just erase the hole. */ \
+                memset(hole, nil_byte, sizeof(key_ty)); \
+                break; \
             } \
             size_t cur_hash = (hash_func(cur)) % capacity; \
             key_ty *cur_chain_first = (void *) buckets + cur_hash * entry_size; \
             bool cf_after_hole /* cyclically */ = hole <= cur ? \
                 (hole < cur_chain_first) : \
                 (cur < cur_chain_first && cur_chain_first <= hole); \
-            if (!cf_after_hole) \
-                last_cf_not_after_hole = cur; \
+            if (!cf_after_hole) { \
+                memcpy(hole, cur, entry_size); \
+                hole = cur; \
+            } \
         } \
         hi->length--; \
     } \
