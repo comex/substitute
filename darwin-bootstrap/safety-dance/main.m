@@ -8,6 +8,7 @@
 
 - (void)setGlowAnimationEnabled:(BOOL)enabled forStyle:(int)style;
 - (void)addStatusBarStyleOverrides:(int)overrides;
+- (void)removeStatusBarStyleOverrides:(int)overrides;
 - (void)setDoubleHeightStatusText:(NSString *)text forStyle:(int)style;
 @end
 
@@ -168,14 +169,24 @@ static void compression(UIView *view, UILayoutPriority pri) {
     ViewController *viewController = [[ViewController alloc] init];
     self.window.rootViewController = viewController;
     [self.window makeKeyAndVisible];
+
     return YES;
 }
 
 - (void)applicationDidEnterBackground:(UIApplication *)application {
     /* mimic Voice Memos... */
+    NSLog(@"did enter background");
     [application setGlowAnimationEnabled:YES forStyle:202];
     [application setDoubleHeightStatusText:@"Safe Mode" forStyle:202];
     [application addStatusBarStyleOverrides:4];
+    NSLog(@"(done)");
+}
+
+- (void)applicationDidBecomeActive:(UIApplication *)application {
+    NSLog(@"did become active");
+    [application setGlowAnimationEnabled:NO forStyle:202];
+    [application removeStatusBarStyleOverrides:4];
+    NSLog(@"(done)");
 }
 
 @end
