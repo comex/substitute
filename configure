@@ -68,8 +68,10 @@ settings.host.ldflags = ['-dead_strip'] + settings.host.ldflags
 # todo make overridable?
 cc_argv = c.cc.argv()
 if 'armv7' in cc_argv or 'arm64' in cc_argv:
-    settings.modify_link_commands = lambda cmds, env: cmds + [ldid_tool.argv() + ['-S'+settings.src+'/ent.plist', env['link_out']]]
-    settings.extra_link_deps = ['(src)/ent.plist']
+    settings.modify_link = lambda env: (
+        env['cmds'].append(ldid_tool.argv() + ['-S'+settings.src+'/ent.plist', env['outs'][0]]),
+        env['ins'].append(settings.src+'/ent.plist')
+    )
 
 settings.host.debug_info = True
 settings.c_includes = ['(src)/lib', '(src)/substrate', '(src)/vendor']

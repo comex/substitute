@@ -811,9 +811,10 @@ class Emitter(object):
         self.did_output = True
     def set_default_rule(self, rule):
         self.default_rule = rule
+    def filename_rel(self, fn):
+        return os.path.relpath(fn, dirname(self.settings.emit_fn))
     def filename_rel_and_escape(self, fn):
-        fn = os.path.relpath(fn, dirname(self.settings.emit_fn))
-        return self.filename_escape(fn)
+        return self.filename_escape(self.filename_rel(fn))
     def add_command(self, settings, outs, ins, argvs, phony=False, *args, **kwargs):
         if kwargs.get('expand', True):
             ev = {'raw_outs': outs, 'raw_ins': ins, 'raw_argvs': argvs}
@@ -822,6 +823,12 @@ class Emitter(object):
             argvs = [expand_argv(x, settings, ev) for x in argvs]
         if 'expand' in kwargs:
             del kwargs['expand']
+        if kwargs.get('mkdirs', True):
+            for dirname in set(map(os.path.dirname, outs)):
+                if dirname:
+                    argvs.insert(0, ['mkdir', '-p', dirname])
+        if 'mkdirs' in kwargs:
+            del kwargs['mkdirs']
         if not phony:
             self.all_outs.update(outs)
             if settings.enable_rule_hashing:
@@ -869,8 +876,8 @@ class MakefileEmitter(Emitter):
         if re.search('[\n\0]', fn):
             raise ValueError("your awful filename %r can't be encoded in make (probably)" % (fn,))
         return re.sub(r'([ :\$\\])', r'\\\1', fn)
+
     # depfile = ('makefile', filename) or ('msvc',)
-    # TODO TODO: the depfile out paths won't be relative, fix that somehow
     def add_command_raw(self, outs, ins, argvs, phony=False, depfile=None):
         bit = ''
         outs = ' '.join(map(self.filename_rel_and_escape, outs))
@@ -1092,12 +1099,24 @@ def build_c_objs(emitter, machine, settings, sources, headers=[], settings_cb=No
         any_was_cxx = any_was_cxx or is_cxx
         dep_fn = os.path.splitext(obj_fn)[0] + '.d'
 
-        mkdir_cmd = ['mkdir', '-p', dirname(obj_fn)]
+        # we must relativize here only so that .d files work properly
+        if obj_fn.startswith('/'):
+            obj_fn = emitter.filename_rel(obj_fn)
+        if fn.startswith('/'):
+            fn = emitter.filename_rel(fn)
+
         cmd = cc + dbg + include_args + cflags + ['-c', '-o', obj_fn, '-MMD', '-MF', dep_fn, fn]
 
-        cmds = [mkdir_cmd, cmd]
-        cmds = settings.get('modify_compile_commands', lambda x, env: x)(cmds, env)
-        emitter.add_command(my_settings, [obj_fn], [fn] + extra_deps, cmds, depfile=('makefile', dep_fn), expand=False)
+        env = {
+            'outs': [obj_fn],
+            'ins': [fn] + extra_deps,
+            'cmds': [cmd],
+        }
+
+        mce = settings.get('modify_compile')
+        if mce is not None:
+            mce(env)
+        emitter.add_command(my_settings, env['outs'], env['ins'], env['cmds'], depfile=('makefile', dep_fn), expand=False, mkdirs=True)
 
         for lset in my_settings.get('obj_ldflag_sets', ()):
             ldflag_sets.add(tuple(lset))
@@ -1113,7 +1132,6 @@ def link_c_objs(emitter, machine, settings, link_type, link_out, objs, link_with
         objs = list(map(_expand, objs))
     else:
         _expand = _expand_argv = lambda x: x
-    env = {'link_out': link_out} # todo: ...
     tools = machine.c_tools()
     assert link_type in ('exec', 'dylib', 'staticlib', 'obj')
     if link_type in ('exec', 'dylib'):
@@ -1132,10 +1150,15 @@ def link_c_objs(emitter, machine, settings, link_type, link_out, objs, link_with
         cmds = [tools.ar.argv() + ['rcs'] + objs]
     elif link_type == 'obj':
         cmds = [tools.cc.argv() + ['-Wl,-r', '-nostdlib', '-o', link_out] + objs]
-    cmds.insert(0, ['mkdir', '-p', dirname(link_out)])
-    cmds = settings.get('modify_link_commands', lambda x, env: x)(cmds, env)
-    extra_deps = list(map(_expand, settings.get('extra_link_deps', [])))
-    emitter.add_command(settings, [link_out], objs + extra_deps, cmds, expand=False)
+    env = {
+        'outs': [link_out],
+        'ins': objs,
+        'cmds': cmds,
+    }
+    mce = settings.get('modify_link')
+    if mce is not None:
+        mce(env)
+    emitter.add_command(settings, env['outs'], env['ins'], env['cmds'], expand=False, mkdirs=True)
 
 def build_and_link_c_objs(emitter, machine, settings, link_type, link_out, sources, headers=[], objs=[], settings_cb=None, force_cli=False, expand=True, extra_deps=[], extra_ldflags=[]):
     more_objs, link_with_cxx, ldflag_sets = build_c_objs(emitter, machine, settings, sources, headers, settings_cb, force_cli, expand)
