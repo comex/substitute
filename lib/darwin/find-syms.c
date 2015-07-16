@@ -288,7 +288,7 @@ static void inspect_dyld() {
     ImageLoaderMachO_machHeader = syms[1];
 }
 
-/* 'dlopen_header' keeps the image alive */
+/* 'dlhandle' keeps the image alive */
 EXPORT
 struct substitute_image *substitute_open_image(const char *filename) {
     pthread_once(&dyld_inspect_once, inspect_dyld);
