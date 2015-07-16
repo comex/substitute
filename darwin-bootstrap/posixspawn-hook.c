@@ -274,6 +274,8 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
         env_count++;
         char *env = *ep;
         if (advance(&env, "_MSSafeMode=") || advance(&env, "_SubstituteSafeMode=")) {
+            if (IB_VERBOSE)
+                ib_log("got safe mode env: %s", *ep);
             if (!strcmp(env, "0") || !strcmp(env, "NO"))
                 continue;
             else if (!strcmp(env, "1") || !strcmp(env, "YES"))
