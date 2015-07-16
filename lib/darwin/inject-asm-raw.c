@@ -55,9 +55,16 @@ static int bsd_thread_func(void *arg) {
     manual_semaphore_wait_trap(baton->sem_port);
 #ifndef __i386__
     /* since we're munmapping our own code, this must be optimized into a jump
-     * (taill call elimination) */
+     * (tail call elimination) */
+    enum { page_size =
+#ifdef __arm64__
+            0x4000
+#else
+            0x1000
+#endif
+    };
     unsigned long ptr = (unsigned long) baton & ~(_PAGE_SIZE - 1);
-    return baton->munmap((void *) ptr, 0x2000);
+    return baton->munmap((void *) ptr, 2 * page_size);
 #else
     /* i386 can't normally eliminate tail calls in caller-cleanup calling
      * conventions, unless the number of arguments is the same, so use a nasty
