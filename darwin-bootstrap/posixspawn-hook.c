@@ -541,6 +541,7 @@ int hook_sandbox_check(pid_t pid, const char *op, int type, ...) {
                              blah[0], blah[1], blah[2], blah[3], blah[4]);
 }
 
+EXPORT
 void substitute_init(struct shuttle *shuttle, size_t nshuttle) {
     /* Just tell them we're done */
     if (nshuttle != 1) {
