@@ -62,6 +62,8 @@ if settings.host_machine().is_cross():
     flags.append('-miphoneos-version-min=8.0')
 for i in ('cflags', 'ldflags'):
     settings.host[i] = flags + settings.host[i]
+settings.host.cflags = ['-fvisibility=hidden'] + settings.host.cflags
+settings.host.ldflags = ['-dead_strip'] + settings.host.ldflags
 
 # todo make overridable?
 cc_argv = c.cc.argv()
@@ -89,7 +91,9 @@ def cb(fn):
 # bytes there, more than enough.)
 
 mconfig.build_and_link_c_objs(
-    emitter, settings.host_machine(), settings,
+    emitter,
+    settings.host_machine(),
+    settings.specialize(override_ldflags=['-install_name', '/usr/lib/libsubstitute.0.dylib'] + settings.host.ldflags),
     'dylib',
     '(out)/libsubstitute.dylib',
     [
@@ -152,10 +156,10 @@ if settings.enable_tests:
         ('find-syms', ['-std=c89']),
         ('find-syms-cpp', 'find-syms', ['-x', 'c++', '-std=c++98'], {'cpp': True}),
         ('substrate', ['-x', 'c++', '-std=c++98'], {'cpp': True}),
-        ('imp-forwarding', [], ['-framework', 'Foundation', '-lobjc']),
+        ('imp-forwarding', [], ['-framework', 'Foundation', '-lobjc'], {'extra_objs': ['(out)/lib/darwin/objc-asm.o']}),
         ('objc-hook', [], ['-framework', 'Foundation']),
         ('interpose',),
-        ('inject', {'extra_objs': ['(out)/lib/darwin/inject.o', '(out)/lib/darwin/read.o']}),
+        ('inject', {'extra_objs': ['(out)/lib/darwin/inject.o', '(out)/lib/darwin/read.o', '(out)/generated/darwin-inject-asm.o']}),
         ('pc-patch', {'extra_objs': ['(out)/lib/darwin/execmem.o']}),
         ('execmem', [], ['-segprot', '__TEST', 'rwx', 'rx'], {'extra_objs': ['(out)/lib/darwin/execmem.o']}),
         ('hook-functions', [], ['-segprot', '__TEST', 'rwx', 'rx']),
@@ -200,7 +204,7 @@ if settings.enable_ios_bootstrap:
     mconfig.build_and_link_c_objs(emitter, settings.host_machine(),
         settings.specialize(
             override_cflags=['-fobjc-arc', '-Wno-unused-parameter']+settings.host.cflags,
-            override_ldflags=['-framework', 'UIKit', '-framework', 'Foundation', '-dead_strip']+settings.host.ldflags,
+            override_ldflags=['-framework', 'UIKit', '-framework', 'Foundation']+settings.host.ldflags,
         ),
         'exec',
         '(out)/SafetyDance.app/SafetyDance',

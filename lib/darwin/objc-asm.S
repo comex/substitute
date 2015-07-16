@@ -5,7 +5,7 @@
 .thumb_func _remap_start
 .thumb
 #endif
-.globl _remap_start
+.private_extern _remap_start
 _remap_start:
 
 .set i, 0

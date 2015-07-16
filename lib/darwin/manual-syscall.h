@@ -1,7 +1,7 @@
 #pragma once
 
 #define GEN_SYSCALL(name, num) \
-    __asm__(".globl _manual_" #name "\n" \
+    __asm__(".private_extern _manual_" #name "\n" \
             ".pushsection __TEXT,__text,regular,pure_instructions\n" \
             GEN_SYSCALL_PRE(name) \
             "_manual_" #name ":\n" \

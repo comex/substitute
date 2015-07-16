@@ -12,12 +12,12 @@ shift
  * inject into foreign-architecture processes), but we need two architectures
  * anyway, so the rest are included in case doing so is useful someday. */
 .align 14
-.globl _inject_page_start
+.private_extern _inject_page_start
 _inject_page_start:
 END
 while [ -n "$1" ]; do
    echo ".align 2"
-   echo ".globl _inject_start_$1"
+   echo ".private_extern _inject_start_$1"
    echo "_inject_start_$1:"
    printf  ".byte "
    xxd -i < "$2" | xargs echo
