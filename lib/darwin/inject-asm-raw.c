@@ -45,7 +45,7 @@ static int bsd_thread_func(void *arg) {
     struct baton *baton = arg;
     void *r = baton->dlopen(baton->path, 0);
     if (r) {
-        __attribute__((section("__TEXT,__text")))
+        __attribute__((section("__TEXT,__text"), aligned(4)))
         static char name[] = "substitute_init";
         void (*init)(void *, unsigned long) = baton->dlsym(r, name);
         if (init)
