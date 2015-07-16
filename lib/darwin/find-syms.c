@@ -239,6 +239,7 @@ ok: ;
 ok2: ;
     symtab = (void *) symtab + *slide;
     strtab = (void *) strtab + *slide;
+    size_t found_syms = 0;
 
     for (int type = 0; type <= 1; type++) {
         const substitute_sym *this_symtab = type ? cache_syms : symtab;
@@ -251,14 +252,16 @@ ok2: ;
             uint32_t strx = sym->n_un.n_strx;
             const char *name = strx == 0 ? "" : this_strtab + strx;
             for (size_t j = 0; j < nsyms; j++) {
-                if (!strcmp(name, names[j])) {
+                if (!syms[j] && !strcmp(name, names[j])) {
                     syms[j] = sym_to_ptr(sym, *slide);
-                    break;
+                    if (++found_syms == nsyms)
+                        goto end;
                 }
             }
         }
     }
 
+end:
     if (mapping_size)
         munmap(mapping, mapping_size);
 }
