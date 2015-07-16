@@ -3,9 +3,13 @@
 #include <stdbool.h>
 #include <dlfcn.h>
 #include <pthread.h>
+#include <sys/mman.h>
+#include <limits.h>
+#include <fcntl.h>
 
 #include "substitute.h"
 #include "substitute-internal.h"
+#include "dyld_cache_format.h"
 
 extern const struct dyld_all_image_infos *_dyld_get_all_image_infos();
 
@@ -14,7 +18,7 @@ static pthread_once_t dyld_inspect_once = PTHREAD_ONCE_INIT;
 static uintptr_t (*ImageLoaderMachO_getSlide)(void *);
 static const struct mach_header *(*ImageLoaderMachO_machHeader)(void *);
 
-static void *sym_to_ptr(substitute_sym *sym, intptr_t slide) {
+static void *sym_to_ptr(const substitute_sym *sym, intptr_t slide) {
     uintptr_t addr = sym->n_value;
     addr += slide;
     if (sym->n_desc & N_ARM_THUMB_DEF)
@@ -22,10 +26,181 @@ static void *sym_to_ptr(substitute_sym *sym, intptr_t slide) {
     return (void *) addr;
 }
 
+static const struct dyld_cache_header *_Atomic s_cur_shared_cache_hdr;
+static int s_cur_shared_cache_fd;
+static pthread_once_t s_open_cache_once = PTHREAD_ONCE_INIT;
+static struct dyld_cache_local_symbols_info s_cache_local_symbols_info;
+static struct dyld_cache_local_symbols_entry *s_cache_local_symbols_entries;
+
+static bool oscf_try_dir(const char *dir, const char *arch,
+                         const struct dyld_cache_header *dch) {
+    char path[PATH_MAX];
+    if (snprintf(path, sizeof(path), "%s/%s%s", dir,
+                 DYLD_SHARED_CACHE_BASE_NAME, arch) >= sizeof(path))
+        return false;
+    int fd = open(path, O_RDONLY);
+    if (fd < 0)
+        return false;
+    struct dyld_cache_header this_dch;
+    if (read(fd, &this_dch, sizeof(this_dch)) != sizeof(this_dch))
+        goto fail;
+    if (memcmp(this_dch.uuid, dch->uuid, 16) ||
+        this_dch.localSymbolsSize != dch->localSymbolsSize /* just in case */)
+        goto fail;
+    s_cur_shared_cache_fd = fd;
+    struct dyld_cache_local_symbols_info *lsi = &s_cache_local_symbols_info;
+    if (pread(fd, lsi, sizeof(*lsi), dch->localSymbolsOffset) != sizeof(*lsi))
+        goto fail;
+    if (lsi->nlistOffset > dch->localSymbolsSize ||
+        lsi->nlistCount > (dch->localSymbolsSize - lsi->nlistOffset)
+                           / sizeof(substitute_sym) ||
+        lsi->stringsOffset > dch->localSymbolsSize ||
+        lsi->stringsSize > dch->localSymbolsSize - lsi->stringsOffset) {
+        /* bad format */
+        goto fail;
+    }
+    uint32_t count = lsi->entriesCount;
+    if (count > 1000000)
+        goto fail;
+    struct dyld_cache_local_symbols_entry *lses;
+    size_t lses_size = count * sizeof(*lses);
+    if (!(lses = malloc(lses_size)))
+        goto fail;
+    if (pread(fd, lses, lses_size, dch->localSymbolsOffset + lsi->entriesOffset)
+        != lses_size) {
+        free(lses);
+        goto fail;
+    }
+
+    s_cache_local_symbols_entries = lses;
+    return true;
+
+fail:
+    close(fd);
+    return false;
+}
+
+static void open_shared_cache_file_once() {
+    s_cur_shared_cache_fd = -1;
+    const struct dyld_cache_header *dch = s_cur_shared_cache_hdr;
+    if (memcmp(dch->magic, "dyld_v1 ", 8))
+        return;
+    const char *archp = &dch->magic[8];
+    while (*archp == ' ')
+        archp++;
+    static char filename[32];
+    const char *env_dir = getenv("DYLD_SHARED_CACHE_DIR");
+    if (env_dir) {
+        if (oscf_try_dir(env_dir, archp, dch))
+            return;
+    }
+#if __IPHONE_OS_VERSION_MIN_REQUIRED
+    oscf_try_dir(IPHONE_DYLD_SHARED_CACHE_DIR, archp, dch);
+#else
+    oscf_try_dir(MACOSX_DYLD_SHARED_CACHE_DIR, archp, dch);
+#endif
+}
+
+static bool ul_mmap(int fd, off_t offset, size_t size,
+                    void *data_p, void **mapping_p, size_t *mapping_size_p) {
+    int pmask = getpagesize() - 1;
+    int page_off = offset & pmask;
+    off_t map_offset = offset & ~pmask;
+    size_t map_size = ((offset + size + pmask) & ~pmask) - map_offset;
+    void *mapping = mmap(NULL, map_size, PROT_READ, MAP_SHARED, fd, map_offset);
+    if (mapping == MAP_FAILED)
+        return false;
+    *(void **) data_p = (char *) mapping + page_off;
+    *mapping_p = mapping;
+    *mapping_size_p = map_size;
+    return true;
+}
+
+static bool get_shared_cache_syms(const void *hdr,
+                                  const substitute_sym **syms_p,
+                                  const char **strs_p,
+                                  size_t *nsyms_p,
+                                  void **mapping_p,
+                                  size_t *mapping_size_p) {
+    pthread_once(&s_open_cache_once, open_shared_cache_file_once);
+    int fd = s_cur_shared_cache_fd;
+    if (fd == -1)
+        return false;
+    const struct dyld_cache_header *dch = s_cur_shared_cache_hdr;
+    const struct dyld_cache_local_symbols_info *lsi = &s_cache_local_symbols_info;
+    struct dyld_cache_local_symbols_entry lse;
+    for (uint32_t i = 0; i < lsi->entriesCount; i++) {
+        lse = s_cache_local_symbols_entries[i];
+        if (lse.dylibOffset == (uintptr_t) hdr - (uintptr_t) dch)
+            goto got_lse;
+    }
+    return false;
+got_lse:
+    /* map - we don't do this persistently to avoid wasting address space on
+     * iOS (my random OS X 10.10 blob pushes 55MB) */
+    if (lse.nlistStartIndex > lsi->nlistCount ||
+        lsi->nlistCount - lse.nlistStartIndex < lse.nlistCount)
+        return false;
+
+    char *ls_data;
+    if (!ul_mmap(fd, dch->localSymbolsOffset, dch->localSymbolsSize,
+                 &ls_data, mapping_p, mapping_size_p))
+        return false;
+    const substitute_sym *syms = (void *) (ls_data + lsi->nlistOffset);
+    *syms_p = syms + lse.nlistStartIndex;
+    *strs_p = ls_data + lsi->stringsOffset;
+    *nsyms_p = lse.nlistCount;
+    return true;
+}
+
+
+static const struct dyld_cache_header *get_cur_shared_cache_hdr() {
+    const struct dyld_cache_header *dch = s_cur_shared_cache_hdr;
+    if (!dch) {
+        /* race is OK */
+        uint64_t start_address = 0;
+        if (syscall(294, &start_address)) /* shared_region_check_np */
+            dch = (void *) 1;
+        else
+            dch = (void *) (uintptr_t) start_address;
+        s_cur_shared_cache_hdr = dch;
+    }
+    return dch == (void *) 1 ? NULL : dch;
+}
+
+static bool addr_in_shared_cache(const void *addr) {
+    const struct dyld_cache_header *dch = get_cur_shared_cache_hdr();
+    if (!dch)
+        return false;
+
+    uint32_t mapping_count = dch->mappingCount;
+    const struct dyld_cache_mapping_info *mappings =
+        (void *) ((char *) dch + dch->mappingOffset);
+    intptr_t slide = (uintptr_t) dch - (uintptr_t) mappings[0].address;
+
+    for (uint32_t i = 0; i < mapping_count; i++) {
+        const struct dyld_cache_mapping_info *mapping = &mappings[i];
+        uintptr_t diff = (uintptr_t) addr -
+                         ((uintptr_t) mapping->address + slide);
+        if (diff < mapping->size)
+            return true;
+    }
+    return false;
+}
+
 static void find_syms_raw(const void *hdr, intptr_t *restrict slide,
                           const char **restrict names, void **restrict syms,
                           size_t nsyms) {
     memset(syms, 0, sizeof(*syms) * nsyms);
+
+    void *mapping = NULL;
+    size_t mapping_size = 0;
+    const substitute_sym *cache_syms = NULL;
+    const char *cache_strs = NULL;
+    size_t ncache_syms = 0;
+    if (addr_in_shared_cache(hdr))
+        get_shared_cache_syms(hdr, &cache_syms, &cache_strs, &ncache_syms,
+                              &mapping, &mapping_size);
 
     /* note: no verification at all */
     const mach_header_x *mh = hdr;
@@ -64,18 +239,28 @@ ok: ;
 ok2: ;
     symtab = (void *) symtab + *slide;
     strtab = (void *) strtab + *slide;
-    /* This could be optimized for efficiency with a large number of names... */
-    for (uint32_t i = 0; i < syc.nsyms; i++) {
-        substitute_sym *sym = &symtab[i];
-        uint32_t strx = sym->n_un.n_strx;
-        const char *name = strx == 0 ? "" : strtab + strx;
-        for (size_t j = 0; j < nsyms; j++) {
-            if (!strcmp(name, names[j])) {
-                syms[j] = sym_to_ptr(sym, *slide);
-                break;
+
+    for (int type = 0; type <= 1; type++) {
+        const substitute_sym *this_symtab = type ? cache_syms : symtab;
+        const char *this_strtab = type ? cache_strs : strtab;
+        size_t this_nsyms = type ? ncache_syms : syc.nsyms;
+        /* This could be optimized for efficiency with a large number of
+         * names... */
+        for (uint32_t i = 0; i < syc.nsyms; i++) {
+            const substitute_sym *sym = &this_symtab[i];
+            uint32_t strx = sym->n_un.n_strx;
+            const char *name = strx == 0 ? "" : this_strtab + strx;
+            for (size_t j = 0; j < nsyms; j++) {
+                if (!strcmp(name, names[j])) {
+                    syms[j] = sym_to_ptr(sym, *slide);
+                    break;
+                }
             }
         }
     }
+
+    if (mapping_size)
+        munmap(mapping, mapping_size);
 }
 
 /* This is a mess because the usual _dyld_image_count loop is not thread safe.
@@ -92,7 +277,8 @@ static void inspect_dyld() {
     const struct dyld_all_image_infos *aii = _dyld_get_all_image_infos();
     const void *dyld_hdr = aii->dyldImageLoadAddress;
 
-    const char *names[2] = { "__ZNK16ImageLoaderMachO8getSlideEv", "__ZNK16ImageLoaderMachO10machHeaderEv" };
+    const char *names[2] = { "__ZNK16ImageLoaderMachO8getSlideEv",
+                             "__ZNK16ImageLoaderMachO10machHeaderEv" };
     void *syms[2];
     intptr_t dyld_slide = -1;
     find_syms_raw(dyld_hdr, &dyld_slide, names, syms, 2);

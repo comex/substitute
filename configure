@@ -70,7 +70,7 @@ if 'armv7' in cc_argv or 'arm64' in cc_argv:
     settings.extra_link_deps = ['(src)/ent.plist']
 
 settings.host.debug_info = True
-settings.c_includes = ['(src)/lib', '(src)/substrate']
+settings.c_includes = ['(src)/lib', '(src)/substrate', '(src)/vendor']
 
 emitter = settings.emitter
 

@@ -16,6 +16,7 @@
 #include <mach-o/loader.h>
 #include <mach-o/dyld.h>
 #include <mach-o/dyld_images.h>
+#include <mach-o/nlist.h>
 #ifdef __LP64__
 typedef struct mach_header_64 mach_header_x;
 typedef struct segment_command_64 segment_command_x;
@@ -27,6 +28,7 @@ typedef struct segment_command segment_command_x;
 typedef struct section section_x;
 #define LC_SEGMENT_X LC_SEGMENT
 #endif
+/* instead of 'nlist_x', use substitute_sym */
 #endif
 
 /* FORCE_* are for tests */
