@@ -274,7 +274,8 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
     for (char *const *ep = my_envp; *ep; ep++) {
         env_count++;
         char *env = *ep;
-        if (advance(&env, "_MSSafeMode=") || advance(&env, "_SubstituteSafeMode=")) {
+        if (advance(&env, "_MSSafeMode=") ||
+            advance(&env, "_SubstituteSafeMode=")) {
             if (IB_VERBOSE)
                 ib_log("got safe mode env: %s", *ep);
             if (!strcmp(env, "0") || !strcmp(env, "NO"))
@@ -397,18 +398,20 @@ cleanup:
     return ret;
 }
 
-int hook_posix_spawn(pid_t *restrict pid, const char *restrict path,
-                     const posix_spawn_file_actions_t *file_actions,
-                     const posix_spawnattr_t *restrict attrp,
-                     char *const argv[restrict], char *const envp[restrict]) {
+static int hook_posix_spawn(pid_t *restrict pid, const char *restrict path,
+                            const posix_spawn_file_actions_t *file_actions,
+                            const posix_spawnattr_t *restrict attrp,
+                            char *const argv[restrict],
+                            char *const envp[restrict]) {
     return hook_posix_spawn_generic(old_posix_spawn, pid, path, file_actions,
                                     attrp, argv, envp);
 }
 
-int hook_posix_spawnp(pid_t *restrict pid, const char *restrict path,
-                      const posix_spawn_file_actions_t *file_actions,
-                      const posix_spawnattr_t *restrict attrp,
-                      char *const argv[restrict], char *const envp[restrict]) {
+static int hook_posix_spawnp(pid_t *restrict pid, const char *restrict path,
+                             const posix_spawn_file_actions_t *file_actions,
+                             const posix_spawnattr_t *restrict attrp,
+                             char *const argv[restrict],
+                             char *const envp[restrict]) {
     return hook_posix_spawn_generic(old_posix_spawnp, pid, path, file_actions,
                                     attrp, argv, envp);
 }
@@ -433,21 +436,22 @@ end:
     pthread_mutex_unlock(&g_state_lock);
 }
 
-pid_t hook_wait4(pid_t pid, int *stat_loc, int options, struct rusage *rusage) {
+static pid_t hook_wait4(pid_t pid, int *stat_loc, int options,
+                        struct rusage *rusage) {
     pid_t ret = old_wait4(pid, stat_loc, options, rusage);
     after_wait_generic(ret, *stat_loc);
     return ret;
 }
 
-pid_t hook_waitpid(pid_t pid, int *stat_loc, int options) {
+static pid_t hook_waitpid(pid_t pid, int *stat_loc, int options) {
     pid_t ret = old_waitpid(pid, stat_loc, options);
     after_wait_generic(ret, *stat_loc);
     return ret;
 }
 
-int hook_xpc_pipe_try_receive(mach_port_t port_set, xxpc_object_t *requestp,
-                              mach_port_t *recvp, void *mig_demux,
-                              size_t msg_size, int dunno_ignored) {
+static int hook_xpc_pipe_try_receive(mach_port_t port_set, xxpc_object_t *requestp,
+                                     mach_port_t *recvp, void *mig_demux,
+                                     size_t msg_size, int dunno_ignored) {
     int res = old_xpc_pipe_try_receive(port_set, requestp, recvp, mig_demux,
                                        msg_size, dunno_ignored);
     if (res)
@@ -521,7 +525,7 @@ invalid:
     return res;
 }
 
-int hook_sandbox_check(pid_t pid, const char *op, int type, ...) {
+static int hook_sandbox_check(pid_t pid, const char *op, int type, ...) {
     /* Can't easily determine the number of arguments, so just assume there's
      * less than 5 pointers' worth. */
     va_list ap;
