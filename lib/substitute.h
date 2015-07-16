@@ -89,7 +89,8 @@ const char *substitute_strerror(int err);
 struct substitute_function_hook {
     void *function;
     void *replacement;
-    void *old_ptr; /* optional: out *pointer* to function pointer to call old impl */
+    void *old_ptr; /* optional: out *pointer* to function pointer to call old
+                    * impl */
 };
 
 /* substitute_hook_functions options */

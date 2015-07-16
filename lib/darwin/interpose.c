@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdatomic.h>
 
 #include "substitute.h"
 #include "substitute-internal.h"
@@ -17,8 +18,8 @@ struct interpose_state {
     segment_command_x *stack_segments[32];
 };
 
-static int try_bind_section(void *bind, size_t size, const struct interpose_state *st,
-                            bool lazy) {
+static int try_bind_section(void *bind, size_t size,
+                            const struct interpose_state *st, bool lazy) {
     void *ptr = bind, *end = bind + size;
     char *sym = NULL;
     uint8_t type = lazy ? BIND_TYPE_POINTER : 0;
@@ -89,12 +90,15 @@ static int try_bind_section(void *bind, size_t size, const struct interpose_stat
                 }
                 if (i != st->nhooks) {
                     while (count--) {
-                        uintptr_t new = (uintptr_t) h->replacement + (intptr_t) addend;
+                        uintptr_t new = (uintptr_t) h->replacement +
+                                        (intptr_t) addend;
                         uintptr_t old;
                         void *p = (void *) (segment + offset);
                         switch (type) {
                         case BIND_TYPE_POINTER: {
-                            old = __atomic_exchange_n((uintptr_t *) p, new, __ATOMIC_RELAXED);
+                            old = atomic_exchange_explicit(
+                                (_Atomic uintptr_t *) p, new,
+                                memory_order_relaxed);
                             break;
                         }
                         case BIND_TYPE_TEXT_ABSOLUTE32: {
@@ -103,7 +107,9 @@ static int try_bind_section(void *bind, size_t size, const struct interpose_stat
                                  * this is impossible... */
                                 substitute_panic("bad TEXT_ABSOLUTE32 rel\n");
                             }
-                            old = __atomic_exchange_n((uint32_t *) p, (uint32_t) new, __ATOMIC_RELAXED);
+                            old = atomic_exchange_explicit(
+                                (_Atomic uint32_t *) p, (uint32_t) new,
+                                memory_order_relaxed);
                             break;
                         }
                         case BIND_TYPE_TEXT_PCREL32: {
@@ -113,7 +119,9 @@ static int try_bind_section(void *bind, size_t size, const struct interpose_stat
                                 /* ditto */
                                 substitute_panic("bad TEXT_ABSOLUTE32 rel\n");
                             }
-                            old = __atomic_exchange_n((uint32_t *) p, (uint32_t) rel, __ATOMIC_RELAXED);
+                            old = atomic_exchange_explicit(
+                                (_Atomic uint32_t *) p, (uint32_t) rel,
+                                memory_order_relaxed);
                             old += pc;
                             break;
                         }

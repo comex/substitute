@@ -39,7 +39,8 @@ struct tramp_info_page_entry {
 _Static_assert(TRAMP_INFO_PAGE_ENTRY_SIZE == sizeof(struct tramp_info_page_entry),
                "TRAMP_INFO_PAGE_ENTRY_SIZE");
 _Static_assert(sizeof(struct tramp_info_page_header) +
-               TRAMPOLINES_PER_PAGE * sizeof(struct tramp_info_page_entry) <= _PAGE_SIZE,
+               TRAMPOLINES_PER_PAGE * sizeof(struct tramp_info_page_entry)
+               <= _PAGE_SIZE,
                "header+entries too big");
 
 static pthread_mutex_t tramp_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -189,7 +190,8 @@ int substitute_hook_objc_message(Class class, SEL selector, void *replacement,
                 substitute_panic("%s: no superclass but the method didn't exist\n",
                                  __func__);
             }
-            ret = get_trampoline(class_getMethodImplementation, super, selector, old_ptr);
+            ret = get_trampoline(class_getMethodImplementation, super,
+                                 selector, old_ptr);
             if (created_imp_ptr)
                 *created_imp_ptr = true;
         }

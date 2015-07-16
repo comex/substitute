@@ -67,7 +67,9 @@ static inline unsigned bs_set(struct bitslice bs, unsigned new, unsigned op) {
     return op;
 }
 
-static inline struct bitslice bs_slice_(struct bitslice bs, struct bitslice_run *runs, int lo, int size) {
+static inline struct bitslice bs_slice_(struct bitslice bs,
+                                        struct bitslice_run *runs,
+                                        int lo, int size) {
     int nruns = 0;
     for(int i = 0; i < bs.nruns; i++) {
         struct bitslice_run inr = bs.runs[i];

@@ -40,10 +40,12 @@ void *SubFindSymbol(void *image, const char *name) {
 
 #ifdef TARGET_DIS_SUPPORTED
 EXPORT
-void SubHookFunction(void *symbol, void *replace, void **result) __asm__("SubHookFunction");
+void SubHookFunction(void *symbol, void *replace, void **result)
+    __asm__("SubHookFunction");
 void SubHookFunction(void *symbol, void *replace, void **result) {
     struct substitute_function_hook hook = {symbol, replace, result};
-    int ret = substitute_hook_functions(&hook, 1, NULL, SUBSTITUTE_NO_THREAD_SAFETY);
+    int ret = substitute_hook_functions(&hook, 1, NULL,
+                                        SUBSTITUTE_NO_THREAD_SAFETY);
     if (ret) {
         substitute_panic("SubHookFunction: substitute_hook_functions returned %s\n",
                          substitute_strerror(ret));
@@ -53,7 +55,7 @@ void SubHookFunction(void *symbol, void *replace, void **result) {
 
 EXPORT
 void SubHookMessageEx(Class _class, SEL sel, IMP imp, IMP *result)
-        __asm__("SubHookMessageEx");
+    __asm__("SubHookMessageEx");
 
 void SubHookMessageEx(Class _class, SEL sel, IMP imp, IMP *result) {
     int ret = substitute_hook_objc_message(_class, sel, imp, result, NULL);

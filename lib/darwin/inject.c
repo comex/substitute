@@ -80,7 +80,8 @@ static int find_foreign_images(mach_port_t task,
 
     cnt = tdi.all_image_info_size;
     mach_vm_size_t size;
-    kr = mach_vm_read_overwrite(task, tdi.all_image_info_addr, tdi.all_image_info_size,
+    kr = mach_vm_read_overwrite(task, tdi.all_image_info_addr,
+                                tdi.all_image_info_size,
                                 (mach_vm_address_t) all_image_infos_buf, &size);
     if (kr || size != tdi.all_image_info_size) {
         asprintf(error, "mach_vm_read_overwrite(all_image_info): kr=%d", kr);
@@ -119,7 +120,8 @@ static int find_foreign_images(mach_port_t task,
     #undef FIELD
 
     if (info_array_count > 2000) {
-        asprintf(error, "unreasonable number of loaded libraries: %u", info_array_count);
+        asprintf(error, "unreasonable number of loaded libraries: %u",
+                 info_array_count);
         return SUBSTITUTE_ERR_MISC;
     }
     size_t info_array_size = info_array_count * info_array_elm_size;
@@ -165,8 +167,10 @@ static int find_foreign_images(mach_port_t task,
         }
         if (strlen(path_buf) == toread && toread < MAXPATHLEN) {
             /* get the rest... */
-            kr = mach_vm_read_overwrite(task, file_path + toread, MAXPATHLEN - toread,
-                                        (mach_vm_address_t) path_buf + toread, &size);
+            kr = mach_vm_read_overwrite(task, file_path + toread,
+                                        MAXPATHLEN - toread,
+                                        (mach_vm_address_t) path_buf + toread,
+                                        &size);
             if (kr) {
                 continue;
             }
@@ -203,8 +207,8 @@ static int get_foreign_image_export(mach_port_t task, uint64_t hdr_addr,
     vm_prot_t cur, max;
     hdr_buf_size = PAGE_SIZE;
     kern_return_t kr = mach_vm_remap(mach_task_self(), &hdr_buf, hdr_buf_size, 0,
-                                     VM_FLAGS_ANYWHERE, task, hdr_addr, /*copy*/ true,
-                                     &cur, &max, VM_INHERIT_NONE);
+                                     VM_FLAGS_ANYWHERE, task, hdr_addr,
+                                     /*copy*/ true, &cur, &max, VM_INHERIT_NONE);
     if (kr) {
         asprintf(error, "mach_vm_remap(libdyld header): kr=%d", kr);
         return SUBSTITUTE_ERR_MISC;
@@ -226,7 +230,8 @@ static int get_foreign_image_export(mach_port_t task, uint64_t hdr_addr,
 
     size_t total_size = mh_size + mh->sizeofcmds;
     if (total_size > hdr_buf_size) {
-        vm_deallocate(mach_task_self(), (vm_offset_t) hdr_buf, (vm_size_t) hdr_buf_size);
+        vm_deallocate(mach_task_self(), (vm_offset_t) hdr_buf,
+                      (vm_size_t) hdr_buf_size);
         hdr_buf_size = total_size;
         hdr_buf = 0;
         kr = mach_vm_remap(mach_task_self(), &hdr_buf, hdr_buf_size, 0,
@@ -323,7 +328,8 @@ badmach:
     ret = SUBSTITUTE_ERR_MISC;
     goto fail;
 fail:
-    vm_deallocate(mach_task_self(), (vm_offset_t) hdr_buf, (vm_size_t) hdr_buf_size);
+    vm_deallocate(mach_task_self(), (vm_offset_t) hdr_buf,
+                  (vm_size_t) hdr_buf_size);
     return ret;
 }
 
@@ -371,7 +377,8 @@ got_symbol:;
         return false;
     if (!read_leb128(&ptr, end, false, &flags))
         return false;
-    if (flags & (EXPORT_SYMBOL_FLAGS_REEXPORT | EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER)) {
+    if (flags & (EXPORT_SYMBOL_FLAGS_REEXPORT |
+                 EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER)) {
         /* don't bother to support for now */
         return false;
     }
@@ -462,7 +469,8 @@ static int do_baton(const char *filename, size_t filelen, cpu_type_t cputype,
         }
     }
 
-    memcpy(stackbuf + baton_len, target_shuttle, nshuttle * sizeof(*target_shuttle));
+    memcpy(stackbuf + baton_len, target_shuttle,
+           nshuttle * sizeof(*target_shuttle));
 
     semaphore_t sem_port = MACH_PORT_NULL;
     kern_return_t kr = semaphore_create(task, &sem_port, SYNC_POLICY_FIFO, 0);
@@ -571,8 +579,10 @@ int substitute_dlopen_in_pid(int pid, const char *filename, int options,
                 uint64_t symaddr;
             } syms[2];
         } libs[3] = {
-            {images[0].address, 2, {{"_dlopen", 0}, {"_dlsym", 0}}},
-            {images[1].address, 2, {{"_pthread_create", 0}, {"_pthread_detach", 0}}},
+            {images[0].address, 2, {{"_dlopen", 0},
+                                    {"_dlsym", 0}}},
+            {images[1].address, 2, {{"_pthread_create", 0},
+                                    {"_pthread_detach", 0}}},
             {images[2].address, 1, {{"_munmap", 0}}},
         };
 
@@ -586,14 +596,17 @@ int substitute_dlopen_in_pid(int pid, const char *filename, int options,
                 goto fail;
             const char *failed_symbol = NULL;
             for (int j = 0; j < libs[i].nsyms; j++) {
-                if (!find_export_symbol(export, export_size, libs[i].syms[j].symname,
-                                        libs[i].addr, &libs[i].syms[j].symaddr)) {
+                if (!find_export_symbol(export, export_size,
+                                        libs[i].syms[j].symname,
+                                        libs[i].addr,
+                                        &libs[i].syms[j].symaddr)) {
                     failed_symbol = libs[i].syms[j].symname;
                     break;
                 }
             }
 
-            vm_deallocate(mach_task_self(), (vm_offset_t) linkedit, (vm_size_t) linkedit_size);
+            vm_deallocate(mach_task_self(), (vm_offset_t) linkedit,
+                          (vm_size_t) linkedit_size);
             if (failed_symbol) {
                 asprintf(error, "couldn't find target symbol %s", failed_symbol);
                 ret = SUBSTITUTE_ERR_MISC;
@@ -620,7 +633,8 @@ int substitute_dlopen_in_pid(int pid, const char *filename, int options,
         cputype == CPU_TYPE_ARM64 ? 0x4000 :
 #endif
         0x1000;
-    kr = mach_vm_allocate(task, &target_stack, 2 * target_page_size, VM_FLAGS_ANYWHERE);
+    kr = mach_vm_allocate(task, &target_stack, 2 * target_page_size,
+                          VM_FLAGS_ANYWHERE);
     if (kr) {
         asprintf(error, "couldn't allocate target stack");
         ret = SUBSTITUTE_ERR_OOM;

@@ -33,7 +33,8 @@ GEN_SYSCALL(mach_msg, -31);
 __typeof__(mach_thread_self) manual_thread_self;
 GEN_SYSCALL(thread_self, -27);
 
-extern int __sigaction(int, struct __sigaction * __restrict, struct sigaction * __restrict);
+extern int __sigaction(int, struct __sigaction * __restrict,
+                       struct sigaction * __restrict);
 
 static void manual_memcpy(void *restrict dest, const void *src, size_t len) {
     /* volatile to avoid compiler transformation to call to memcpy */

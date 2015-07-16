@@ -54,13 +54,15 @@ static void jump_dis_add_to_queue(struct jump_dis_ctx *ctx, uint_tptr pc) {
     size_t diff = (pc - ctx->pc_patch_start) / MIN_INSN_SIZE;
     if (diff >= JUMP_ANALYSIS_MAX_INSNS) {
 #ifdef JUMP_DIS_VERBOSE
-        printf("jump-dis: not adding %llx - out of range\n", (unsigned long long) pc);
+        printf("jump-dis: not adding %llx - out of range\n",
+               (unsigned long long) pc);
 #endif
         return;
     }
     if (ctx->seen_mask[diff / 8] & 1 << (diff % 8)) {
 #ifdef JUMP_DIS_VERBOSE
-        printf("jump-dis: not adding %llx - already seen\n", (unsigned long long) pc);
+        printf("jump-dis: not adding %llx - already seen\n",
+               (unsigned long long) pc);
 #endif
         return;
     }
@@ -73,7 +75,8 @@ static INLINE UNUSED
 void jump_dis_data(UNUSED struct jump_dis_ctx *ctx,
                    UNUSED unsigned o0, UNUSED unsigned o1, UNUSED unsigned o2,
                    UNUSED unsigned o3, UNUSED unsigned out_mask) {
-    /* on ARM, ignore mov PC jumps, as they're unlikely to be in the same function */
+    /* on ARM, ignore mov PC jumps, as they're unlikely to be in the same
+     * function */
 }
 
 static INLINE UNUSED

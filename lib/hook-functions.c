@@ -82,9 +82,11 @@ static int check_intro_trampoline(void **trampoline_ptr_p,
 
     if (trampoline_ptr) {
         /* Try existing trampoline */
-        *patch_size_p = jump_patch_size(pc, (uintptr_t) trampoline_ptr, arch, false);
+        *patch_size_p = jump_patch_size(pc, (uintptr_t) trampoline_ptr, arch,
+                                        false);
 
-        if (*patch_size_p != -1 && (size_t) *patch_size_p <= *trampoline_size_left_p)
+        if (*patch_size_p != -1 && (size_t) *patch_size_p
+                                   <= *trampoline_size_left_p)
             return SUBSTITUTE_OK;
     }
 
@@ -92,7 +94,8 @@ static int check_intro_trampoline(void **trampoline_ptr_p,
      * before pc before giving up. */
     int ret = execmem_alloc_unsealed(pc, &trampoline_ptr, &trampoline_size_left);
     if (!ret) {
-        *patch_size_p = jump_patch_size(pc, (uintptr_t) trampoline_ptr, arch, false);
+        *patch_size_p = jump_patch_size(pc, (uintptr_t) trampoline_ptr, arch,
+                                        false);
         if (*patch_size_p != -1) {
             ret = SUBSTITUTE_OK;
             goto end;
@@ -103,9 +106,11 @@ static int check_intro_trampoline(void **trampoline_ptr_p,
 
     /* Allocate new trampoline - try before pc (xxx only meaningful on arm64) */
     uintptr_t start_address = pc - 0x80000000;
-    ret = execmem_alloc_unsealed(start_address, &trampoline_ptr, &trampoline_size_left);
+    ret = execmem_alloc_unsealed(start_address,
+                                 &trampoline_ptr, &trampoline_size_left);
     if (!ret) {
-        *patch_size_p = jump_patch_size(pc, (uintptr_t) trampoline_ptr, arch, false);
+        *patch_size_p = jump_patch_size(pc, (uintptr_t) trampoline_ptr, arch,
+                                        false);
         if (*patch_size_p != -1) {
             *trampoline_ptr_p = trampoline_ptr;
             *trampoline_size_left_p = trampoline_size_left;
@@ -172,7 +177,8 @@ int substitute_hook_functions(const struct substitute_function_hook *hooks,
         int patch_size;
         bool need_intro_trampoline;
         if ((ret = check_intro_trampoline(&trampoline_ptr, &trampoline_size_left,
-                                          pc_patch_start, (uintptr_t) hook->replacement,
+                                          pc_patch_start,
+                                          (uintptr_t) hook->replacement,
                                           &patch_size, &need_intro_trampoline,
                                           &hi->trampoline_page, arch)))
             goto end;
