@@ -246,7 +246,7 @@ ok2: ;
         size_t this_nsyms = type ? ncache_syms : syc.nsyms;
         /* This could be optimized for efficiency with a large number of
          * names... */
-        for (uint32_t i = 0; i < syc.nsyms; i++) {
+        for (uint32_t i = 0; i < this_nsyms; i++) {
             const substitute_sym *sym = &this_symtab[i];
             uint32_t strx = sym->n_un.n_strx;
             const char *name = strx == 0 ? "" : this_strtab + strx;
