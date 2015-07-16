@@ -18,14 +18,6 @@ static pthread_once_t dyld_inspect_once = PTHREAD_ONCE_INIT;
 static uintptr_t (*ImageLoaderMachO_getSlide)(void *);
 static const struct mach_header *(*ImageLoaderMachO_machHeader)(void *);
 
-static void *sym_to_ptr(const substitute_sym *sym, intptr_t slide) {
-    uintptr_t addr = sym->n_value;
-    addr += slide;
-    if (sym->n_desc & N_ARM_THUMB_DEF)
-        addr |= 1;
-    return (void *) addr;
-}
-
 static const struct dyld_cache_header *_Atomic s_cur_shared_cache_hdr;
 static int s_cur_shared_cache_fd;
 static pthread_once_t s_open_cache_once = PTHREAD_ONCE_INIT;
@@ -186,6 +178,14 @@ static bool addr_in_shared_cache(const void *addr) {
             return true;
     }
     return false;
+}
+
+static void *sym_to_ptr(const substitute_sym *sym, intptr_t slide) {
+    uintptr_t addr = sym->n_value;
+    addr += slide;
+    if (sym->n_desc & N_ARM_THUMB_DEF)
+        addr |= 1;
+    return (void *) addr;
 }
 
 static void find_syms_raw(const void *hdr, intptr_t *restrict slide,
