@@ -1,38 +1,47 @@
 (lib)substitute
 ---------------
 
-[3/1/15] Time flies whether or not you're having fun?  "Tomorrow" became a
-month, thanks to work, but at least we're getting somewhere.
+Substitute is a system for modifying code at runtime by substituting custom
+implementations for arbitrary functions and Objective-C methods.  It is also a
+Free Software substitute for [Cydia Substrate](http://www.cydiasubstrate.com).
+It currently has full support for iOS and limited support for OS X; in the
+(hopefully near) future I will port it more widely.
 
-ALPHA VERSION:
+License: LGPLv2.1+ with optional extra permissiveness; see LICENSE.txt
 
-    This code has not yet been tested anywhere near adequately and is probably
-    completely broken.  Especially sharp edges are the iOS bootstrap stuff and
-    the disassemblers.
+Current status
+==============
 
-    Please only try to install this on iOS 8.  Before installing this, *please* install
-    [safestrat](https://github.com/comex/safestrat) so that if Substitute
-    breaks booting, you can SSH in and uninstall it.  (Ensure that its entry in
-    /etc/rc.d comes alphabetically before 'substitute'!  Although this
-    package's volume-up disable should be pretty stable too.)
+Alpha.  Currently only build tested on Mac, targeting Mac and iOS.
 
-    Please reboot after installing and uninstalling.  Magic rebootless
-    installation and uninstallation is planned, but not implemented yet!
+To compile for iOS:
 
-    Automatically entering a safe mode after SpringBoard crashes is not
-    implemented yet (though you can see the UI in progress in
-    ios-bootstrap/SafetyDance).  Manually disabling the system by holding
-    volume up while booting (the same shortcut as Substrate) should work,
-    though.
+    ./configure --xcode-sdk=iphoneos --enable-ios-bootstrap && make -j8 && ./script/gen-deb.sh
 
-    ...If you read through all that and still want to install, you can build it
-    on a Mac with:
+You may want to turn off IB_VERBOSE in darwin-bootstrap/ib-log.h, which
+currently spams a lot of files to /tmp and spams the syslog.  I will turn it
+off by default soon.
 
-    make ARCH="-arch armv7 -arch arm64 -isysroot <xxx>" && ./script/gen-deb.sh
+To compile for Mac (does not support bootstrapping/bundle loading/etc., only
+direct usage as a library):
 
-    or use a deb I uploaded to GitHub - see the release page:
+    ./configure && make -j8
 
-    https://github.com/comex/substitute/releases
+In other situations, `./configure --help` should be informative.  I'm using a
+build system I wrote from scratch, intended to be extensible for many use cases
+rather than project specific, and therefore somewhat complex; it's currently
+rather rough around the edges.  Please let me know about any problems with it.
+
+Known issues (will be fixed soon):
+    - launchd will sometimes crash when injecting Substrate while Substitute is
+      already loaded.
+    - substituted will forget what libraries were loaded into SpringBoard if it
+      gets killed for inactivity, breaking the crash.
+    - White-on-white status bar (I think) in SafetyDance.
+    - Each dylib is >100kb due mostly to zero padding (and fat binaries).  This
+      is easily fixed by adding FS compression, which I need to do in the deb.
+
+How to use on iOS:
 
     Extensions should be placed in /Library/Substitute/DynamicLibraries, with
     the same layout as Substrate.  If you want to quickly test whether an
@@ -44,16 +53,6 @@ ALPHA VERSION:
       extension.dylib
 
     and move it to the new directory.
-
-Substitute is a system for modifying code at runtime by substituting custom
-implementations for arbitrary functions and Objective-C methods.  It is also a
-Free Software substitute for [Cydia Substrate](http://www.cydiasubstrate.com).
-It currently has full support for iOS and limited support for OS X; in the
-(hopefully near) future I will port it more widely.
-
-License: LGPLv2.1+ with optional extra permissiveness; see LICENSE.txt
-
-Note: x86 support should be functional now, although I haven't tested it much.
 
 Substitute compared to Substrate
 ================================
