@@ -57,10 +57,11 @@ static int (*old_xpc_pipe_try_receive)(mach_port_t, xxpc_object_t *,
                                        mach_port_t *, void *, size_t, int);
 
 static bool g_is_launchd;
+static pthread_mutex_t g_state_lock = PTHREAD_MUTEX_INITIALIZER;
+/* covering... */
 static xxpc_object_t g_bundleid_to_fate;
 static HTAB_STORAGE(pid_str) g_pid_to_bundleid =
     HTAB_STORAGE_INIT_STATIC(&g_pid_to_bundleid, pid_str);
-static pthread_mutex_t g_dicts_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static bool advance(char **strp, const char *template) {
     size_t len = strlen(template);
@@ -379,9 +380,9 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
         spawn_unrestrict(pid, !was_suspended, false);
 
     if (bundleid) {
-        pthread_mutex_lock(&g_dicts_lock);
+        pthread_mutex_lock(&g_state_lock);
         *htab_setp_pid_str(&g_pid_to_bundleid.h, &pid, NULL) = strdup(bundleid);
-        pthread_mutex_unlock(&g_dicts_lock);
+        pthread_mutex_unlock(&g_state_lock);
     }
 
     goto cleanup;
@@ -415,7 +416,7 @@ int hook_posix_spawnp(pid_t *restrict pid, const char *restrict path,
 static void after_wait_generic(pid_t pid, int stat) {
     if (pid == -1)
         return;
-    pthread_mutex_lock(&g_dicts_lock);
+    pthread_mutex_lock(&g_state_lock);
     struct htab_bucket_pid_str *bucket =
         htab_getbucket_pid_str(&g_pid_to_bundleid.h, &pid);
     if (!bucket) {
@@ -429,7 +430,7 @@ static void after_wait_generic(pid_t pid, int stat) {
     free(bundleid);
     htab_removeat_pid_str(&g_pid_to_bundleid.h, bucket);
 end:
-    pthread_mutex_unlock(&g_dicts_lock);
+    pthread_mutex_unlock(&g_state_lock);
 }
 
 pid_t hook_wait4(pid_t pid, int *stat_loc, int options, struct rusage *rusage) {
@@ -477,13 +478,14 @@ int hook_xpc_pipe_try_receive(mach_port_t port_set, xxpc_object_t *requestp,
     xxpc_object_t reply = NULL;
     if (!strcmp(name, "bundleid-to-fate")) {
         const char *bundleid = xxpc_dictionary_get_string(in, "bundleid");
-        if (!bundleid) {
-            ib_log("invalid hook-operation message");
-            return res;
-        }
+        if (!bundleid)
+            goto invalid;
         reply = xxpc_dictionary_create_reply(request);
         xxpc_object_t out = xxpc_dictionary_create(NULL, NULL, 0);
-        xxpc_object_t fate = xxpc_dictionary_get_value(g_bundleid_to_fate, bundleid);
+        pthread_mutex_lock(&g_state_lock);
+        xxpc_object_t fate = xxpc_dictionary_get_value(g_bundleid_to_fate,
+                                                       bundleid);
+        pthread_mutex_unlock(&g_state_lock);
         if (fate) {
             if (IB_VERBOSE) {
                 char *desc = xxpc_copy_description(fate);
@@ -501,6 +503,7 @@ int hook_xpc_pipe_try_receive(mach_port_t port_set, xxpc_object_t *requestp,
         ib_log("unknown hook-operation '%s'", name);
         return res;
     }
+
     if (reply) {
         int reply_res = xxpc_pipe_routine_reply(reply);
         if (reply_res) {
@@ -512,6 +515,10 @@ int hook_xpc_pipe_try_receive(mach_port_t port_set, xxpc_object_t *requestp,
     xxpc_release(request);
     *requestp = NULL;
     return 0;
+
+invalid:
+    ib_log("invalid hook-operation='%s' message", name);
+    return res;
 }
 
 int hook_sandbox_check(pid_t pid, const char *op, int type, ...) {
