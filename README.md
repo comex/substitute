@@ -34,9 +34,7 @@ rather rough around the edges.  Please let me know about any problems with it.
 
 Known issues (will be fixed soon):
     - launchd will sometimes crash when injecting Substrate while Substitute is
-      already loaded.
-    - substituted will forget what libraries were loaded into SpringBoard if it
-      gets killed for inactivity, breaking the crash.
+      already loaded.  [not sure whether this is still an issue]
     - White-on-white status bar (I think) in SafetyDance.
     - Each dylib is >100kb due mostly to zero padding (and fat binaries).  This
       is easily fixed by adding FS compression, which I need to do in the deb.
