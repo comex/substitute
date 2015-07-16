@@ -1,7 +1,10 @@
-#import <Foundation/Foundation.h>
-#import <CoreFoundation/CoreFoundation.h>
 #include "darwin/xxpc.h"
 #include "substitute.h"
+#import <Foundation/Foundation.h>
+#import <CoreFoundation/CoreFoundation.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <mach/vm_param.h>
 
 void *vproc_swap_complex(void *vp, int key, xxpc_object_t inval,
                          __strong xxpc_object_t *outval);
@@ -20,6 +23,81 @@ static enum {
 
 static NSSet *g_springboard_loaded_dylibs;
 static NSSet *g_springboard_last_loaded_dylibs;
+
+static bool load_state() {
+    int fd = shm_open("com.ex.substituted.state", O_RDONLY);
+    if (fd == -1)
+        return false;
+    struct stat st;
+    if (fstat(fd, &st)) {
+        NSLog(@"fstat error");
+        return false;
+    }
+    size_t size = (size_t) st.st_size;
+    /* note: can't have concurrent modification */
+    void *buf = mmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (buf == MAP_FAILED) {
+        NSLog(@"mmap error");
+        return false;
+    }
+    NSData *nsd = [NSData dataWithBytesNoCopy:buf length:size];
+    NSError *err = nil;
+    id result = [NSPropertyListSerialization propertyListWithData:nsd
+                                             options:NSPropertyListImmutable
+                                             format:NULL error:&err];
+    if (err)
+        NSLog(@"propertyListWithData: %@", err);
+    if (!result)
+        return false;
+    if (![result isKindOfClass:[NSSet class]]) {
+        NSLog(@"loaded data is not NSSet - newer version?");
+        return false;
+    }
+    for (id str in result) {
+        if (![str isKindOfClass:[NSString class]]) {
+            NSLog(@"loaded data member is not NSString");
+            return false;
+        }
+    }
+    g_springboard_last_loaded_dylibs = result;
+    munmap(buf, size);
+    close(fd);
+    return true;
+}
+
+static bool save_state() {
+    NSError *err = nil;
+    NSData *data = [NSPropertyListSerialization
+                    dataWithPropertyList:g_springboard_last_loaded_dylibs
+                    format:NSPropertyListBinaryFormat_v1_0 options:0
+                    error:&err];
+    if (err)
+        NSLog(@"dataWithPropertyList: %@", err);
+    if (!data)
+        return false;
+    int fd = shm_open("com.ex.substituted.state", O_RDWR | O_CREAT | O_TRUNC,
+                      0644);
+    if (fd == -1) {
+        NSLog(@"shm_open error (write)");
+        return false;
+    }
+    size_t size = ([data length] + PAGE_MASK) & ~PAGE_MASK;
+    if (ftruncate(fd, size)) {
+        NSLog(@"ftruncate error (%zu)", size);
+        return false;
+    }
+
+    void *buf = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (buf == MAP_FAILED) {
+        NSLog(@"mmap error (write)");
+        return false;
+    }
+
+    memcpy(buf, [data bytes], [data length]);
+    munmap(buf, size);
+    close(fd);
+    return true;
+}
 
 extern kern_return_t bootstrap_look_up3(mach_port_t bp,
     const char *service_name, mach_port_t *sp, pid_t target_pid,
@@ -279,6 +357,7 @@ enum convert_filters_ret {
     if (_is_springboard) {
         g_springboard_last_loaded_dylibs = g_springboard_loaded_dylibs;
         g_springboard_loaded_dylibs = _loaded_dylibs = [NSMutableSet set];
+        save_state();
 
         [self updateSpringBoardNeedsSafeThen:^{
             [self handleMessageHelloRest:request];
@@ -418,6 +497,7 @@ bad:
 int main() {
     NSLog(@"hello from substituted");
     install_deadlock_warning();
+    load_state();
     xxpc_connection_t listener = xxpc_connection_create_mach_service(
         "com.ex.substituted", dispatch_get_main_queue(),
         XXPC_CONNECTION_MACH_SERVICE_LISTENER);
