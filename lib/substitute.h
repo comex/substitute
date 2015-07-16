@@ -87,10 +87,17 @@ enum {
 const char *substitute_strerror(int err);
 
 struct substitute_function_hook {
+    /* The function to hook.  (On ARM, Thumb functions are indicated as usual
+     * for function pointers.) */
     void *function;
+    /* The replacement function. */
     void *replacement;
-    void *old_ptr; /* optional: out *pointer* to function pointer to call old
-                    * impl */
+    /* Optional: out *pointer* to function pointer to call old implementation
+     * (i.e. given 'void (*old_foo)(...);', pass &old_foo) */
+    void *old_ptr;
+    /* Currently unused; pass 0.  (Protip: When using C {} struct initializer
+     * syntax, you can just omit this.) */
+    int options;
 };
 
 /* substitute_hook_functions options */
@@ -216,6 +223,9 @@ struct substitute_import_hook {
      * the same symbol, only one address is returned (hopefully they are all
      * equal) */
     void *old_ptr;
+    /* Currently unused; pass 0.  (Protip: When using C {} struct initializer
+     * syntax, you can just omit this.) */
+    int options;
 };
 
 /* Directly modify the GOT/PLT entries from a specified image corresponding to
