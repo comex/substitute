@@ -2,7 +2,6 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include <stdatomic.h>
 
 #include "substitute.h"
 #include "substitute-internal.h"
@@ -96,9 +95,8 @@ static int try_bind_section(void *bind, size_t size,
                         void *p = (void *) (segment + offset);
                         switch (type) {
                         case BIND_TYPE_POINTER: {
-                            old = atomic_exchange_explicit(
-                                (_Atomic uintptr_t *) p, new,
-                                memory_order_relaxed);
+                            old = __atomic_exchange_n((uintptr_t *) p,
+                                                      new, __ATOMIC_RELAXED);
                             break;
                         }
                         case BIND_TYPE_TEXT_ABSOLUTE32: {
@@ -107,9 +105,9 @@ static int try_bind_section(void *bind, size_t size,
                                  * this is impossible... */
                                 substitute_panic("bad TEXT_ABSOLUTE32 rel\n");
                             }
-                            old = atomic_exchange_explicit(
-                                (_Atomic uint32_t *) p, (uint32_t) new,
-                                memory_order_relaxed);
+                            old = __atomic_exchange_n((uint32_t *) p,
+                                                      (uint32_t) new,
+                                                      __ATOMIC_RELAXED);
                             break;
                         }
                         case BIND_TYPE_TEXT_PCREL32: {
@@ -119,9 +117,9 @@ static int try_bind_section(void *bind, size_t size,
                                 /* ditto */
                                 substitute_panic("bad TEXT_ABSOLUTE32 rel\n");
                             }
-                            old = atomic_exchange_explicit(
-                                (_Atomic uint32_t *) p, (uint32_t) rel,
-                                memory_order_relaxed);
+                            old = __atomic_exchange_n((uint32_t *) p,
+                                                      (uint32_t) rel,
+                                                      __ATOMIC_RELAXED);
                             old += pc;
                             break;
                         }
