@@ -382,7 +382,11 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
 
     if (bundleid) {
         pthread_mutex_lock(&g_state_lock);
-        *htab_setp_pid_str(&g_pid_to_bundleid.h, &pid, NULL) = strdup(bundleid);
+        bool new_entry;
+        char **old_bundleid = htab_setp_pid_str(&g_pid_to_bundleid.h, &pid, &new_entry);
+        if (!new_entry)
+            free(*old_bundleid);
+        *old_bundleid = strdup(bundleid);
         pthread_mutex_unlock(&g_state_lock);
     }
 
