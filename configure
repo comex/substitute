@@ -8,7 +8,7 @@ settings.package_unix_name.value = 'substitute'
 c = settings.host_machine().c_tools()
 c.cc.required()
 c.dsymutil.required()
-
+settings.host_machine().will_need_darwin_target_conditionals()
 
 settings.add_setting_option('imaon2', '--with-imaon2', 'path to imaon2 (optional)', '')
 settings.add_setting_option('gen_dia', '--enable-recompile-dia', 'generate darwin-inject-asm.S', False, bool=True)

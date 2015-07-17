@@ -55,7 +55,7 @@ def init_config_log():
 # a wrapper for subprocess that logs results
 # returns (stdout, stderr, status) [even if Popen fails]
 def run_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs):
-    config_log.write('Running command %s...\n' % (argv_to_shell(cmd),))
+    config_log.write("Running command '%s'\n" % (argv_to_shell(cmd),))
     try:
         p = subprocess.Popen(cmd, stdout=stdout, stderr=stderr, **kwargs)
     except OSError:
@@ -111,12 +111,8 @@ class PendingOption(Pending, namedtuple('PendingOption', 'opt')):
         return self.opt.value
     def __repr__(self):
         return 'PendingOption(%s)' % (self.opt.name,)
-
-class PendingAttribute(Pending, namedtuple('PendingAttribute', 'base attr')):
-    def resolve(self):
-        return getattr(self.base, self.attr)
-    def __repr__(self):
-        return 'PendingAttribute(attr=%s, base=%r)' % (self.attr, self.base)
+    def __getattribute__(self, attr):
+        die
 
 class SettingsGroup(object):
     def __init__(self, group_parent=None, inherit_parent=None, name=None):
@@ -490,7 +486,7 @@ class Machine(object):
     # Get a list of appropriate toolchains.
     def toolchains(self): # memoized
         tcs = []
-        if self.is_darwin() and os.path.exists('/usr/bin/xcrun'):
+        if os.path.exists('/usr/bin/xcrun'):
             self.xcode_toolchain = XcodeToolchain(self, self.settings)
             tcs.append(self.xcode_toolchain)
         tcs.append(UnixToolchain(self, self.settings))
@@ -499,6 +495,8 @@ class Machine(object):
     #memoize
     def darwin_target_conditionals(self):
         return calc_darwin_target_conditionals(self.c_tools(), self.settings)
+    def will_need_darwin_target_conditionals(self):
+        self.c_tools().cpp.required()
 
     #memoize
     def c_tools(self):
@@ -546,6 +544,10 @@ class CLITool(object):
             log('Using %s from command line: %s\n' % (self.name, argv_to_shell(self.argv_from_opt)))
             return self.argv_from_opt
 
+        return self.argv_non_opt()
+
+    # overridable
+    def argv_non_opt(self):
         failure_notes = []
         for tc in self.toolchains:
             argv = tc.find_tool(self, failure_notes)
@@ -570,13 +572,20 @@ class CLITool(object):
                     return [filename]
         return None
 
-
 class UnixToolchain(object):
     def __init__(self, machine, settings):
         self.machine = machine
         self.settings = settings
 
     def find_tool(self, tool, failure_notes):
+        # special cases
+        if tool.name == 'cpp':
+            cc = self.machine.c_tools().cc()
+            if cc is not None:
+                return cc + ['-E']
+        return self.find_tool_normal(tool, failure_notes)
+
+    def find_tool_normal(self, tool, failure_notes):
         prefix = ''
         if self.machine.is_cross():
             prefix = self.machine.triple.triple + '-'
@@ -586,11 +595,13 @@ class UnixToolchain(object):
 def calc_darwin_target_conditionals(ctools, settings):
     fn = os.path.join(settings.out, '_calc_darwin_target_conditionals.c')
     with open(fn, 'w') as fp:
-        fn.write('#include <TargetConditionals.h>\n')
-    so, se, st = run_command(ct.cc() + ['-E', '-dM', fn])
+        fp.write('#include <TargetConditionals.h>\n')
+    so, se, st = run_command(ctools.cpp.argv() + ['-dM', fn])
     if st:
-        raise DependencyNotFoundException('darwin platform but no TargetConditionals.h?')
-    return {env: bool(val) for (env, val) in re.findall('^#define (TARGET_[^ ]*)\s+(0|1)\s*$', so, re.M)}
+        log('* Error: Darwin platform but no TargetConditionals.h?\n')
+        raise DependencyNotFoundException
+    # note: TARGET_CPU are no good because there could be multiple arches
+    return {env: bool(val) for (env, val) in re.findall('^#define (TARGET_OS_[^ ]*)\s+(0|1)\s*$', so, re.M)}
 
 # Reads a binary or XML plist (on OS X)
 def read_plist(gunk):
@@ -707,6 +718,17 @@ class XcodeToolchain(object):
         return [flag for arch in self.archs for flag in ('-arch', arch)]
 
     def find_tool(self, tool, failure_notes):
+        # special cases
+        if tool.name == 'cpp':
+            argv = ['/usr/bin/xcrun', '--sdk', self.sdk, 'cc', '-E']
+            sod, sed, code = run_command(['/usr/bin/xcrun', '--sdk', self.sdk, '-f', tool.name])
+            if code != 0:
+                failure_notes.append(sed)
+                return None
+            return argv
+        return self.find_tool_normal(tool, failure_notes)
+
+    def find_tool_normal(self, tool, failure_notes):
         if not self.ok:
             return None
         arch_flags = self.arch_flags() if tool.name in {'cc', 'cxx', 'nm'} else []
@@ -724,8 +746,9 @@ class CTools(object):
         group = settings[machine.name]
 
         tools = [
-            ('cc',   ['cc', 'gcc', 'clang'],    'CC'),
-            ('cxx',  ['c++', 'g++', 'clang++'], 'CXX'),
+            ('cc',   ['cc', 'gcc', 'clang'],     'CC'),
+            ('cpp',  None,                       'CPP'),
+            ('cxx',  ['c++', 'g++', 'clang++'],  'CXX'),
             ('ar',),
             ('nm',),
             ('ranlib',),
