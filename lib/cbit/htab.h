@@ -115,7 +115,7 @@ struct htab_internal {
         key_ty *hole = op; \
         key_ty *cur = hole; \
         while (1) { \
-            if (cur == end)\
+            if (cur == end) \
                 cur = (void *) buckets; \
             cur = (void *) ((char *) cur + entry_size); \
             if (cur == hole || null_func(cur)) { \
