@@ -55,13 +55,24 @@ def init_config_log():
 # a wrapper for subprocess that logs results
 # returns (stdout, stderr, status) [even if Popen fails]
 def run_command(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs):
-    config_log.write("Running command '%s'\n" % (argv_to_shell(cmd),))
+    shell = argv_to_shell(cmd)
+    config_log.write("Running command '%s'\n" % (shell,))
+
+    isatty = sys.stdout.isatty()
+    if isatty:
+        sys.stdout.write('>>> ' + shell) # no \n
+        sys.stdout.flush()
+
     try:
         p = subprocess.Popen(cmd, stdout=stdout, stderr=stderr, **kwargs)
     except OSError:
         config_log.write('  OSError\n')
         return '', '', 127
     so, se = [o.decode('utf-8') for o in p.communicate()]
+
+    if isatty:
+        sys.stdout.write('\033[2K\r')
+
     if p.returncode != 0:
         config_log.write('  failed with status %d\n' % (p.returncode,))
     config_log.write('-----------\n')
