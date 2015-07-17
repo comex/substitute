@@ -489,7 +489,6 @@ static int hook_xpc_pipe_try_receive(mach_port_t port_set, xxpc_object_t *reques
         pthread_mutex_lock(&g_state_lock);
         xxpc_object_t fate = xxpc_dictionary_get_value(g_bundleid_to_fate,
                                                        bundleid);
-        pthread_mutex_unlock(&g_state_lock);
         if (fate) {
             if (IB_VERBOSE) {
                 char *desc = xxpc_copy_description(fate);
@@ -501,6 +500,7 @@ static int hook_xpc_pipe_try_receive(mach_port_t port_set, xxpc_object_t *reques
             if (IB_VERBOSE)
                 ib_log("your (%s) fate is unavailable", bundleid);
         }
+        pthread_mutex_unlock(&g_state_lock);
         xxpc_dictionary_set_value(reply, "out", out);
         xxpc_release(out);
     } else {
