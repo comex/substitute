@@ -13,8 +13,8 @@ c.dsymutil.required()
 settings.add_setting_option('imaon2', '--with-imaon2', 'path to imaon2 (optional)', '')
 settings.add_setting_option('gen_dia', '--enable-recompile-dia', 'generate darwin-inject-asm.S', False, bool=True)
 settings.add_setting_option('enable_tests', '--enable-tests', 'tests!', False, bool=True)
-settings.add_setting_option('enable_ios_bootstrap', '--enable-ios-bootstrap', 'default: true if you pass --xcode-sdk=iphone*',
-    lambda: 'iphone' in str(settings.host_machine().toolchains()[0].sdk_opt.value),
+settings.add_setting_option('enable_ios_bootstrap', '--enable-ios-bootstrap', 'default: true if targeting iOS',
+    lambda: settings.host_machine().is_ios(),
     bool=True)
 settings.add_setting_option('enable_werror', '--enable-werror', '', False, bool=True)
 
@@ -44,6 +44,9 @@ for name, cflags in asm_archs:
             mach_settings.ldflags = asm_ldflags + mach_settings.ldflags
     mconfig.post_parse_args_will_need.append(f)
 
+def wrong_ios():
+    if settings.enable_ios_bootstrap and not settings.host_machine().is_ios():
+        raise mconfig.DependencyNotFoundException("iOS bootstrap requires iOS, but the target doesn't seem to be iOS - if you're compiling without Xcode, please specify --target=armv7-apple-darwin10 or something like that")
 
 mconfig.parse_args()
 ####################################
@@ -58,7 +61,7 @@ if settings.enable_werror:
 
 # XXX this is a mess and wrong
 flags = ['-O3']
-if settings.host_machine().is_cross():
+if settings.host_machine().is_ios():
     flags.append('-miphoneos-version-min=8.0')
 for i in ('cflags', 'ldflags'):
     settings.host[i] = flags + settings.host[i]

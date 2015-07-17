@@ -452,6 +452,8 @@ class Machine(object):
 
         self.toolchains = memoize(self.toolchains)
         self.c_tools = memoize(self.c_tools)
+        self.darwin_target_conditionals = memoize(self.darwin_target_conditionals)
+
         self.flags_section = OptSection('Compiler/linker flags (%s):' % (self.name,))
         self.tools_section = OptSection('Tool overrides (%s):' % (self.name,))
 
@@ -476,13 +478,27 @@ class Machine(object):
         return (self.triple.os is not None and 'darwin' in self.triple.os) or \
             (self.triple.triple == '' and os.path.exists('/System/Library/Frameworks'))
 
+    def is_ios(self): # memoized
+        if not self.is_darwin():
+            return False
+        tc = self.darwin_target_conditionals()
+        return tc['TARGET_OS_IOS'] or tc['TARGET_OS_SIMULATOR']
+
+    def is_macosx(self):
+        return self.is_darwin() and not self.is_ios()
+
     # Get a list of appropriate toolchains.
     def toolchains(self): # memoized
         tcs = []
-        if os.path.exists('/usr/bin/xcrun'):
-            tcs.append(XcodeToolchain(self, self.settings))
+        if self.is_darwin() and os.path.exists('/usr/bin/xcrun'):
+            self.xcode_toolchain = XcodeToolchain(self, self.settings)
+            tcs.append(self.xcode_toolchain)
         tcs.append(UnixToolchain(self, self.settings))
         return tcs
+
+    #memoize
+    def darwin_target_conditionals(self):
+        return calc_darwin_target_conditionals(self.c_tools(), self.settings)
 
     #memoize
     def c_tools(self):
@@ -567,6 +583,15 @@ class UnixToolchain(object):
             failure_notes.append('detected cross compilation, so searched for %s-%s' % (self.machine.triple.triple, tool.name))
         return tool.locate_in_paths(prefix, self.settings.tool_search_paths)
 
+def calc_darwin_target_conditionals(ctools, settings):
+    fn = os.path.join(settings.out, '_calc_darwin_target_conditionals.c')
+    with open(fn, 'w') as fp:
+        fn.write('#include <TargetConditionals.h>\n')
+    so, se, st = run_command(ct.cc() + ['-E', '-dM', fn])
+    if st:
+        raise DependencyNotFoundException('darwin platform but no TargetConditionals.h?')
+    return {env: bool(val) for (env, val) in re.findall('^#define (TARGET_[^ ]*)\s+(0|1)\s*$', so, re.M)}
+
 # Reads a binary or XML plist (on OS X)
 def read_plist(gunk):
     import plistlib
@@ -605,6 +630,7 @@ class XcodeToolchain(object):
         if not self.sdk:
             is_armish = tarch is not None and tarch.startswith('arm')
             self.sdk = 'iphoneos' if is_armish else 'macosx'
+        self.is_ios = 'macos' not in self.sdk
         # this is used for arch and also serves as a check
         sdk_platform_path, _, code = run_command(['/usr/bin/xcrun', '--sdk', self.sdk, '--show-sdk-platform-path'])
         if code == 127:
