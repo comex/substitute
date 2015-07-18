@@ -60,11 +60,12 @@ void WRAP(xpc_array_set_string, (xxpc_object_t, size_t, const char *));
 OS_OBJECT_RETURNS_RETAINED
 xxpc_object_t WRAP(xpc_dictionary_create, (const char *const *,
                                            const xxpc_object_t *, size_t));
-
 OS_OBJECT_RETURNS_RETAINED
 xxpc_object_t WRAP(xpc_dictionary_create_reply, (xxpc_object_t));
 bool WRAP(xpc_dictionary_get_bool, (xxpc_object_t, const char *));
 const char *WRAP(xpc_dictionary_get_string, (xxpc_object_t, const char *));
+uint64_t WRAP(xpc_dictionary_get_uint64, (xxpc_object_t, const char *));
+int64_t WRAP(xpc_dictionary_get_int64, (xxpc_object_t, const char *));
 xxpc_object_t WRAP(xpc_dictionary_get_value, (xxpc_object_t, const char *));
 void WRAP(xpc_dictionary_set_bool, (xxpc_object_t, const char *, bool));
 void WRAP(xpc_dictionary_set_string, (xxpc_object_t, const char *, const char *));

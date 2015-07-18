@@ -346,6 +346,14 @@ enum convert_filters_ret {
     if (_argv0 != NULL)
         goto bad;
 
+    int64_t version = xxpc_dictionary_get_int64(request, "proto-version");
+    if (version != 1) {
+        /* in the future there will be a proper unloading mechanism, but here's
+         * a bit of future proofing */
+        NSLog(@"request received from wrong version of bundle-loader: %@", request);
+        xxpc_connection_cancel(_connection);
+    }
+
     const char *argv0 = xxpc_dictionary_get_string(request, "argv0");
     if (!argv0)
         goto bad;

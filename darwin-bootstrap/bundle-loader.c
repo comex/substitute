@@ -267,6 +267,7 @@ static void init() {
 
     xxpc_object_t message = xxpc_dictionary_create(NULL, NULL, 0);
     xxpc_dictionary_set_string(message, "type", "hello");
+    xxpc_dictionary_set_int64(message, "proto-version", 1);
     xxpc_dictionary_set_string(message, "argv0", argv0);
     xxpc_connection_send_message_with_reply(conn, message, NULL,
                                            ^(xxpc_object_t reply) {
