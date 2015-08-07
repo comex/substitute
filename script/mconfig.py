@@ -226,7 +226,7 @@ class OptSection(object):
         all_opt_sections.append(self)
 
 class Option(object):
-    def __init__(self, name, help, on_set, default=None, bool=False, show=True, section=None, metavar=None, type=str, **kwargs):
+    def __init__(self, name, help, on_set, default=None, bool=False, opposite=None, show=True, section=None, metavar=None, type=str, **kwargs):
         if name.startswith('--'):
             self.is_env = False
             assert set(kwargs).issubset({'nargs', 'choices', 'required', 'metavar'})
@@ -246,6 +246,15 @@ class Option(object):
             metavar = '...'
         self.metavar = metavar
         self.bool = bool
+        if bool:
+            if opposite is None:
+                if name.startswith('--enable-'):
+                    opposite = '--disable-' + name[9:]
+                elif name.startswith('--with-'):
+                    opposite = '--without-' + name[7:]
+                else:
+                    raise ValueError("need opposite for bool option %r" %(name,))
+            self.opposite = opposite
         self.section = section if section is not None else default_opt_section
         self.section.opts.append(self)
         self.argparse_kw = kwargs.copy()
@@ -379,6 +388,11 @@ def _make_argparse(include_unused, include_env):
                             dest=opt.name[2:],
                             help=opt.help,
                             **kw)
+            if opt.bool and include_unused:
+                ag.add_argument(opt.opposite,
+                                action='store_false',
+                                dest=opt.name[2:],
+                                **kw)
     return parser
 
 def _print_help(include_unused=False):
