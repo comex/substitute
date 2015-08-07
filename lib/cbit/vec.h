@@ -120,6 +120,11 @@ void vec_realloc_internal_as_necessary(struct vec_internal *vi,
    v->els = v->storage; \
 } while (0)
 
+#define VEC_STORAGE_INIT_STATIC(vs, name) \
+    {{0, \
+      (sizeof((vs)->rest) / sizeof((vs)->rest[0])) + 1, \
+      (vs)->v.storage \
+    }}
 
 /* guaranteed to *not* cache vec->length - pretty simple */
 

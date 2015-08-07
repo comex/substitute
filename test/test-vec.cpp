@@ -4,7 +4,7 @@ DECL_VEC(const char *, ccp);
 DECL_VEC(int, int);
 
 int main() {
-    VEC_STORAGE(ccp) stor;
+    VEC_STORAGE(ccp) stor = VEC_STORAGE_INIT_STATIC(&stor, cpp);
     VEC_STORAGE_INIT(&stor, ccp);
     struct vec_ccp *vec = &stor.v;
     for (int i = 0; i < 20; i++) {
