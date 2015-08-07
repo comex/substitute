@@ -37,12 +37,12 @@ void vec_realloc_internal_as_necessary(struct vec_internal *vi,
       }; \
    }; \
    UNUSED_STATIC_INLINE \
-   void vec_free_storage(struct vec_##name *v) { \
+   void vec_free_storage_##name(struct vec_##name *v) { \
       if (v->els != v->storage) \
          free(v->els); \
    } \
    UNUSED_STATIC_INLINE \
-   struct vec_##name vec_borrow(VEC_TY(name) *els, size_t length) { \
+   struct vec_##name vec_borrow##name(VEC_TY(name) *els, size_t length) { \
       struct vec_##name v; \
       v.length = v.capacity = length; \
       v.els = els; \

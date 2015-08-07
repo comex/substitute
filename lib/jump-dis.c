@@ -171,7 +171,7 @@ done:
     /* no bad instructions! */
     ret = false;
 fail:
-    vec_free_storage(&ctx.queue.v);
+    vec_free_storage_uint_tptr(&ctx.queue.v);
     return ret;
 }
 

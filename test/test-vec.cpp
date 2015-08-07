@@ -1,6 +1,7 @@
 #include "cbit/vec.h"
 #include <stdio.h>
 DECL_VEC(const char *, ccp);
+DECL_VEC(int, int);
 
 int main() {
     VEC_STORAGE(ccp) stor;

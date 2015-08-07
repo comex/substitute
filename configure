@@ -171,6 +171,7 @@ if settings.enable_tests:
         ('posixspawn-hook',),
         ('htab',),
         ('vec', {'cpp': True, 'extra_objs': ['(out)/lib/cbit/vec.o']}),
+        ('vec-c', 'vec', ['-x', 'c'], {'extra_objs': ['(out)/lib/cbit/vec.o']}),
     ]
 
     for arch, hdr, xdis, target in [
