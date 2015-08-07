@@ -37,7 +37,7 @@
                     if (1) \
                         goto __done_##ctr; \
                     else \
-                            __body_##ctr:
+                        __body_##ctr:
 
 #define LET_(expr, ctr) LET__(expr, ctr)
 #define LET(expr) LET_(expr, __COUNTER__)
