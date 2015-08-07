@@ -591,8 +591,11 @@ class UnixToolchain(object):
     def find_tool(self, tool, failure_notes):
         # special cases
         if tool.name == 'cpp':
-            cc = self.machine.c_tools().cc()
-            if cc is not None:
+            try:
+                cc = self.machine.c_tools().cc.argv()
+            except DependencyNotFoundException:
+                pass
+            else:
                 return cc + ['-E']
         return self.find_tool_normal(tool, failure_notes)
 
@@ -612,7 +615,7 @@ def calc_darwin_target_conditionals(ctools, settings):
         log('* Error: Darwin platform but no TargetConditionals.h?\n')
         raise DependencyNotFoundException
     # note: TARGET_CPU are no good because there could be multiple arches
-    return {env: bool(val) for (env, val) in re.findall('^#define (TARGET_OS_[^ ]*)\s+(0|1)\s*$', so, re.M)}
+    return {env: bool(int(val)) for (env, val) in re.findall('^#define (TARGET_OS_[^ ]*)\s+(0|1)\s*$', so, re.M)}
 
 # Reads a binary or XML plist (on OS X)
 def read_plist(gunk):

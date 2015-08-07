@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 set -e
 debroot=out/debroot
 version="$(git describe --always --dirty)"
