@@ -266,7 +266,8 @@ struct htab_internal {
     void htab_free_storage_##name(htab_ty *ht) { \
         if (ht->base != ht->storage) \
             free(ht->base); \
-    }
+    } \
+    typedef char __plz_end_decl_htab_with_semicolon_##name
 
 #define HTAB_STORAGE_CAPA(name, n) \
    struct { \

@@ -101,7 +101,7 @@ void vec_realloc_internal_as_necessary(struct vec_internal *vi,
                 (orig - (idx + num)) * sizeof(v->els[0])); \
         vec_resize_##name(v, orig - num); \
     } \
-
+    typedef char __plz_end_decl_vec_with_semicolon_##name
 
 #define VEC_TY(name) __VEC_TY_##name
 

@@ -1,4 +1,4 @@
-#include "cbit/vec.h"
+#include "vec.h"
 #include <stdio.h>
 #include <stdlib.h>
 
