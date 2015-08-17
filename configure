@@ -47,6 +47,8 @@ for name, cflags in asm_archs:
 def wrong_ios():
     if settings.enable_ios_bootstrap and not settings.host_machine().is_ios():
         raise mconfig.DependencyNotFoundException("iOS bootstrap requires iOS, but the target doesn't seem to be iOS - if you're compiling without Xcode, please specify --target=armv7-apple-darwin10 or something like that")
+mconfig.post_parse_args_will_need.append(wrong_ios)
+
 
 mconfig.parse_args()
 ####################################
@@ -191,7 +193,7 @@ if settings.enable_tests:
         ibase = obase = tup.pop(0)
         cflags = ldflags = []
         options = {}
-        if tup and isinstance(tup[0], basestring): ibase = tup.pop(0)
+        if tup and isinstance(tup[0], str): ibase = tup.pop(0)
         if tup and isinstance(tup[0], (list, tuple)): cflags = tup.pop(0)
         if tup and isinstance(tup[0], (list, tuple)): ldflags = tup.pop(0)
         if tup: options, = tup

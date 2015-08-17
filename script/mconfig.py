@@ -503,7 +503,7 @@ class Machine(object):
         if not self.is_darwin():
             return False
         tc = self.darwin_target_conditionals()
-        return tc['TARGET_OS_IOS'] or tc['TARGET_OS_SIMULATOR']
+        return any(tc.get(flag) for flag in ['TARGET_OS_IOS', 'TARGET_OS_SIMULATOR', 'TARGET_OS_IPHONE', 'TARGET_IPHONE_SIMULATOR'])
 
     def is_macosx(self):
         return self.is_darwin() and not self.is_ios()
@@ -621,6 +621,8 @@ class UnixToolchain(object):
         return tool.locate_in_paths(prefix, self.settings.tool_search_paths)
 
 def calc_darwin_target_conditionals(ctools, settings):
+    if not os.path.exists(settings.out):
+        os.makedirs(settings.out)
     fn = os.path.join(settings.out, '_calc_darwin_target_conditionals.c')
     with open(fn, 'w') as fp:
         fp.write('#include <TargetConditionals.h>\n')
