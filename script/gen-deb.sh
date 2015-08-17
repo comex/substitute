@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 debroot=out/debroot
-version="$(git describe --always --dirty)"
+version="$(git describe --always --dirty | sed 's/-/+/g')"
 rm -rf $debroot
 mkdir -p $debroot
 mkdir -p $debroot/usr/share/doc/substitute
