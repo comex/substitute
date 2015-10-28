@@ -17,9 +17,11 @@ settings.add_setting_option('enable_ios_bootstrap', '--enable-ios-bootstrap', 'd
     lambda: settings.host_machine().is_ios(),
     bool=True)
 settings.add_setting_option('enable_werror', '--enable-werror', '', False, bool=True)
+settings.add_setting_option('install_name', '--install-name', 'LC_ID_DYLIB',
+    lambda: ['/usr/local/lib/libsubstitute.0.dylib', '/usr/lib/libsubstitute.0.dylib'][settings.host_machine().is_ios()])
 
 ldid_tool = mconfig.CLITool('ldid', ['ldid'], 'LDID', settings.host_machine(), settings.host_machine().toolchains())
-ldid_tool.optional()
+ldid_tool.optional_nocheck()
 
 asm_archs = [
     ('x86_64', []),
@@ -87,7 +89,6 @@ def cb(fn):
     if fn.endswith('/objc.c'):
         return settings.specialize(obj_ldflag_sets=[('-lobjc',)])
     return settings
-
 # Note: the order of darwin-inject-asm.o is significant.  Per man page, ld is
 # guaranteed to link objects in order, which is necessary because
 # darwin-inject-asm.S does not itself ensure there is at least 0x4000 bytes of
@@ -100,7 +101,7 @@ def cb(fn):
 mconfig.build_and_link_c_objs(
     emitter,
     settings.host_machine(),
-    settings.specialize(override_ldflags=['-install_name', '/usr/lib/libsubstitute.0.dylib'] + settings.host.ldflags),
+    settings.specialize(override_ldflags=['-install_name', settings.install_name] + settings.host.ldflags),
     'dylib',
     '(out)/libsubstitute.dylib',
     [

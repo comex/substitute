@@ -548,8 +548,11 @@ class CLITool(object):
     def __repr__(self):
         return 'CLITool(name=%r, defaults=%r, env=%r)' % (self.name, self.defaults, self.env)
 
-    def optional(self):
+    def optional_nocheck(self):
         self.argv_opt.need()
+
+    def optional(self):
+        self.optional_nocheck()
         def f():
             try:
                 self.argv()
