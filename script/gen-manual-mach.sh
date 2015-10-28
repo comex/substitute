@@ -4,13 +4,16 @@ pat='/thread_[gs]et_state|vm_remap/'
 (mig -user /dev/stdout -server /dev/null -header /dev/stdout /usr/include/mach/{thread_act,mach_vm}.defs |
      egrep -v '^(#ifndef|#define|#endif).*_user_' |
      egrep -v '#include "stdout"' |
-     unifdef -D__MigTypeCheck |
+     unifdef -D__MigTypeCheck -Umig_external -UUSING_VOUCHERS |
+     egrep -v 'voucher_mach_msg_set' |
+     egrep -v '#define mig_external' |
      sed -E 's/(mach_msg|memcpy)\(/manual_\1(/g;
              s/^\)/, mach_port_t reply_port)/;
              s/_kernelrpc_//g;
              s/(Request|Reply)__/\1__manual_/g;
+             s/[[:<:]]extern[[:>:]]/static/g;
              s/^([a-z].*)?kern_return_t[[:blank:]]+([a-z])/\1kern_return_t manual_\2/;
-             s/mig_external/static/;
+             s/mig_external/static/g;
              s/mig_get_reply_port\(\)/reply_port/g' |
      awk 'BEGIN { on = 1; }
           /^\/\* Routine / ||
