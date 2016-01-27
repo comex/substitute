@@ -203,6 +203,7 @@ class SettingsGroup(object):
             default = lambda: expand(old, self)
         opt = Option(optname, optdesc, f, default, **kwargs)
         self[name] = PendingOption(opt)
+        return opt
 
     def specialize(self, name=None, group_parent=None, **kwargs):
         sg = SettingsGroup(inherit_parent=self, group_parent=group_parent, name=name)
@@ -406,7 +407,7 @@ def parse_args():
     args, argv = parser.parse_known_args()
     if args.__help or args.__help_all:
         _print_help(include_unused=args.__help_all)
-        sys.exit(0)
+        sys.exit(1)
     unrecognized_env = []
     def do_env_arg(arg):
         m = re.match('([^- ]+)=(.*)', arg)
@@ -424,7 +425,7 @@ def parse_args():
         print ('unrecognized environment: %s' % (argv_to_shell(unrecognized_env),))
     if unrecognized_argv or unrecognized_env:
         _print_help()
-        sys.exit(0)
+        sys.exit(1)
 
     for opt in all_options:
         try:
@@ -692,7 +693,7 @@ class XcodeToolchain(object):
 
         self.archs = self.get_archs(arch, tarch)
         if self.archs is None:
-            log("%s default Xcode SDK for %r because %s; pass %s=arch1,arch2 to override\n" % (
+            log("*** %s default Xcode SDK for %r because %s; pass %s=arch1,arch2 to override\n" % (
                 "Can't use" if some_explicit_xcode_request else "Not using",
                 self.machine.name,
                 ("triple architecture %r doesn't seem to be valid" % (tarch,)) if tarch else "I couldn't guess a list of architectures from the SDK",
@@ -805,11 +806,16 @@ class CTools(object):
         if machine.name != 'host':
             suff = '_FOR_' + to_upper_and_underscore(machine.name)
         suff += '='
+        group.app_cflags = []
+        group.app_cxxflags = []
+        group.app_ldflags = []
+        group.app_cppflags = []
         self.cflags_opt = group.add_setting_option('cflags', 'CFLAGS'+suff, 'Flags for $CC', [], section=machine.flags_section, type=shlex.split)
         self.cxxflags_opt = group.add_setting_option('cxxflags', 'CXXFLAGS'+suff, 'Flags for $CXX', [], section=machine.flags_section, type=shlex.split)
         self.ldflags_opt = group.add_setting_option('ldflags', 'LDFLAGS'+suff, 'Flags for $CC/$CXX when linking', [], section=machine.flags_section, type=shlex.split)
         self.cppflags_opt = group.add_setting_option('cppflags', 'CPPFLAGS'+suff, 'Flags for $CC/$CXX when not linking (supposed to be used for preprocessor flags)', [], section=machine.flags_section, type=shlex.split)
-        group.debug_info = False
+        settings.enable_werror_opt.need()
+        settings.enable_debug_info_opt.need()
 
 
 # A nicer - but optional - way of doing multiple tests that will print all the
@@ -825,8 +831,9 @@ def will_need(tests):
         log('(%d failure%s.)\n' % (failures, 's' if failures != 1 else ''))
         sys.exit(1)
 
-def within_dirtree(tree, fn):
-    return not os.path.relpath(fn, tree).startswith('..'+os.path.sep)
+def relpath_if_within(tree, fn):
+    rp = os.path.relpath(fn, tree)
+    return None if rp.startswith('..'+os.path.sep) else rp
 
 real_out = memoize(lambda: os.path.realpath(settings_root.out))
 def clean_files(fns, settings):
@@ -835,7 +842,7 @@ def clean_files(fns, settings):
         if not os.path.exists(fn) or os.path.isdir(fn):
             continue
         real_fn = os.path.realpath(fn)
-        if not settings.allow_autoclean_outside_out and not within_dirtree(ro, real_fn) and real_fn not in safe_to_clean:
+        if not settings.allow_autoclean_outside_out and not relpath_if_within(ro, real_fn) and real_fn not in safe_to_clean:
             log("* Would clean %r as previous build leftover, but it isn't in settings.out (%r) so keeping it for safety.\n" % (fn, ro))
             continue
         log('Removing %r\n' % (fn,))
@@ -845,7 +852,7 @@ def plan_clean_target(fns, settings):
     actions = []
     for fn in fns:
         real_fn = os.path.realpath(fn)
-        if not settings.allow_autoclean_outside_out and not within_dirtree(ro, real_fn) and real_fn not in safe_to_clean:
+        if not settings.allow_autoclean_outside_out and not relpath_if_within(ro, real_fn) and real_fn not in safe_to_clean:
             actions.append(('log', "* Would clean %r, but it isn't in settings.out (%r) so keeping it for safety." % (fn, ro)))
             continue
         actions.append(('remove', fn))
@@ -860,7 +867,7 @@ def list_mconfig_scripts(settings):
     real_src = os.path.realpath(settings.src)
     res = []
     for mod in sys.modules.values():
-        if hasattr(mod, '__file__') and within_dirtree(real_src, os.path.realpath(mod.__file__)):
+        if hasattr(mod, '__file__') and relpath_if_within(real_src, os.path.realpath(mod.__file__)):
             if is_py3:
                 fn = mod.__loader__.path
             else:
@@ -875,6 +882,7 @@ def list_mconfig_scripts(settings):
     return res
 
 def write_file_loudly(fn, data, perm=None):
+    fn = relpath_if_within(os.getcwd(), fn) or fn
     log('Writing %s\n' % (fn,))
     with open(fn, 'w') as fp:
         fp.write(data)
@@ -887,6 +895,7 @@ def write_file_loudly(fn, data, perm=None):
 class Emitter(object):
     def __init__(self, settings):
         self.settings = settings
+        self.distclean_paths = self.default_distclean_paths()
         self.all_outs = set()
     def pre_output(self):
         assert not hasattr(self, 'did_output')
@@ -919,23 +928,39 @@ class Emitter(object):
                     clean_files(outs, settings)
                 cur_rule_hashes.add(sha)
         return self.add_command_raw(outs, ins, argvs, phony, *args, **kwargs)
+
+    def default_distclean_paths(self):
+        return [
+            ['file', 'config.log'],
+            ['file', 'config.status'],
+            ['file', 'build.ninja'],
+            ['file', 'Makefile'],
+            ['dir', self.settings.out],
+        ]
+
     def emit(self, fn=None):
         if fn is None:
             fn = self.settings.emit_fn
         output = self.output()
         write_file_loudly(fn, output)
 
-
+class UnixEmitter(Emitter):
+    def add_unix_distclean(self):
+        argvs = []
+        for kind, path in self.distclean_paths:
+            assert kind in ['file', 'dir']
+            argvs.append(['rm', ('-rf' if kind == 'dir' else '-f'), path])
+        self.add_command_raw(['distclean'], [], argvs, phony=True)
 # In the future it may be desirable to use make variables and nontrivial ninja rules for efficiency.
 
-class MakefileEmitter(Emitter):
+class MakefileEmitter(UnixEmitter):
     def __init__(self, settings):
         Emitter.__init__(self, settings)
         self.banner = '# Generated by mconfig.py'
         self.makefile_bits = [self.banner]
         self.main_mk = settings.get('main_mk')
         if self.main_mk is None:
-            self.main_mk = lambda: os.path.join(dirname(settings.emit_fn), 'main.mk')
+            self.main_mk = lambda: os.path.join(settings.out, 'main.mk')
 
     def add_all(self):
         if hasattr(self, 'default_rule'):
@@ -952,6 +977,7 @@ class MakefileEmitter(Emitter):
             elif a == 'remove':
                 argvs.append(['rm', '-f', b])
         self.add_command_raw(['clean'], [], argvs, phony=True)
+        self.add_unix_distclean()
 
     @staticmethod
     def filename_escape(fn):
@@ -988,6 +1014,7 @@ class MakefileEmitter(Emitter):
         makefile = self.settings.emit_fn
         if self.settings.auto_rerun_config:
             main_mk = self.main_mk()
+            makedirs(os.path.dirname(main_mk))
             cs_argvs = [['echo', 'Running config.status...'], ['./config.status']]
             self.add_command_raw([makefile], list_mconfig_scripts(self.settings), cs_argvs)
             Emitter.emit(self, main_mk)
@@ -1014,7 +1041,7 @@ endif
     def default_outfile(self):
         return 'Makefile'
 
-class NinjaEmitter(Emitter):
+class NinjaEmitter(UnixEmitter):
     def __init__(self, settings):
         Emitter.__init__(self, settings)
         self.ninja_bits = []
@@ -1076,6 +1103,8 @@ class NinjaEmitter(Emitter):
         if self.settings.auto_rerun_config:
             self.add_configstatus_rule()
         self.add_default()
+        self.add_command_raw(['clean'], [], [['ninja', '-t', 'clean']], phony=True)
+        self.add_unix_distclean()
         return '\n'.join(self.ninja_bits)
 
     def default_outfile(self):
@@ -1091,7 +1120,7 @@ def add_emitter_option():
         '--generate',
         'The type of build script to generate.  Options: %s (default makefile)' % (', '.join(emitters.keys()),),
         on_set_generate, default='makefile', section=output_section)
-    settings_root.add_setting_option('emit_fn', '--outfile', 'Output file.  Default: depends on type', section=output_section, default=lambda: settings_root.emitter.default_outfile())
+    settings_root.add_setting_option('emit_fn', '--outfile', 'Output file.  Default: Makefile, build.ninja, etc.', section=output_section, default=lambda: settings_root.emitter.default_outfile())
 
 def config_status():
     return '#!/bin/sh\n' + argv_to_shell([sys.executable] + sys.argv) + '\n'
@@ -1134,6 +1163,21 @@ def default_is_cxx(filename):
     root, ext = os.path.splitext(filename)
     return ext in ('cc', 'cpp', 'cxx', 'mm')
 
+
+def get_cflags(mach_settings, is_cxx):
+    return (mach_settings.app_cppflags +
+        (mach_settings.app_cxxflags if is_cxx else mach_settings.app_cflags) +
+        mach_settings.cppflags +
+        (mach_settings.cxxflags if is_cxx else mach_settings.cflags))
+def get_cc_cmd(my_settings, mach_settings, tools, fn, extra_cflags=[]):
+    is_cxx = get_else_and(my_settings, 'override_is_cxx', lambda: default_is_cxx(fn))
+    include_args = ['-I'+expand(inc, my_settings) for inc in my_settings.c_includes]
+    dbg = ['-g'] if my_settings.enable_debug_info else []
+    werror = ['-Werror'] if my_settings.enable_werror else []
+    cflags = expand_argv(get_else_and(my_settings, 'override_cflags', lambda: get_cflags(mach_settings, is_cxx)), my_settings)
+    cc = expand_argv(get_else_and(my_settings, 'override_cc', lambda: (tools.cxx if is_cxx else tools.cc).argv()), my_settings)
+    return (cc + dbg + werror + include_args + cflags + extra_cflags, is_cxx)
+
 # emitter:      the emitter to add rules to
 # machine:      machine
 # settings:     settings object; will inspect {c,cxx,cpp,ld}flags
@@ -1152,18 +1196,21 @@ def default_is_cxx(filename):
 #                 extra_deps: dependencies
 # force_cli:    don't use IDEs' native C/C++ compilation mechanism
 # expand:       call expand on filenames
-def build_c_objs(emitter, machine, settings, sources, headers=[], settings_cb=None, force_cli=False, expand=True):
+# extra_cflags: convenience argument for extra CFLAGS (can also use settings/settings_cb)
+def build_c_objs(emitter, machine, settings, sources, headers=[], settings_cb=None, force_cli=False, expand=True, extra_cflags=[]):
     tools = machine.c_tools()
     any_was_cxx = False
     obj_fns = []
     ldflag_sets = set()
+    my_settings = settings
     if expand:
-        _expand = lambda x: globals()['expand'](x, settings)
-        _expand_argv = lambda x: expand_argv(x, settings)
+        _expand = lambda x: globals()['expand'](x, my_settings)
+        _expand_argv = lambda x: expand_argv(x, my_settings)
     else:
         _expand = _expand_argv = lambda x: x
     env = {} # todo: ...
     headers = list(map(_expand, headers))
+    extra_cflags = _expand_argv(extra_cflags)
     for fn in map(_expand, sources):
         my_settings = settings
         if settings_cb is not None:
@@ -1171,13 +1218,9 @@ def build_c_objs(emitter, machine, settings, sources, headers=[], settings_cb=No
             if s is not None:
                 my_settings = s
         obj_fn = get_else_and(my_settings, 'override_obj_fn', lambda: guess_obj_fn(fn, settings), _expand)
-        is_cxx = get_else_and(my_settings, 'override_is_cxx', lambda: default_is_cxx(fn))
-        include_args = ['-I'+_expand(inc) for inc in my_settings.c_includes]
         mach_settings = my_settings[machine.name]
-        dbg = ['-g'] if mach_settings.debug_info else []
-        cflags = _expand_argv(get_else_and(my_settings, 'override_cflags', lambda: mach_settings.cppflags + (mach_settings.cxxflags if is_cxx else mach_settings.cflags)))
-        cc = _expand_argv(get_else_and(my_settings, 'override_cc', lambda: (tools.cxx if is_cxx else tools.cc).argv()))
         extra_deps = list(map(_expand, my_settings.get('extra_compile_deps', [])))
+        cmd, is_cxx = get_cc_cmd(my_settings, mach_settings, tools, fn, extra_cflags)
         any_was_cxx = any_was_cxx or is_cxx
         dep_fn = os.path.splitext(obj_fn)[0] + '.d'
 
@@ -1187,7 +1230,7 @@ def build_c_objs(emitter, machine, settings, sources, headers=[], settings_cb=No
         if fn.startswith('/'):
             fn = emitter.filename_rel(fn)
 
-        cmd = cc + dbg + include_args + cflags + ['-c', '-o', obj_fn, '-MMD', '-MF', dep_fn, fn]
+        cmd += ['-c', '-o', obj_fn, '-MMD', '-MF', dep_fn, fn]
 
         env = {
             'outs': [obj_fn],
@@ -1224,9 +1267,11 @@ def link_c_objs(emitter, machine, settings, link_type, link_out, objs, link_with
         else:
             typeflag = []
         mach_settings = settings[machine.name]
-        ldflags = get_else_and(settings, 'override_ldflags', lambda: mach_settings.ldflags, _expand_argv)
+        ldflags = get_else_and(settings, 'override_ldflags', lambda:
+            mach_settings.app_ldflags + mach_settings.ldflags,
+            _expand_argv)
         cmds = [cc_for_link + typeflag + ['-o', link_out] + objs + ldflags_from_sets + ldflags]
-        if machine.is_darwin() and mach_settings.debug_info:
+        if machine.is_darwin() and settings.enable_debug_info:
             cmds.append(tools.dsymutil.argv() + [link_out])
     elif link_type == 'staticlib':
         cmds = [tools.ar.argv() + ['rcs'] + objs]
@@ -1242,10 +1287,21 @@ def link_c_objs(emitter, machine, settings, link_type, link_out, objs, link_with
         mce(env)
     emitter.add_command(settings, env['outs'], env['ins'], env['cmds'], expand=False, mkdirs=True)
 
-def build_and_link_c_objs(emitter, machine, settings, link_type, link_out, sources, headers=[], objs=[], settings_cb=None, force_cli=False, expand=True, extra_deps=[], extra_ldflags=[]):
-    more_objs, link_with_cxx, ldflag_sets = build_c_objs(emitter, machine, settings, sources, headers, settings_cb, force_cli, expand)
+def build_and_link_c_objs(emitter, machine, settings, link_type, link_out, sources, headers=[], objs=[], settings_cb=None, force_cli=False, expand=True, extra_deps=[], extra_cflags=[], extra_ldflags=[]):
+    more_objs, link_with_cxx, ldflag_sets = build_c_objs(emitter, machine, settings, sources, headers, settings_cb, force_cli, expand, extra_cflags)
     ldflags_from_sets = [flag for lset in ldflag_sets for flag in lset]
     link_c_objs(emitter, machine, settings, link_type, link_out, objs + more_objs, link_with_cxx, force_cli, expand, ldflags_from_sets)
+
+def will_build_and_link_c(machine, link_types=set(), c=True, cxx=False):
+    c = machine.c_tools()
+    if c:
+        c.cc.required()
+    if cxx:
+        c.cxx.required()
+    if link_types:
+        c.dsymutil.optional()
+    if 'staticlib' in link_types:
+        c.ar.required()
 
 def guess_obj_fn(fn, settings):
     rel = os.path.relpath(fn, settings.src)
@@ -1254,8 +1310,8 @@ def guess_obj_fn(fn, settings):
         return os.path.join(settings.out, rel)
     raise ValueError("can't guess .o filename for %r, as it's not in settings.src" % (fn,))
 
-# -- init code --
 
+# -- init code --
 
 init_config_log()
 
@@ -1290,6 +1346,9 @@ post_parse_args_will_need.append(check_rule_hashes)
 settings_root.auto_rerun_config = True
 
 settings_root.c_includes = []
+
+settings_root.enable_werror_opt = settings_root.add_setting_option('enable_werror', '--enable-werror', 'Turn warnings to errors (default on)', default=True, bool=True, show=False)
+settings_root.enable_debug_info_opt = settings_root.add_setting_option('enable_debug_info', '--enable-debug-info', 'Enable -g', default=False, bool=True, show=False)
 
 emitters = {
     'makefile': MakefileEmitter,

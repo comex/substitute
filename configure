@@ -16,7 +16,6 @@ settings.add_setting_option('enable_tests', '--enable-tests', 'tests!', False, b
 settings.add_setting_option('enable_ios_bootstrap', '--enable-ios-bootstrap', 'default: true if targeting iOS',
     lambda: settings.host_machine().is_ios(),
     bool=True)
-settings.add_setting_option('enable_werror', '--enable-werror', '', False, bool=True)
 settings.add_setting_option('install_name', '--install-name', 'LC_ID_DYLIB',
     lambda: ['/usr/local/lib/libsubstitute.0.dylib', '/usr/lib/libsubstitute.0.dylib'][settings.host_machine().is_ios()])
 
@@ -123,6 +122,7 @@ mconfig.build_and_link_c_objs(
     settings_cb=cb
 )
 #settings.test = 'foo baz'
+emitter.add_command(settings, ['(out)/libsubstitute.0.dylib'], [], ['ln -s libsubstitute.dylib (out)/libsubstitute.0.dylib'])
 
 def o_to_bin(exe):
     bin = os.path.splitext(exe)[0] + '.bin'
