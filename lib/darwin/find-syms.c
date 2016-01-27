@@ -39,7 +39,6 @@ static bool oscf_try_dir(const char *dir, const char *arch,
     if (memcmp(this_dch.uuid, dch->uuid, 16) ||
         this_dch.localSymbolsSize != dch->localSymbolsSize /* just in case */)
         goto fail;
-    s_cur_shared_cache_fd = fd;
     struct dyld_cache_local_symbols_info *lsi = &s_cache_local_symbols_info;
     if (pread(fd, lsi, sizeof(*lsi), dch->localSymbolsOffset) != sizeof(*lsi))
         goto fail;
@@ -64,10 +63,12 @@ static bool oscf_try_dir(const char *dir, const char *arch,
         goto fail;
     }
 
+    s_cur_shared_cache_fd = fd;
     s_cache_local_symbols_entries = lses;
     return true;
 
 fail:
+    memset(lsi, 0, sizeof(*lsi));
     close(fd);
     return false;
 }
@@ -76,6 +77,8 @@ static void open_shared_cache_file_once() {
     s_cur_shared_cache_fd = -1;
     const struct dyld_cache_header *dch = s_cur_shared_cache_hdr;
     if (memcmp(dch->magic, "dyld_v1 ", 8))
+        return;
+    if (dch->localSymbolsSize < sizeof(struct dyld_cache_local_symbols_info))
         return;
     const char *archp = &dch->magic[8];
     while (*archp == ' ')
