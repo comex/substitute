@@ -9,7 +9,7 @@ void execmem_free(void *page);
  * If callback is not NULL, run it on all other threads 'atomically', in the
  * sense that it will be called on any thread which executed any of the old
  * instructions in the write region.
- * Oh, and it might mutate writes (to sort it). */
+ * Oh, and it might mutate 'writes' (to sort it). */
 struct execmem_foreign_write {
     void *dst;
     const void *src;
