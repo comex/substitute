@@ -46,8 +46,6 @@ static void manual_memcpy(void *restrict dest, const void *src, size_t len) {
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-variable"
-#define __MachMsgErrorWithTimeout(_R_)
-#define __MachMsgErrorWithoutTimeout(_R_)
 #include "../generated/manual-mach.inc.h"
 #pragma GCC diagnostic pop
 
