@@ -122,7 +122,7 @@ mconfig.build_and_link_c_objs(
     settings_cb=cb
 )
 #settings.test = 'foo baz'
-emitter.add_command(settings, ['(out)/libsubstitute.0.dylib'], [], ['ln -s libsubstitute.dylib (out)/libsubstitute.0.dylib'])
+emitter.add_command(settings, ['(out)/libsubstitute.0.dylib'], [], ['ln -nfs libsubstitute.dylib (out)/libsubstitute.0.dylib'])
 
 def o_to_bin(exe):
     bin = os.path.splitext(exe)[0] + '.bin'
