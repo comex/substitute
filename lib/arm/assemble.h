@@ -15,6 +15,13 @@ static inline void PUSHone(struct assemble_ctx ctx, int Rt) {
         op32(ctx.codep, 0x052d0004 | Rt << 12 | ctx.cond << 28);
 }
 
+static inline void PUSHmulti(struct assemble_ctx ctx, uint16_t mask) {
+    if (ctx.thumb)
+        op32(ctx.codep, 0x0000e8ad | mask << 16);
+    else
+        op32(ctx.codep, 0x092d0000 | mask | ctx.cond << 28);
+}
+
 static inline void POPone(struct assemble_ctx ctx, int Rt) {
     if (ctx.thumb)
         op32(ctx.codep, 0x0b04f85d | Rt << 28);
