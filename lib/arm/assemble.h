@@ -17,7 +17,7 @@ static inline void PUSHone(struct assemble_ctx ctx, int Rt) {
 
 static inline void PUSHmulti(struct assemble_ctx ctx, uint16_t mask) {
     if (ctx.thumb)
-        op32(ctx.codep, 0x0000e8ad | mask << 16);
+        op32(ctx.codep, 0x0000e92d | mask << 16);
     else
         op32(ctx.codep, 0x092d0000 | mask | ctx.cond << 28);
 }
