@@ -274,7 +274,7 @@ class Option(object):
         if not self.show:
             # If you didn't mention the option in help, you don't get no stinking value.  This is for ignored options only.
             return
-        if value is (False if self.bool else None):
+        if value is None:
             value = self.default
             if callable(value): # Pending
                 value = value()
@@ -388,11 +388,13 @@ def _make_argparse(include_unused, include_env):
                             action='store_true' if opt.bool else 'store',
                             dest=opt.name[2:],
                             help=opt.help,
+                            default=None,
                             **kw)
             if opt.bool and include_unused:
                 ag.add_argument(opt.opposite,
                                 action='store_false',
                                 dest=opt.name[2:],
+                                default=None,
                                 **kw)
     return parser
 
