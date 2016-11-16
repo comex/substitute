@@ -156,8 +156,13 @@ if settings.enable_tests:
         ('transform-dis-cases-arm64.o', 'transform-dis-cases-arm64.S', [], machs[3]),
         ('transform-dis-cases-i386.o', 'transform-dis-cases-i386.S', [], machs[1]),
         ('transform-dis-cases-x86_64.o', 'transform-dis-cases-x86_64.S', [], machs[0]),
+        ('transform-dis-cases-arm.o', 'transform-dis-cases-arm.S', [], machs[2]),
+        ('transform-dis-cases-thumb.o', 'transform-dis-cases-arm.S', ['-DTHUMB'], machs[2]),
     ]:
-        mconfig.build_c_objs(emitter, mach, settings.specialize(override_obj_fn='(out)/'+ofile), ['(src)/test/'+sfile])
+        mconfig.build_c_objs(emitter, mach, settings.specialize(
+            override_obj_fn='(out)/'+ofile,
+            override_cflags=cflags+settings.host.cflags
+        ), ['(src)/test/'+sfile])
         o_to_bin('(out)/'+ofile)
 
     tests = [

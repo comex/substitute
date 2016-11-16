@@ -12,7 +12,8 @@ static struct assemble_ctx tdctx_to_actx(const struct transform_dis_ctx *ctx) {
     }
     return (struct assemble_ctx) {
         ctx->rewritten_ptr_ptr,
-        (uint_tptr) (uintptr_t) ctx->rewritten_ptr_ptr,
+        *ctx->rewritten_ptr_ptr,
+        (uint_tptr) (uintptr_t) *ctx->rewritten_ptr_ptr,
         ctx->arch.pc_low_bit,
         cond
     };
@@ -20,8 +21,7 @@ static struct assemble_ctx tdctx_to_actx(const struct transform_dis_ctx *ctx) {
 }
 
 static int invert_arm_cond(int cc) {
-    if (cc >= 0xe)
-        __builtin_abort();
+    substitute_assert(cc < 0xe);
     return cc ^ 1;
 }
 
@@ -152,9 +152,10 @@ void transform_dis_pcrel(struct transform_dis_ctx *ctx, uint_tptr dpc,
 static NOINLINE UNUSED
 void transform_dis_branch(struct transform_dis_ctx *ctx, uint_tptr dpc, int cc) {
 #ifdef TRANSFORM_DIS_VERBOSE
-    printf("transform_dis (0x%llx): branch => 0x%llx\n",
+    printf("transform_dis (0x%llx): branch => 0x%llx cc=%x\n",
            (unsigned long long) ctx->base.pc,
-           (unsigned long long) dpc);
+           (unsigned long long) dpc,
+           cc);
 #endif
     /* The check in transform_dis_branch_top is correct under the simplifying
      * assumption here that functions will not try to branch into the middle of
@@ -164,18 +165,23 @@ void transform_dis_branch(struct transform_dis_ctx *ctx, uint_tptr dpc, int cc) 
     transform_dis_branch_top(ctx, dpc, cc);
     struct assemble_ctx actx = tdctx_to_actx(ctx);
     ctx->write_newop_here = NULL;
+    int replacement_size = 8 + (actx.thumb ? 2 : 4);
     if ((cc & CC_ARMCC) == CC_ARMCC) {
+        replacement_size += actx.thumb ? 2 : 4;
         actx.cond = invert_arm_cond(cc & 0xf);
-        Bccrel(actx, 2+8);
+        Bccrel(actx, replacement_size);
     } else if ((cc & CC_CBXZ) == CC_CBXZ) {
+        replacement_size += 2;
         ctx->base.modify = true;
-        ctx->base.newval[0] = ctx->base.pc + 2+8;
+        ctx->base.newval[0] = actx.pc_of_code_base + replacement_size;
         ctx->base.newval[1] = 1; /* do invert */
         void **codep = ctx->rewritten_ptr_ptr;
         ctx->write_newop_here = *codep; *codep += 2;
     }
     actx.cond = 0xe;
-    LDR_PC(actx, dpc | ctx->arch.pc_low_bit);
+    MOVW_MOVT(actx, 14, dpc | ctx->arch.pc_low_bit);
+    BLXr(actx, 14);
+    substitute_assert(*actx.codep - actx.code_base == replacement_size);
 }
 
 static void transform_dis_pre_dis(struct transform_dis_ctx *ctx) {
@@ -193,6 +199,7 @@ static void transform_dis_pre_dis(struct transform_dis_ctx *ctx) {
 static void transform_dis_post_dis(struct transform_dis_ctx *ctx) {
     if (ctx->arch.bccrel_p) {
         struct assemble_ctx actx = {&ctx->arch.bccrel_p,
+                                    ctx->arch.bccrel_p,
                                     (uint_tptr) (uintptr_t) ctx->arch.bccrel_p,
                                     /*thumb*/ true,
                                     ctx->arch.bccrel_bits};

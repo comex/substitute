@@ -127,7 +127,7 @@ static void do_auto(uint8_t *in, size_t in_size, struct arch_dis_ctx arch) {
             pc_trampoline,
             &arch,
             offsets,
-            TRANSFORM_DIS_BAN_CALLS);
+            0);//TRANSFORM_DIS_BAN_CALLS);
         if (ret) {
             if (expect_err) {
                 printf("OK\n");

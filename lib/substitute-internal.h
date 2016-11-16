@@ -109,3 +109,7 @@ static const char *xbasename(const char *path) {
     return slash ? slash + 1 : path;
 }
 
+#define substitute_assert(x) do { \
+    if (!(x)) { __builtin_abort(); } \
+} while(0)
+

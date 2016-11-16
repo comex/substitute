@@ -164,7 +164,7 @@ static INLINE void P(adrlabel_label_unk_Rd_1_ADR)(tdis_ctx ctx, struct bitslice 
 }
 static INLINE void P(br_target_target_pred_p_B_1_Bcc)(tdis_ctx ctx, struct bitslice target, struct bitslice p) {
     unsigned p_val = bs_get(p, ctx->base.op);
-    return P(branch)(ctx, ctx->base.pc + 8 + sext(bs_get(target, ctx->base.op), 24),
+    return P(branch)(ctx, ctx->base.pc + 8 + 4 * sext(bs_get(target, ctx->base.op), 24),
                      p_val == 0xe ? 0 : (CC_ARMCC | p_val));
 }
 static INLINE void P(ldst_so_reg_addr_unk_Rt_2_LDRB_PRE_REG)(tdis_ctx ctx, struct bitslice addr, struct bitslice Rt) {
@@ -210,8 +210,9 @@ static INLINE void P(GPR_func_3_BLX)(tdis_ctx ctx, UNUSED struct bitslice func) 
     return P(indirect_call)(ctx);
 }
 static INLINE void P(bl_target_func_2_BL)(tdis_ctx ctx, struct bitslice func) {
-    return P(branch)(ctx, ctx->base.pc + 8 + sext(bs_get(func, ctx->base.op), 24),
-                     CC_CALL);
+    unsigned p_val = ctx->base.op >> 28; // XXX fix this to actually be an op
+    return P(branch)(ctx, ctx->base.pc + 8 + 4 * sext(bs_get(func, ctx->base.op), 24),
+                     CC_CALL | (p_val == 0xe ? 0 : (CC_ARMCC | p_val)));
 }
 
 static INLINE void P(dis_arm)(tdis_ctx ctx) {

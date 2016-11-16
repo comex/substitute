@@ -3,10 +3,15 @@
 
 struct assemble_ctx {
     void **codep;
-    uint_tptr pc;
+    void *code_base;
+    uint_tptr pc_of_code_base;
     bool thumb;
     int cond;
 };
+
+static inline uint_tptr actx_pc(struct assemble_ctx ctx) {
+    return ctx.pc_of_code_base + (*ctx.codep - ctx.code_base);
+}
 
 static inline void PUSHone(struct assemble_ctx ctx, int Rt) {
     if (ctx.thumb)
@@ -63,7 +68,7 @@ static inline void LDRxi(struct assemble_ctx ctx, int Rt, int Rn, uint32_t off,
             case PLM_U16: subop = 1; sign = 0; break;
             case PLM_S16: subop = 1; sign = 1; break;
             case PLM_U32: subop = 2; sign = 0; break;
-            default: __builtin_abort();
+            default: substitute_assert(false);
         }
         op32(ctx.codep, 0x0000f890 | Rn | Rt << 28 | subop << 5 | sign << 8 |
                         off << 16);
@@ -85,9 +90,16 @@ static inline void LDRxi(struct assemble_ctx ctx, int Rt, int Rn, uint32_t off,
                                 ctx.cond << 28);
                 break;
             default:
-                __builtin_abort();
+                substitute_assert(false);
         }
     }
+}
+
+static inline void BLXr(struct assemble_ctx ctx, int Rm) {
+    if (ctx.thumb)
+        op16(ctx.codep, 0x4780 | Rm << 3);
+    else
+        op32(ctx.codep, 0xe12fff30 | Rm | ctx.cond << 28);
 }
 
 static inline void Bccrel(struct assemble_ctx ctx, int offset) {
@@ -101,7 +113,7 @@ static inline void Bccrel(struct assemble_ctx ctx, int offset) {
 }
 
 static inline void LDR_PC(struct assemble_ctx ctx, uint32_t dpc) {
-    if (ctx.pc & 2)
+    if (actx_pc(ctx) & 2)
         op16(ctx.codep, 0xbf00);
     if (ctx.thumb)
         op32(ctx.codep, 0xf000f8df);

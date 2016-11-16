@@ -1,6 +1,4 @@
-#define GIVEN .ascii "GIVEN";
-#define EXPECT .ascii "EXPECT";
-#define EXPECT_ERR .ascii "EXPECT_ERR";
+#include "transform-dis-cases.h"
 
 /* yay clang, no semicolons allowed */
 
@@ -12,7 +10,10 @@ EXPECT
 GIVEN
     blr x5
     nop
-EXPECT_ERR
+//EXPECT_ERR (with ban_calls)
+EXPECT
+    blr x5
+
 
 GIVEN
     cbnz x8, .+0x100
