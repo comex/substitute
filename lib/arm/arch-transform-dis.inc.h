@@ -174,8 +174,16 @@ void transform_dis_branch(struct transform_dis_ctx *ctx, uint_tptr dpc, int cc) 
         void **codep = ctx->rewritten_ptr_ptr;
         ctx->write_newop_here = *codep; *codep += 2;
     }
+    /* If it's a call, we should jump back after the call */
     actx.cond = 0xe;
-    LDR_PC(actx, dpc | ctx->arch.pc_low_bit);
+    if ((cc & CC_CALL)) {
+        PUSHmulti(actx, 1 << 7 | 1 << 14); // save lr, r7 (for stack alignment, chosen arbitary)
+        ADD_PC(actx, 14, actx.thumb ? (actx.pc & 2 ? 12 : 8) | 1 : 4);
+        LDR_PC(actx, dpc | ctx->arch.pc_low_bit);
+        POPmulti(actx, 1 << 7 | 1 << 14); // restore lr, r7 (for stack alignment)
+    } else {
+        LDR_PC(actx, dpc | ctx->arch.pc_low_bit);
+    }
 }
 
 static void transform_dis_pre_dis(struct transform_dis_ctx *ctx) {
