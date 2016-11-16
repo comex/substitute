@@ -9,11 +9,11 @@ bool read_leb128(void **ptr, void *end, bool is_signed, uint64_t *out) {
             return false;
         bit = *p++;
         uint64_t k = bit & 0x7f;
-        if (shift < sizeof(uint64_t) * 8)
+        if (shift < 64)
             result |= k << shift;
         shift += 7;
     } while (bit & 0x80);
-    if (is_signed && (bit & 0x40))
+    if (is_signed && (bit & 0x40) && shift < 64)
         result |= ~((uint64_t) 0) << shift;
     *ptr = p;
     if (out)
