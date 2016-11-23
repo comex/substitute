@@ -62,4 +62,4 @@ static inline void advance_it_cond(struct arch_dis_ctx *ctx) {
  * to keep going */
 #define CC_ALREADY_IN_IT (CC_CONDITIONAL | 0x800)
 /* CBZ/CBNZ is rewritten */
-#define CC_CBXZ          (CC_CONDITIONAL | 0xc00)
+#define CC_CBXZ          (CC_CONDITIONAL | 0x1000)

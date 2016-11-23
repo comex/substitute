@@ -1,5 +1,6 @@
 /* TODO fix BL incl MOV LR, PC */
 #include "arm/assemble.h"
+#include "arm/jump-patch.h"
 
 static struct assemble_ctx tdctx_to_actx(const struct transform_dis_ctx *ctx) {
     int cond;
@@ -13,7 +14,7 @@ static struct assemble_ctx tdctx_to_actx(const struct transform_dis_ctx *ctx) {
     return (struct assemble_ctx) {
         ctx->rewritten_ptr_ptr,
         *ctx->rewritten_ptr_ptr,
-        (uint_tptr) (uintptr_t) *ctx->rewritten_ptr_ptr,
+        ctx->base.pc,
         ctx->arch.pc_low_bit,
         cond
     };
@@ -165,22 +166,41 @@ void transform_dis_branch(struct transform_dis_ctx *ctx, uint_tptr dpc, int cc) 
     transform_dis_branch_top(ctx, dpc, cc);
     struct assemble_ctx actx = tdctx_to_actx(ctx);
     ctx->write_newop_here = NULL;
-    int replacement_size = 8 + (actx.thumb ? 2 : 4);
+    int replacement_size;
+
+    /* Dry run to get size */
     if ((cc & CC_ARMCC) == CC_ARMCC) {
-        replacement_size += actx.thumb ? 2 : 4;
+        replacement_size = actx.thumb ? 2 : 4;
+    } else if ((cc & CC_CBXZ) == CC_CBXZ) {
+        replacement_size = 2;
+    }
+    if ((cc & CC_CALL) == CC_CALL) {
+        replacement_size += 8 + (actx.thumb ? 2 : 4);
+    } else {
+        replacement_size += jump_patch_size(actx_pc(actx) + replacement_size, dpc, ctx->arch, 0);
+    }
+
+    /* Actual run */
+    if ((cc & CC_ARMCC) == CC_ARMCC) {
         actx.cond = invert_arm_cond(cc & 0xf);
         Bccrel(actx, replacement_size);
     } else if ((cc & CC_CBXZ) == CC_CBXZ) {
-        replacement_size += 2;
         ctx->base.modify = true;
-        ctx->base.newval[0] = actx.pc_of_code_base + replacement_size;
-        ctx->base.newval[1] = 1; /* do invert */
+        ctx->base.newop[0] = actx.pc_of_code_base + replacement_size;
+        ctx->base.newop[1] = 1; /* do invert */
         void **codep = ctx->rewritten_ptr_ptr;
         ctx->write_newop_here = *codep; *codep += 2;
     }
+    
     actx.cond = 0xe;
-    MOVW_MOVT(actx, 14, dpc | ctx->arch.pc_low_bit);
-    BLXr(actx, 14);
+    /* If it's a call, we should jump back after the call */
+    if ((cc & CC_CALL) == CC_CALL) {
+        MOVW_MOVT(actx, 14, dpc | ctx->arch.pc_low_bit);
+        BLXr(actx, 14);
+    } else {
+        // otherwise we can't clobber LR
+        LDR_PC(actx, dpc | ctx->arch.pc_low_bit);
+    }
     substitute_assert(*actx.codep - actx.code_base == replacement_size);
 }
 
