@@ -173,6 +173,8 @@ void transform_dis_branch(struct transform_dis_ctx *ctx, uint_tptr dpc, int cc) 
         replacement_size = actx.thumb ? 2 : 4;
     } else if ((cc & CC_CBXZ) == CC_CBXZ) {
         replacement_size = 2;
+    } else {
+        replacement_size = 0;
     }
     if ((cc & CC_CALL) == CC_CALL) {
         replacement_size += 8 + (actx.thumb ? 2 : 4);
