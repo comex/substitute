@@ -16,7 +16,7 @@ Alpha.  Currently only build tested on Mac, targeting Mac and iOS.
 
 To compile for iOS:
 
-    ./configure --xcode-sdk=iphoneos --enable-ios-bootstrap && make -j8 && ./script/gen-deb.sh
+    ./configure --xcode-sdk=iphoneos --xcode-archs=arm64 && make -j8 && ./script/gen-deb.sh
 
 You may want to turn off IB_VERBOSE in darwin-bootstrap/ib-log.h, which
 currently spams a lot of files to /tmp and spams the syslog.  I will turn it
