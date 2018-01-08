@@ -11,7 +11,21 @@
 #include "substitute-internal.h"
 #include "dyld_cache_format.h"
 
+#ifdef __IPHONE_11_0
+// iOS 11 removes _dyld_get_all_image_infos, so we have to make our own
+
+const struct dyld_all_image_infos *_dyld_get_all_image_infos() {
+    struct task_dyld_info dyld_info;
+    mach_msg_type_number_t count = TASK_DYLD_INFO_COUNT;
+    if (task_info(mach_task_self(), TASK_DYLD_INFO, (task_info_t)&dyld_info, &count) == KERN_SUCCESS) {
+        return (struct dyld_all_image_infos *)dyld_info.all_image_info_addr;
+    } else {
+        abort();
+    }
+}
+#else
 extern const struct dyld_all_image_infos *_dyld_get_all_image_infos();
+#endif
 
 static pthread_once_t dyld_inspect_once = PTHREAD_ONCE_INIT;
 /* and its fruits: */
