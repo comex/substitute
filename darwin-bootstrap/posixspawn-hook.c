@@ -35,6 +35,76 @@
 #include <pthread.h>
 #include <libkern/OSByteOrder.h>
 
+#include <dlfcn.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+#include <spawn.h>
+#include <sys/types.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <sys/sysctl.h>
+#include <dlfcn.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netdb.h>
+#include <pthread.h>
+
+#define JAILBREAKD_COMMAND_ENTITLE_AND_SIGCONT_AFTER_DELAY 4
+struct __attribute__((__packed__)) JAILBREAKD_ENTITLE_PID_AND_SIGCONT {
+    uint8_t Command;
+    int32_t PID;
+};
+
+void calljailbreakd(pid_t PID){
+#define BUFSIZE 1024
+    
+    int sockfd, portno, n;
+    int serverlen;
+    struct sockaddr_in serveraddr;
+    struct hostent *server;
+    char *hostname;
+    char buf[BUFSIZE];
+    
+    hostname = "127.0.0.1";
+    portno = 5;
+    
+    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0)
+        printf("ERROR opening socket\n");
+    
+    /* gethostbyname: get the server's DNS entry */
+    server = gethostbyname(hostname);
+    if (server == NULL) {
+        fprintf(stderr,"ERROR, no such host as %s\n", hostname);
+        exit(0);
+    }
+    
+    /* build the server's Internet address */
+    bzero((char *) &serveraddr, sizeof(serveraddr));
+    serveraddr.sin_family = AF_INET;
+    bcopy((char *)server->h_addr,
+          (char *)&serveraddr.sin_addr.s_addr, server->h_length);
+    serveraddr.sin_port = htons(portno);
+    
+    /* get a message from the user */
+    bzero(buf, BUFSIZE);
+    
+    struct JAILBREAKD_ENTITLE_PID_AND_SIGCONT entitlePacket;
+    entitlePacket.Command = JAILBREAKD_COMMAND_ENTITLE_AND_SIGCONT_AFTER_DELAY;
+    entitlePacket.PID = PID;
+    
+    memcpy(buf, &entitlePacket, sizeof(struct JAILBREAKD_ENTITLE_PID_AND_SIGCONT));
+    
+    serverlen = sizeof(serveraddr);
+    n = sendto(sockfd, buf, sizeof(struct JAILBREAKD_ENTITLE_PID_AND_SIGCONT), 0, (const struct sockaddr *)&serveraddr, serverlen);
+    if (n < 0)
+        printf("Error in sendto\n");
+}
+
+
 #define _pid_hash(pidp) (*(pidp))
 #define _pid_eq(pid1p, pid2p) (*(pid1p) == *(pid2p))
 #define _pid_null(pidp) (!*(pidp))
@@ -368,6 +438,10 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
     }
     if (IB_VERBOSE)
         ib_log("**");
+    if (!g_is_launchd) {
+        ib_log("non-launchd, calling jailbreakd on ourselves");
+        calljailbreakd(getpid());
+    }
     int ret = old(pidp, path, file_actions, &my_attr, argv, envp_to_use);
     if (IB_VERBOSE)
         ib_log("ret=%d pid=%ld", ret, (long) *pidp);
@@ -389,6 +463,8 @@ static int hook_posix_spawn_generic(__typeof__(posix_spawn) *old,
         *old_bundleid = strdup(bundleid);
         pthread_mutex_unlock(&g_state_lock);
     }
+
+    //calljailbreakd(pid);
 
     goto cleanup;
 crap:
