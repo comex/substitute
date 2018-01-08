@@ -19,8 +19,8 @@ settings.add_setting_option('enable_ios_bootstrap', '--enable-ios-bootstrap', 'd
 settings.add_setting_option('install_name', '--install-name', 'LC_ID_DYLIB',
     lambda: ['/usr/local/lib/libsubstitute.0.dylib', '/usr/lib/libsubstitute.0.dylib'][settings.host_machine().is_ios()])
 
-ldid_tool = mconfig.CLITool('ldid', ['ldid'], 'LDID', settings.host_machine(), settings.host_machine().toolchains())
-ldid_tool.optional_nocheck()
+j_tool = mconfig.CLITool('jtool', ['jtool'], 'JTOOL', settings.host_machine(), settings.host_machine().toolchains())
+j_tool.optional_nocheck()
 
 asm_archs = [
     ('x86_64', []),
@@ -75,7 +75,7 @@ settings.host.ldflags = ['-dead_strip'] + settings.host.ldflags
 cc_argv = c.cc.argv()
 if 'armv7' in cc_argv or 'arm64' in cc_argv:
     settings.modify_link = lambda env: (
-        env['cmds'].append(ldid_tool.argv() + ['-S'+settings.src+'/ent.plist', env['outs'][0]]),
+        env['cmds'].append(j_tool.argv() + ['--sign', '--inplace', '--ent', settings.src+'/ent.plist', env['outs'][0]]),
         env['ins'].append(settings.src+'/ent.plist')
     )
 
