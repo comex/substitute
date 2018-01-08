@@ -11,6 +11,6 @@
 	<key>task_for_pid-allow</key>
 	<true/>
 	<key>run-unsigned-code</key>
-	<true>
+	<true/>
 </dict>
 </plist>
