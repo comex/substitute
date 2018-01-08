@@ -129,8 +129,13 @@ static void compression(UIView *view, UILayoutPriority pri) {
         @"returnButton": returnButton,
         @"continueButton": continueButton,
         @"grid": autoGrid,
+#ifdef __IPHONE_11_0
+        @"topGuide": self.view.safeAreaLayoutGuide.topAnchor,
+        @"bottomGuide": self.view.safeAreaLayoutGuide.bottomAnchor,
+#else
         @"topGuide": self.topLayoutGuide,
         @"bottomGuide": self.bottomLayoutGuide,
+#endif
     };
     NSMutableArray *constraints = [[NSMutableArray alloc] init];
     [constraints addObjectsFromArray:
