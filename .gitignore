@@ -1,2 +1,5 @@
 *.swp
 out
+Makefile
+config.log
+config.status
