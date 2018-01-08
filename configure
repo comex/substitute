@@ -65,7 +65,7 @@ if settings.enable_werror:
 # XXX this is a mess and wrong
 flags = ['-O3']
 if settings.host_machine().is_ios():
-    flags.append('-miphoneos-version-min=8.0')
+    flags.append('-miphoneos-version-min=11.0')
 for i in ('cflags', 'ldflags'):
     settings.host[i] = flags + settings.host[i]
 settings.host.cflags = ['-fvisibility=hidden'] + settings.host.cflags
