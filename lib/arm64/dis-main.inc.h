@@ -3,7 +3,9 @@ static INLINE void P(adrlabel_label_unk_Xd_1_ADR)(tdis_ctx ctx, struct bitslice 
                     (struct arch_pcrel_info) {bs_get(Xd, ctx->base.op), PLM_ADR});
 }
 static INLINE void P(adrplabel_label_unk_Xd_1_ADRP)(tdis_ctx ctx, struct bitslice Xd, struct bitslice label) {
-    return P(pcrel)(ctx, ctx->base.pc + (sext(bs_get(label, ctx->base.op), 22) << 12),
+    return P(pcrel)(ctx,
+                    (ctx->base.pc & ~0xfff) +
+                    (sext(bs_get(label, ctx->base.op), 22) << 12),
                     (struct arch_pcrel_info) {bs_get(Xd, ctx->base.op), PLM_ADR});
 }
 static INLINE void P(am_b_target_addr_B_1_B)(tdis_ctx ctx, struct bitslice addr) {
