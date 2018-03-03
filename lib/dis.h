@@ -43,7 +43,7 @@ struct bitslice {
     const struct bitslice_run *runs;
 };
 
-static inline int sext(unsigned val, int bits) {
+static inline uint_tptr sext(unsigned val, int bits) {
     return val & (1 << (bits - 1)) ? ((int)val - (1 << bits)) : (int)val;
 }
 
