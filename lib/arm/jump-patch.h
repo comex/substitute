@@ -14,6 +14,6 @@ static inline int jump_patch_size(uint_tptr pc,
 static inline void make_jump_patch(void **codep, uint_tptr pc,
                                    uint_tptr dpc,
                                    struct arch_dis_ctx arch) {
-    struct assemble_ctx actx = {codep, pc, arch.pc_low_bit, 0xe};
+    struct assemble_ctx actx = {codep, (void *)pc, arch.pc_low_bit, 0xe};
     LDR_PC(actx, dpc);
 }
