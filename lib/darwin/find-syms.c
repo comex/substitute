@@ -11,7 +11,7 @@
 #include "substitute-internal.h"
 #include "dyld_cache_format.h"
 
-extern const struct dyld_all_image_infos *_dyld_get_all_image_infos();
+extern struct dyld_all_image_infos * my_get_all_image_infos();
 
 static pthread_once_t dyld_inspect_once = PTHREAD_ONCE_INIT;
 /* and its fruits: */
@@ -280,7 +280,7 @@ end:
  */
 
 static void inspect_dyld() {
-    const struct dyld_all_image_infos *aii = _dyld_get_all_image_infos();
+    const struct dyld_all_image_infos *aii = my_get_all_image_infos();
     const void *dyld_hdr = aii->dyldImageLoadAddress;
 
     const char *names[2] = { "__ZNK16ImageLoaderMachO8getSlideEv",

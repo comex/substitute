@@ -1,2 +1,7 @@
 *.swp
 out
+.vscode
+Makefile
+*.log
+config.status
+mconfig.pyc

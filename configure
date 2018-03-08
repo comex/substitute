@@ -110,6 +110,7 @@ mconfig.build_and_link_c_objs(
         '(src)/lib/darwin/interpose.c',
         '(src)/lib/darwin/objc-asm.S',
         '(src)/lib/darwin/objc.c',
+        '(src)/lib/darwin/macho.c',
         '(src)/lib/darwin/read.c',
         '(src)/lib/darwin/substrate-compat.c',
         '(src)/lib/darwin/execmem.c',
