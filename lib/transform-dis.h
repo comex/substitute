@@ -4,6 +4,7 @@
 #include "dis.h"
 
 #define TRANSFORM_DIS_BAN_CALLS 1
+#define TRANSFORM_DIS_REL_JUMPS 2
 
 int transform_dis_main(const void *restrict code_ptr,
                        void **restrict rewritten_ptr_ptr,

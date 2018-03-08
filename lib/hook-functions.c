@@ -138,6 +138,7 @@ int substitute_hook_functions(const struct substitute_function_hook *hooks,
     bool thread_safe = !(options & SUBSTITUTE_NO_THREAD_SAFETY);
     if (thread_safe && !pthread_main_np())
         return SUBSTITUTE_ERR_NOT_ON_MAIN_THREAD;
+    bool relaxed = !!(options & SUBSTITUTE_RELAXED);
 
     if (recordp)
         *recordp = NULL;
@@ -224,7 +225,8 @@ int substitute_hook_functions(const struct substitute_function_hook *hooks,
         if ((ret = transform_dis_main(code, &trampoline_ptr, pc_patch_start,
                                       &pc_patch_end, (uintptr_t) trampoline_ptr,
                                       &arch, hi->offset_by_pcdiff,
-                                      thread_safe ? TRANSFORM_DIS_BAN_CALLS : 0)))
+                                      (thread_safe ? TRANSFORM_DIS_BAN_CALLS : 0) | 
+                                      (relaxed ? 0 : TRANSFORM_DIS_REL_JUMPS))))
             goto end;
 
         uintptr_t dpc = pc_patch_end;

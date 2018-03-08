@@ -24,6 +24,7 @@ struct transform_dis_ctx {
     bool force_keep_transforming;
 
     bool ban_calls; /* i.e. trying to be thread safe */
+    bool ban_jumps; /* allow transforming rel branches at beginning */
 
     void **rewritten_ptr_ptr;
     void *write_newop_here;
@@ -78,7 +79,7 @@ static void transform_dis_branch_top(struct transform_dis_ctx *ctx,
     }
     if (cc & CC_CALL) {
         transform_dis_indirect_call(ctx);
-    } else {
+    } else if (ctx->ban_jumps) {
         transform_dis_ret(ctx);
     }
 }
@@ -102,6 +103,7 @@ int transform_dis_main(const void *restrict code_ptr,
     ctx.base.pc = pc_patch_start;
     ctx.arch = *arch_ctx_p;
     ctx.ban_calls = options & TRANSFORM_DIS_BAN_CALLS;
+    ctx.ban_jumps = options & TRANSFORM_DIS_REL_JUMPS;
     /* data is written to rewritten both by this function directly and, in case
      * additional scaffolding is needed, by arch-specific transform_dis_* */
     ctx.rewritten_ptr_ptr = rewritten_ptr_ptr;
