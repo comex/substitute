@@ -20,7 +20,6 @@ const struct dyld_all_image_infos *__dyld_get_all_image_infos() {
         abort();
     }
 }
-extern const struct dyld_all_image_infos *_dyld_get_all_image_infos() __attribute__((weak_import));
 const struct dyld_all_image_infos *(*dyld_get_all_image_infos)();
 
 static pthread_once_t dyld_inspect_once = PTHREAD_ONCE_INIT;
@@ -368,11 +367,12 @@ int substitute_find_private_syms(struct substitute_image *im,
 
 __attribute__((constructor))
 void init(void) {
-  if (_dyld_get_all_image_infos != NULL) {
-    fprintf(stderr, "_dyld_get_all_image_infos present\n");
-    dyld_get_all_image_infos = _dyld_get_all_image_infos;
-  } else {
-    dyld_get_all_image_infos = __dyld_get_all_image_infos;
-  }
+    void *lib = dlopen("/usr/lib/system/libdyld.dylib", RTLD_LAZY);
+    if (lib != NULL)
+        dyld_get_all_image_infos = dlsym(lib, "_dyld_get_all_image_infos");
+
+    if (dyld_get_all_image_infos == NULL) {
+        dyld_get_all_image_infos = __dyld_get_all_image_infos;
+    }
 }
 #endif /* __APPLE__ */
