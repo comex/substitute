@@ -28,7 +28,7 @@ static inline void arch_dis_ctx_init(struct arch_dis_ctx *ctx) {
 }
 
 static inline int arm64_get_unwritten_temp_reg(struct arch_dis_ctx *ctx) {
-    uint32_t avail = ~ctx->regs_possibly_written & ((1 << 19) - (1 << 9));
+    uint32_t avail = ~ctx->regs_possibly_written & ((1 << 18) - (1 << 9));
     if (!avail)
         __builtin_abort();
     return 31 - __builtin_clz(avail);

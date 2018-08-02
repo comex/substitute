@@ -11,12 +11,27 @@
 #include "substitute-internal.h"
 #include "dyld_cache_format.h"
 
-extern const struct dyld_all_image_infos *_dyld_get_all_image_infos();
+const struct dyld_all_image_infos *__dyld_get_all_image_infos() {
+    struct task_dyld_info dyld_info;
+    mach_msg_type_number_t count = TASK_DYLD_INFO_COUNT;
+    if (task_info(mach_task_self(), TASK_DYLD_INFO, (task_info_t)&dyld_info, &count) == KERN_SUCCESS) {
+        return (struct dyld_all_image_infos *)dyld_info.all_image_info_addr;
+    } else {
+        abort();
+    }
+}
+extern const struct dyld_all_image_infos *_dyld_get_all_image_infos() __attribute__((weak_import));
+const struct dyld_all_image_infos *(*dyld_get_all_image_infos)();
 
 static pthread_once_t dyld_inspect_once = PTHREAD_ONCE_INIT;
 /* and its fruits: */
 static uintptr_t (*ImageLoaderMachO_getSlide)(void *);
 static const struct mach_header *(*ImageLoaderMachO_machHeader)(void *);
+static bool (*dyld_validImage)(void *);
+uintptr_t (*ImageLoaderMegaDylib_getSlide)(void*);
+void *(*ImageLoaderMegaDylib_getIndexedMachHeader)(void*, unsigned index);
+void *(*ImageLoaderMegaDylib_isCacheHandle)(void*proxy, void* handle, unsigned* index, uint8_t* flags);
+void **dyld_sAllCacheImagesProxy;
 
 static const struct dyld_cache_header *_Atomic s_cur_shared_cache_hdr;
 static int s_cur_shared_cache_fd;
@@ -280,18 +295,26 @@ end:
  */
 
 static void inspect_dyld() {
-    const struct dyld_all_image_infos *aii = _dyld_get_all_image_infos();
+    const struct dyld_all_image_infos *aii = dyld_get_all_image_infos();
     const void *dyld_hdr = aii->dyldImageLoadAddress;
 
-    const char *names[2] = { "__ZNK16ImageLoaderMachO8getSlideEv",
-                             "__ZNK16ImageLoaderMachO10machHeaderEv" };
-    void *syms[2];
+    const char *names[6] = { "__ZNK16ImageLoaderMachO8getSlideEv",
+                             "__ZNK16ImageLoaderMachO10machHeaderEv",
+                             "__ZN4dyldL20sAllCacheImagesProxyE",
+                             "__ZN20ImageLoaderMegaDylib13isCacheHandleEPvPjPh",
+                             "__ZNK20ImageLoaderMegaDylib8getSlideEv",
+                             "__ZNK20ImageLoaderMegaDylib20getIndexedMachHeaderEj" };
+    void *syms[6];
     intptr_t dyld_slide = -1;
-    find_syms_raw(dyld_hdr, &dyld_slide, names, syms, 2);
+    find_syms_raw(dyld_hdr, &dyld_slide, names, syms, 6);
     if (!syms[0] || !syms[1])
         substitute_panic("couldn't find ImageLoader methods\n");
     ImageLoaderMachO_getSlide = syms[0];
     ImageLoaderMachO_machHeader = syms[1];
+    dyld_sAllCacheImagesProxy = syms[2];
+    ImageLoaderMegaDylib_isCacheHandle = syms[3];
+    ImageLoaderMegaDylib_getSlide = syms[4];
+    ImageLoaderMegaDylib_getIndexedMachHeader = syms[5];
 }
 
 /* 'dlhandle' keeps the image alive */
@@ -303,8 +326,20 @@ struct substitute_image *substitute_open_image(const char *filename) {
     if (!dlhandle)
         return NULL;
 
-    const void *image_header = ImageLoaderMachO_machHeader(dlhandle);
-    intptr_t slide = ImageLoaderMachO_getSlide(dlhandle);
+    void* image = (void*)(((uintptr_t)dlhandle) & (-4));
+    unsigned index;
+    uint8_t mode;
+    const void *image_header;
+    intptr_t slide;
+    if (ImageLoaderMegaDylib_isCacheHandle != NULL && ImageLoaderMegaDylib_isCacheHandle(*dyld_sAllCacheImagesProxy, image, &index, &mode)) {
+        if (ImageLoaderMegaDylib_getSlide == NULL || ImageLoaderMegaDylib_getIndexedMachHeader == NULL)
+            substitute_panic("couldn't find ImageLoaderMegaDylib methods\n");
+        slide = ImageLoaderMegaDylib_getSlide(*dyld_sAllCacheImagesProxy);
+        image_header = ImageLoaderMegaDylib_getIndexedMachHeader(*dyld_sAllCacheImagesProxy, index);
+    } else {
+        image_header = ImageLoaderMachO_machHeader(image);
+      slide = ImageLoaderMachO_getSlide(image);
+    }
 
     struct substitute_image *im = malloc(sizeof(*im));
     if (!im)
@@ -330,4 +365,14 @@ int substitute_find_private_syms(struct substitute_image *im,
     return SUBSTITUTE_OK;
 }
 
+
+__attribute__((constructor))
+void init(void) {
+  if (_dyld_get_all_image_infos != NULL) {
+    fprintf(stderr, "_dyld_get_all_image_infos present\n");
+    dyld_get_all_image_infos = _dyld_get_all_image_infos;
+  } else {
+    dyld_get_all_image_infos = __dyld_get_all_image_infos;
+  }
+}
 #endif /* __APPLE__ */
