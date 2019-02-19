@@ -706,9 +706,17 @@ int substitute_dlopen_in_pid(int pid, const char *filename, int options,
         flavor = ARM_THREAD_STATE;
         break;
     case CPU_TYPE_ARM64:
+#if __DARWIN_OPAQUE_ARM_THREAD_STATE64
+        u.a64.__opaque_sp = target_stack_top;
+#else
         u.a64.__sp = target_stack_top;
+#endif
         u.a64.__x[0] = target_stack_top;
+#if __DARWIN_OPAQUE_ARM_THREAD_STATE64
+        u.a64.__opaque_pc = target_code_page + (inject_start_arm64 - inject_page_start);
+#else
         u.a64.__pc = target_code_page + (inject_start_arm64 - inject_page_start);
+#endif
         state_size = sizeof(u.a64);
         flavor = ARM_THREAD_STATE64;
         break;
