@@ -13,7 +13,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 
-extern const struct dyld_all_image_infos *_dyld_get_all_image_infos();
+extern const struct dyld_all_image_infos *dyld_get_all_image_infos();
 
 #define DEFINE_STRUCTS
 
@@ -104,7 +104,7 @@ static int find_foreign_images(mach_port_t task,
      * look up the symbols locally and don't have to do the rest of the
      * syscalls... not sure if this is any faster, but whatever. */
     if (FIELD(version) >= 13) {
-        const struct dyld_all_image_infos *local_aii = _dyld_get_all_image_infos();
+        const struct dyld_all_image_infos *local_aii = dyld_get_all_image_infos();
         if (local_aii->version >= 13 &&
             FIELD(sharedCacheSlide) == local_aii->sharedCacheSlide &&
             !memcmp(FIELD(sharedCacheUUID), local_aii->sharedCacheUUID, 16)) {
